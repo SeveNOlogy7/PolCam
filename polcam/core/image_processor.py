@@ -12,6 +12,7 @@ from typing import List, Tuple
 class ImageProcessor:
     def __init__(self):
         self._wb_gains = np.ones(3)  # RGB通道增益初始值
+        self._brightness_factor = 1.0  # 亮度调节因子
 
     @staticmethod
     def demosaic_polarization(raw_image: np.ndarray) -> List[np.ndarray]:
@@ -93,42 +94,60 @@ class ImageProcessor:
         return dolp, aolp, docp
 
     def auto_white_balance(self, image: np.ndarray) -> np.ndarray:
-        """使用灰度世界算法实现自动白平衡"""
+        """改进的自动白平衡算法"""
         if len(image.shape) != 3:
             return image
             
-        # 分离RGB通道
+        # 分离BGR通道
         b, g, r = cv2.split(image.astype(np.float32))
         
-        # 计算每个通道的平均值
-        b_avg, g_avg, r_avg = np.mean(b), np.mean(g), np.mean(r)
+        # 计算每个通道的均值（排除最亮和最暗的像素）
+        def get_avg(channel):
+            # 排除最亮和最暗的5%像素
+            flat = channel.flatten()
+            sorted_idx = np.argsort(flat)
+            exclude_n = int(len(flat) * 0.05)
+            valid_idx = sorted_idx[exclude_n:-exclude_n]
+            return np.mean(flat[valid_idx])
+            
+        b_avg = get_avg(b)
+        g_avg = get_avg(g)
+        r_avg = get_avg(r)
         
-        # 计算增益系数（以绿色通道为基准）
+        # 使用RGB平均值作为参考（而不是单独使用绿色通道）
+        avg_rgb = (b_avg + g_avg + r_avg) / 3
+        
+        # 计算白平衡增益
         self._wb_gains = np.array([
-            g_avg / b_avg,  # 蓝色通道增益
-            1.0,           # 绿色通道增益
-            g_avg / r_avg  # 红色通道增益
+            avg_rgb / b_avg,  # 蓝色通道增益
+            avg_rgb / g_avg,  # 绿色通道增益
+            avg_rgb / r_avg   # 红色通道增益
         ])
         
-        # 应用白平衡增益
+        # 计算亮度调节因子（目标亮度设为128）
+        target_brightness = 128.0
+        current_brightness = np.mean([b_avg, g_avg, r_avg])
+        self._brightness_factor = min(target_brightness / current_brightness, 2.0)  # 限制最大增益
+        
+        # 应用白平衡和亮度调节
         balanced = cv2.merge([
-            np.clip(b * self._wb_gains[0], 0, 255),
-            np.clip(g * self._wb_gains[1], 0, 255),
-            np.clip(r * self._wb_gains[2], 0, 255)
+            np.clip(b * self._wb_gains[0] * self._brightness_factor, 0, 255),
+            np.clip(g * self._wb_gains[1] * self._brightness_factor, 0, 255),
+            np.clip(r * self._wb_gains[2] * self._brightness_factor, 0, 255)
         ]).astype(np.uint8)
         
         return balanced
 
     def apply_white_balance(self, image: np.ndarray) -> np.ndarray:
-        """使用现有的白平衡系数处理图像"""
+        """应用已有的白平衡和亮度参数"""
         if len(image.shape) != 3:
             return image
             
         b, g, r = cv2.split(image.astype(np.float32))
         balanced = cv2.merge([
-            np.clip(b * self._wb_gains[0], 0, 255),
-            np.clip(g * self._wb_gains[1], 0, 255),
-            np.clip(r * self._wb_gains[2], 0, 255)
+            np.clip(b * self._wb_gains[0] * self._brightness_factor, 0, 255),
+            np.clip(g * self._wb_gains[1] * self._brightness_factor, 0, 255),
+            np.clip(r * self._wb_gains[2] * self._brightness_factor, 0, 255)
         ]).astype(np.uint8)
         
         return balanced

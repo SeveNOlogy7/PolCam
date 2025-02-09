@@ -63,9 +63,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.exposure_auto_changed.connect(self.camera.set_exposure_auto)
         self.camera_control.gain_changed.connect(self.camera.set_gain)
         self.camera_control.gain_auto_changed.connect(self.camera.set_gain_auto)
-        self.camera_control.wb_auto_changed.connect(self.camera.set_balance_white_auto)
+        self.camera_control.wb_auto_changed.connect(self._handle_wb_auto_changed)
         
-        # 添加显示模式变化的信号处理
+        # 添加显示模式变化和白平衡状态变化的信号处理
         self.image_display.display_mode.currentIndexChanged.connect(
             lambda: self.process_and_display_frame(self.current_frame, reprocess=True)
         )
@@ -251,3 +251,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     
         except Exception as e:
             raise Exception(f"图像处理失败: {e}")
+
+    def _handle_wb_auto_changed(self, auto: bool):
+        """处理白平衡状态改变"""
+        # 设置相机白平衡状态
+        self.camera.set_balance_white_auto(auto)
+        
+        # 只在非连续采集模式下触发重新处理
+        if not self.timer.isActive() and self.current_frame is not None:
+            self.process_and_display_frame(self.current_frame, reprocess=True)
