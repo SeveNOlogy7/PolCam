@@ -52,3 +52,29 @@ class ImageProcessor:
         # 计算偏振度
         DOLP = np.sqrt(S1**2 + S2**2) / (S0 + 1e-6)
         return DOLP
+
+    @staticmethod
+    def calculate_polarization_parameters(gray_images: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """计算偏振参数：线偏振度(DoLP)、偏振角(AoLP)和圆偏振度(DoCP)"""
+        I_000, I_045, I_090, I_135 = gray_images
+        
+        # 计算Stokes参数
+        S0 = (I_000 + I_090 + I_045 + I_135) / 2
+        S1 = I_000 - I_090
+        S2 = I_045 - I_135
+        
+        # 避免除零
+        S0 = np.where(S0 == 0, 1e-6, S0)
+        
+        # 计算线偏振度 (DoLP)
+        dolp = np.sqrt(S1**2 + S2**2) / S0
+        
+        # 计算偏振角 (AoLP)，范围 [0, π]
+        aolp = np.arctan2(S2, S1) / 2
+        # 转换到0-180度
+        aolp = np.rad2deg(aolp) + 90
+        
+        # 模拟圆偏振度 (实际需要四分之一波片才能测量)
+        docp = np.zeros_like(dolp)
+        
+        return dolp, aolp, docp

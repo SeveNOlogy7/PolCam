@@ -15,6 +15,8 @@ class Camera:
         self.camera = None
         self.is_streaming = False
         self.logger = logging.getLogger(__name__)
+        self._last_exposure = 10000.0  # 默认曝光时间
+        self._last_gain = 0.0         # 默认增益值
 
     def connect(self, device_index: int = 1) -> tuple[bool, str]:
         try:
@@ -32,6 +34,14 @@ class Camera:
                 trigger_mode.set("Off")
             except Exception as e:
                 self.logger.warning(f"设置触发模式失败: {e}")
+
+            # 获取相机当前参数
+            try:
+                self._last_exposure = self.get_exposure_time()
+                self._last_gain = self.get_gain()
+                self.logger.info(f"读取相机参数: 曝光时间={self._last_exposure}us, 增益={self._last_gain}dB")
+            except Exception as e:
+                self.logger.warning(f"读取相机参数失败: {e}")
 
             return True, ""
         except Exception as e:
@@ -75,9 +85,9 @@ class Camera:
     def set_exposure_time(self, time_us: float):
         if self.camera:
             try:
-                # 确保时间参数为浮点数类型
                 exposure_time = float(time_us)
                 self.remote_feature.get_float_feature("ExposureTime").set(exposure_time)
+                self._last_exposure = exposure_time
             except Exception as e:
                 self.logger.error(f"设置曝光时间失败: {e}")
 
@@ -89,7 +99,11 @@ class Camera:
 
     def set_gain(self, gain: float):
         if self.camera:
-            self.remote_feature.get_float_feature("Gain").set(gain)
+            try:
+                self.remote_feature.get_float_feature("Gain").set(gain)
+                self._last_gain = gain
+            except Exception as e:
+                self.logger.error(f"设置增益失败: {e}")
 
     def set_gain_auto(self, auto: bool):
         if self.camera:
@@ -120,3 +134,11 @@ class Camera:
             except Exception as e:
                 self.logger.error(f"获取增益值失败: {e}")
         return 0.0
+
+    def get_last_exposure(self) -> float:
+        """获取上次的曝光时间"""
+        return self._last_exposure
+
+    def get_last_gain(self) -> float:
+        """获取上次的增益值"""
+        return self._last_gain

@@ -22,8 +22,10 @@ class ImageDisplay(QtWidgets.QWidget):
         self.display_mode = QtWidgets.QComboBox()
         self.display_mode.addItems([
             "原始图像",
-            "单角度彩色",
-            "单角度灰度",
+            "单角度彩色",   # 单偏振角度分量的彩色图像
+            "单角度灰度",   # 单偏振角度分量的灰度图像
+            "彩色图像",     # 全偏振分量合成的彩色图像
+            "灰度图像",     # 全偏振分量合成的灰度图像
             "四角度视图",
             "偏振度图像"
         ])
@@ -112,5 +114,39 @@ class ImageDisplay(QtWidgets.QWidget):
             cv2.putText(canvas, titles[positions.index((y, x))],
                        (x+10, y+30), cv2.FONT_HERSHEY_SIMPLEX,
                        1, (255, 255, 255), 2)
+        
+        self.show_image(canvas)
+
+    def show_polarization_quad_view(self, color_image: np.ndarray, 
+                                  dolp: np.ndarray, aolp: np.ndarray, 
+                                  docp: np.ndarray):
+        """显示偏振分析的四视图"""
+        h, w = color_image.shape[:2]
+        canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
+        
+        # 准备四个显示图像
+        # 1. 彩色图像直接使用
+        # 2. DoLP图像：转为热力图
+        dolp_colored = cv2.applyColorMap((dolp * 255).astype(np.uint8), 
+                                       cv2.COLORMAP_JET)
+        # 3. AoLP图像：使用HSV颜色空间
+        aolp_normalized = (aolp / 180 * 255).astype(np.uint8)
+        aolp_colored = cv2.applyColorMap(aolp_normalized, cv2.COLORMAP_HSV)
+        # 4. DoCP图像：转为热力图
+        docp_colored = cv2.applyColorMap((docp * 255).astype(np.uint8), 
+                                        cv2.COLORMAP_JET)
+        
+        # 排列四张图像
+        images = [color_image, dolp_colored, aolp_colored, docp_colored]
+        positions = [(0, 0), (0, w), (h, 0), (h, w)]
+        titles = ['彩色图像', '线偏振度', '偏振角', '圆偏振度']
+        
+        for img, (y, x), title in zip(images, positions, titles):
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            canvas[y:y+h, x:x+w] = img_rgb
+            
+            # 添加标题
+            cv2.putText(canvas, title, (x+10, y+30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         
         self.show_image(canvas)

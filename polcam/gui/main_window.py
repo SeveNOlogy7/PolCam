@@ -6,6 +6,7 @@ See LICENSE file for full license details.
 
 from qtpy import QtWidgets, QtCore
 import time
+import numpy as np
 from ..core.camera import Camera
 from ..core.image_processor import ImageProcessor
 from .camera_control import CameraControl
@@ -106,11 +107,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status_label.setText("相机已连接")
                 # 获取并显示相机信息
                 self.camera_info.setText("MER2-503-23GC-POL")
-                # 初始化相机参数
+                
+                # 初始化相机参数 - 使用相机当前值
                 self.camera.set_exposure_auto(False)
-                self.camera.set_exposure_time(10000.0)
                 self.camera.set_gain_auto(False)
-                self.camera.set_gain(0.0)
+                
+                # 更新控制面板显示值
+                self.camera_control.update_exposure_value(self.camera.get_last_exposure())
+                self.camera_control.update_gain_value(self.camera.get_last_gain())
             else:
                 # 连接失败，恢复按钮状态和指示器状态
                 self.camera_control.connect_btn.setChecked(False)
@@ -193,41 +197,46 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
     def process_and_display_frame(self, frame, reprocess=False):
-        """
-        处理并显示图像
-        Args:
-            frame: 原始图像帧
-            reprocess: 是否强制重新处理（用于显示模式改变时）
-        """
         if frame is None:
             return
             
         try:
+            is_new_frame = frame is not self.current_frame
             self.current_frame = frame
             mode = self.image_display.display_mode.currentIndex()
             
-            # 根据显示模式选择性处理
             if mode == 0:  # 原始图像
                 self.image_display.show_image(frame)
             else:
-                # 只在需要时进行解码
-                if not hasattr(self, '_color_images') or reprocess:
+                # 在新帧到来或需要重新处理时进行解码
+                if is_new_frame or reprocess or not hasattr(self, '_color_images'):
                     self._color_images, self._gray_images = (
                         self.image_processor.demosaic_polarization(frame)
+                    )
+                    # 计算合成图像
+                    self._color_image = np.mean(self._color_images, axis=0).astype(np.uint8)
+                    self._gray_image = np.mean(self._gray_images, axis=0).astype(np.uint8)
+                    # 计算偏振参数
+                    self._dolp, self._aolp, self._docp = (
+                        self.image_processor.calculate_polarization_parameters(
+                            self._gray_images
+                        )
                     )
                 
                 if mode == 1:  # 单角度彩色
                     self.image_display.show_image(self._color_images[0])
                 elif mode == 2:  # 单角度灰度
                     self.image_display.show_image(self._gray_images[0])
-                elif mode == 3:  # 四角度视图
+                elif mode == 3:  # 彩色图像
+                    self.image_display.show_image(self._color_image)
+                elif mode == 4:  # 灰度图像
+                    self.image_display.show_image(self._gray_image)
+                elif mode == 5:  # 四角度视图
                     self.image_display.show_quad_view(self._color_images)
-                elif mode == 4:  # 偏振度图像
-                    if not hasattr(self, '_dolp') or reprocess:
-                        self._dolp = self.image_processor.calculate_polarization_degree(
-                            self._gray_images
-                        )
-                    self.image_display.show_image(self._dolp)
+                elif mode == 6:  # 偏振分析
+                    self.image_display.show_polarization_quad_view(
+                        self._color_image, self._dolp, self._aolp, self._docp
+                    )
                     
         except Exception as e:
             raise Exception(f"图像处理失败: {e}")
