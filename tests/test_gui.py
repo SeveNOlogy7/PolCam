@@ -27,3 +27,42 @@ def test_image_display(qapp):
     # 测试显示模式
     assert display.display_mode.count() == 5
     assert display.display_mode.currentIndex() == 0
+
+def test_image_display_interaction(qapp):
+    display = ImageDisplay()
+    
+    # 测试切换显示模式
+    display.display_mode.setCurrentIndex(1)
+    expected_modes = ['原始图像', '单角度彩色', '单角度灰度', '四角度视图', '偏振度图像']
+    assert display.display_mode.currentText() in expected_modes
+
+def test_display_mode_items(qapp):
+    display = ImageDisplay()
+    expected_modes = ['原始图像', '单角度彩色', '单角度灰度', '四角度视图', '偏振度图像']
+    
+    # 测试所有显示模式是否存在
+    actual_modes = [display.display_mode.itemText(i) 
+                   for i in range(display.display_mode.count())]
+    assert actual_modes == expected_modes
+    
+    # 测试初始模式
+    assert display.display_mode.currentIndex() == 0
+    assert display.display_mode.currentText() == expected_modes[0]
+
+@pytest.mark.parametrize("button_name", ["capture_btn", "stream_btn"])
+def test_camera_control_buttons(qapp, button_name):
+    control = CameraControl()
+    button = getattr(control, button_name)
+    
+    # 测试按钮状态变化
+    control.set_connected(True)
+    assert button.isEnabled()
+    
+    # 测试点击事件
+    clicked = False
+    def on_click():
+        nonlocal clicked
+        clicked = True
+    button.clicked.connect(on_click)
+    button.click()
+    assert clicked

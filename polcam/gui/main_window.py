@@ -1,14 +1,16 @@
 """
 MIT License
-Copyright (c) 2024 PolCam Contributors
+Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore
+import time
 from ..core.camera import Camera
 from ..core.image_processor import ImageProcessor
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
+from .status_indicator import StatusIndicator
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -19,6 +21,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera = Camera()
         self.image_processor = ImageProcessor()
         self.setup_connections()
+        self.setup_statusbar()
+        self.current_frame = None  # 添加原始帧缓存
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -59,29 +63,106 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.gain_changed.connect(self.camera.set_gain)
         self.camera_control.gain_auto_changed.connect(self.camera.set_gain_auto)
         self.camera_control.wb_auto_changed.connect(self.camera.set_balance_white_auto)
+        
+        # 添加显示模式变化的信号处理
+        self.image_display.display_mode.currentIndexChanged.connect(
+            lambda: self.process_and_display_frame(self.current_frame, reprocess=True)
+        )
+
+    def setup_statusbar(self):
+        # 创建状态栏
+        self.statusBar().setFixedHeight(24)
+        
+        # 添加状态指示灯
+        self.status_indicator = StatusIndicator()
+        self.statusBar().addWidget(self.status_indicator)
+        
+        # 添加分隔线
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.VLine)
+        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.statusBar().addWidget(separator)
+        
+        # 添加状态文本
+        self.status_label = QtWidgets.QLabel("就绪")
+        self.statusBar().addWidget(self.status_label, 1)  # 1表示拉伸因子
+        
+        # 添加相机信息标签
+        self.camera_info = QtWidgets.QLabel()
+        self.statusBar().addPermanentWidget(self.camera_info)  # 添加到右侧
+        
+        # 添加处理时间信息
+        self.time_label = QtWidgets.QLabel()
+        self.statusBar().addPermanentWidget(QtWidgets.QLabel("|"))  # 分隔符
+        self.statusBar().addPermanentWidget(self.time_label)
 
     def handle_connect(self, connect: bool):
         if connect:
-            if self.camera.connect():
+            success, error_msg = self.camera.connect()
+            if success:
                 self.camera_control.set_connected(True)
-                # 初始化相机参数，确保使用浮点数
+                self.status_indicator.setEnabled(True)
+                self.status_indicator.setStatus(True)
+                self.status_label.setText("相机已连接")
+                # 获取并显示相机信息
+                self.camera_info.setText("MER2-503-23GC-POL")
+                # 初始化相机参数
                 self.camera.set_exposure_auto(False)
-                self.camera.set_exposure_time(10000.0)  # 10ms, 使用浮点数
+                self.camera.set_exposure_time(10000.0)
                 self.camera.set_gain_auto(False)
-                self.camera.set_gain(0.0)  # 使用浮点数
+                self.camera.set_gain(0.0)
+            else:
+                # 连接失败，恢复按钮状态和指示器状态
+                self.camera_control.connect_btn.setChecked(False)
+                self.camera_control.set_connected(False)
+                self.status_indicator.setEnabled(False)
+                self.status_indicator.setStatus(False)
+                self.status_label.setText(error_msg)
+                self.camera_info.clear()
         else:
             self.camera.disconnect()
             self.camera_control.set_connected(False)
+            self.status_indicator.setEnabled(False)
+            self.status_indicator.setStatus(False)
+            self.status_label.setText("就绪")
+            self.camera_info.clear()
+
+    def _update_auto_parameters(self):
+        """更新自动参数的显示值"""
+        if self.camera_control.exposure_auto.isChecked():
+            current_exposure = self.camera.get_exposure_time()
+            self.camera_control.update_exposure_value(current_exposure)
+            
+        if self.camera_control.gain_auto.isChecked():
+            current_gain = self.camera.get_gain()
+            self.camera_control.update_gain_value(current_gain)
 
     def handle_capture(self):
         if not self.camera or not hasattr(self.camera, 'camera'):
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
             
+        # 开始计时
+        t_start = time.perf_counter()
+        
         frame = self.camera.get_frame()
         if frame is not None:
+            # 记录采集时间
+            t_capture = time.perf_counter() - t_start
+            
             try:
+                # 图像处理开始计时
+                t_proc_start = time.perf_counter()
                 self.process_and_display_frame(frame)
+                # 记录处理时间
+                t_proc = time.perf_counter() - t_proc_start
+                
+                self._update_auto_parameters()  # 更新自动参数值
+                
+                # 更新状态栏时间信息
+                self.time_label.setText(
+                    f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
+                )
             except Exception as e:
                 QtWidgets.QMessageBox.warning(self, "错误", f"处理图像失败: {e}")
         else:
@@ -96,14 +177,57 @@ class MainWindow(QtWidgets.QMainWindow):
             self.timer.stop()
 
     def update_frame(self):
+        t_start = time.perf_counter()
         frame = self.camera.get_frame()
         if frame is not None:
+            t_capture = time.perf_counter() - t_start
+            t_proc_start = time.perf_counter()
             self.process_and_display_frame(frame)
+            t_proc = time.perf_counter() - t_proc_start
+            
+            self._update_auto_parameters()  # 更新自动参数值
+            
+            # 更新状态栏时间信息
+            self.time_label.setText(
+                f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
+            )
 
-    def process_and_display_frame(self, frame):
+    def process_and_display_frame(self, frame, reprocess=False):
+        """
+        处理并显示图像
+        Args:
+            frame: 原始图像帧
+            reprocess: 是否强制重新处理（用于显示模式改变时）
+        """
+        if frame is None:
+            return
+            
         try:
-            color_images, gray_images = self.image_processor.demosaic_polarization(frame)
-            dolp = self.image_processor.calculate_polarization_degree(gray_images)
-            self.image_display.update_images(frame, color_images, gray_images, dolp)
+            self.current_frame = frame
+            mode = self.image_display.display_mode.currentIndex()
+            
+            # 根据显示模式选择性处理
+            if mode == 0:  # 原始图像
+                self.image_display.show_image(frame)
+            else:
+                # 只在需要时进行解码
+                if not hasattr(self, '_color_images') or reprocess:
+                    self._color_images, self._gray_images = (
+                        self.image_processor.demosaic_polarization(frame)
+                    )
+                
+                if mode == 1:  # 单角度彩色
+                    self.image_display.show_image(self._color_images[0])
+                elif mode == 2:  # 单角度灰度
+                    self.image_display.show_image(self._gray_images[0])
+                elif mode == 3:  # 四角度视图
+                    self.image_display.show_quad_view(self._color_images)
+                elif mode == 4:  # 偏振度图像
+                    if not hasattr(self, '_dolp') or reprocess:
+                        self._dolp = self.image_processor.calculate_polarization_degree(
+                            self._gray_images
+                        )
+                    self.image_display.show_image(self._dolp)
+                    
         except Exception as e:
             raise Exception(f"图像处理失败: {e}")

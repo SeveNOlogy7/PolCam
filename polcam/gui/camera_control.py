@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 PolCam Contributors
+Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
@@ -25,6 +25,9 @@ class CameraControl(QtWidgets.QWidget):
     def setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)  # 设置内边距
+        
+        # 顶部控制区域
+        top_layout = QtWidgets.QHBoxLayout()
         
         # 连接控制
         self.connect_btn = QtWidgets.QPushButton("连接相机")
@@ -91,14 +94,34 @@ class CameraControl(QtWidgets.QWidget):
         
         # 连接参数信号
         self.exposure_spin.valueChanged.connect(lambda v: self.exposure_changed.emit(float(v)))
-        self.exposure_auto.toggled.connect(self.exposure_auto_changed)
+        self.exposure_auto.toggled.connect(self._handle_exposure_auto)
         self.gain_spin.valueChanged.connect(lambda v: self.gain_changed.emit(float(v)))
-        self.gain_auto.toggled.connect(self.gain_auto_changed)
+        self.gain_auto.toggled.connect(self._handle_gain_auto)
         self.wb_auto.toggled.connect(self.wb_auto_changed)
         
-        # 自动参数变化时禁用手动控制
-        self.exposure_auto.toggled.connect(lambda checked: self.exposure_spin.setEnabled(not checked))
-        self.gain_auto.toggled.connect(lambda checked: self.gain_spin.setEnabled(not checked))
+    def _handle_exposure_auto(self, checked: bool):
+        """处理曝光自动模式切换"""
+        self.exposure_spin.setReadOnly(checked)  # 只读而不是禁用
+        self.exposure_spin.setEnabled(True)      # 保持启用状态以显示数值
+        self.exposure_auto_changed.emit(checked)
+        
+    def _handle_gain_auto(self, checked: bool):
+        """处理增益自动模式切换"""
+        self.gain_spin.setReadOnly(checked)      # 只读而不是禁用
+        self.gain_spin.setEnabled(True)          # 保持启用状态以显示数值
+        self.gain_auto_changed.emit(checked)
+        
+    def update_exposure_value(self, value: float):
+        """更新曝光值（不触发信号）"""
+        self.exposure_spin.blockSignals(True)
+        self.exposure_spin.setValue(value)
+        self.exposure_spin.blockSignals(False)
+        
+    def update_gain_value(self, value: float):
+        """更新增益值（不触发信号）"""
+        self.gain_spin.blockSignals(True)
+        self.gain_spin.setValue(value)
+        self.gain_spin.blockSignals(False)
         
     def set_connected(self, connected: bool):
         self.capture_btn.setEnabled(connected)
@@ -108,3 +131,4 @@ class CameraControl(QtWidgets.QWidget):
         self.gain_spin.setEnabled(connected and not self.gain_auto.isChecked())
         self.gain_auto.setEnabled(connected)
         self.wb_auto.setEnabled(connected)
+        self.connect_btn.setText("断开相机" if connected else "连接相机")

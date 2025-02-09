@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 PolCam Contributors
+Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
@@ -52,31 +52,16 @@ class ImageDisplay(QtWidgets.QWidget):
         super().resizeEvent(event)
         self.update_display()
         
-    def update_images(self, raw: np.ndarray, color_images: List[np.ndarray], 
-                     gray_images: List[np.ndarray], dolp: np.ndarray):
-        self.raw = raw
-        self.color_images = color_images
-        self.gray_images = gray_images
-        self.dolp = dolp
-        self.update_display()
-        
     def update_display(self):
-        if not hasattr(self, 'raw'):
+        """显示模式改变时的处理"""
+        if not hasattr(self, 'raw') or self.raw is None:
             return
             
-        mode = self.display_mode.currentIndex()
-        if mode == 0:  # 原始图像
-            self.show_image(self.raw)
-        elif mode == 1:  # 单角度彩色
-            self.show_image(self.color_images[0])
-        elif mode == 2:  # 单角度灰度
-            self.show_image(self.gray_images[0])
-        elif mode == 3:  # 四角度视图
-            self.show_quad_view(self.color_images)
-        elif mode == 4:  # 偏振度图像
-            self.show_image(self.dolp)
-            
+        # 触发主窗口重新处理当前帧
+        self.parent().process_and_display_frame(self.raw, reprocess=True)
+
     def show_image(self, image: np.ndarray):
+        """统一的图像显示接口"""
         try:
             if image is None:
                 return
@@ -111,6 +96,7 @@ class ImageDisplay(QtWidgets.QWidget):
             print(f"图像显示错误: {e}")
         
     def show_quad_view(self, images: List[np.ndarray]):
+        """四角度视图显示接口"""
         h, w = images[0].shape[:2]
         canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
         

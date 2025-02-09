@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 PolCam Contributors
+Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
@@ -16,12 +16,12 @@ class Camera:
         self.is_streaming = False
         self.logger = logging.getLogger(__name__)
 
-    def connect(self, device_index: int = 1) -> bool:
+    def connect(self, device_index: int = 1) -> tuple[bool, str]:
         try:
             dev_num, _ = self.device_manager.update_all_device_list()
             if dev_num == 0:
                 self.logger.error("未找到相机设备")
-                return False
+                return False, "未找到相机设备"
 
             self.camera = self.device_manager.open_device_by_index(device_index)
             self.remote_feature = self.camera.get_remote_device_feature_control()
@@ -33,10 +33,11 @@ class Camera:
             except Exception as e:
                 self.logger.warning(f"设置触发模式失败: {e}")
 
-            return True
+            return True, ""
         except Exception as e:
-            self.logger.error(f"连接相机失败: {e}")
-            return False
+            error_msg = f"连接相机失败: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
 
     def disconnect(self):
         if self.camera:
@@ -101,3 +102,21 @@ class Camera:
             self.remote_feature.get_enum_feature("BalanceWhiteAuto").set(
                 "Continuous" if auto else "Off"
             )
+
+    def get_exposure_time(self) -> float:
+        """获取当前曝光时间"""
+        if self.camera:
+            try:
+                return self.remote_feature.get_float_feature("ExposureTime").get()
+            except Exception as e:
+                self.logger.error(f"获取曝光时间失败: {e}")
+        return 0.0
+
+    def get_gain(self) -> float:
+        """获取当前增益值"""
+        if self.camera:
+            try:
+                return self.remote_feature.get_float_feature("Gain").get()
+            except Exception as e:
+                self.logger.error(f"获取增益值失败: {e}")
+        return 0.0
