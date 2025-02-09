@@ -210,32 +210,43 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 # 在新帧到来或需要重新处理时进行解码
                 if is_new_frame or reprocess or not hasattr(self, '_color_images'):
-                    self._color_images, self._gray_images = (
-                        self.image_processor.demosaic_polarization(frame)
-                    )
-                    # 计算合成图像
-                    self._color_image = np.mean(self._color_images, axis=0).astype(np.uint8)
-                    self._gray_image = np.mean(self._gray_images, axis=0).astype(np.uint8)
-                    # 计算偏振参数
-                    self._dolp, self._aolp, self._docp = (
-                        self.image_processor.calculate_polarization_parameters(
-                            self._gray_images
+                    # 只解码彩色图像
+                    self._color_images = self.image_processor.demosaic_polarization(frame)
+                    
+                    # 应用白平衡处理
+                    if self.camera.is_wb_auto():
+                        # 对第一个角度图像执行自动白平衡以获取增益系数
+                        self._color_images[0] = self.image_processor.auto_white_balance(
+                            self._color_images[0]
                         )
-                    )
+                        # 对其他角度图像应用相同的白平衡系数
+                        for i in range(1, 4):
+                            self._color_images[i] = self.image_processor.apply_white_balance(
+                                self._color_images[i]
+                            )
+                    
+                    # 计算合成彩色图像
+                    self._color_image = np.mean(self._color_images, axis=0).astype(np.uint8)
                 
                 if mode == 1:  # 单角度彩色
                     self.image_display.show_image(self._color_images[0])
                 elif mode == 2:  # 单角度灰度
-                    self.image_display.show_image(self._gray_images[0])
+                    gray = self.image_processor.to_grayscale(self._color_images[0])
+                    self.image_display.show_image(gray)
                 elif mode == 3:  # 彩色图像
                     self.image_display.show_image(self._color_image)
                 elif mode == 4:  # 灰度图像
-                    self.image_display.show_image(self._gray_image)
+                    gray = self.image_processor.to_grayscale(self._color_image)
+                    self.image_display.show_image(gray)
                 elif mode == 5:  # 四角度视图
                     self.image_display.show_quad_view(self._color_images)
                 elif mode == 6:  # 偏振分析
+                    # 仅在需要时计算偏振参数
+                    dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(
+                        self._color_images
+                    )
                     self.image_display.show_polarization_quad_view(
-                        self._color_image, self._dolp, self._aolp, self._docp
+                        self._color_image, dolp, aolp, docp
                     )
                     
         except Exception as e:

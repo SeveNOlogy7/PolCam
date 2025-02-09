@@ -17,6 +17,7 @@ class Camera:
         self.logger = logging.getLogger(__name__)
         self._last_exposure = 10000.0  # 默认曝光时间
         self._last_gain = 0.0         # 默认增益值
+        self._wb_auto = False         # 软件白平衡状态
 
     def connect(self, device_index: int = 1) -> tuple[bool, str]:
         try:
@@ -112,10 +113,21 @@ class Camera:
             )
 
     def set_balance_white_auto(self, auto: bool):
+        """设置白平衡模式，当硬件不支持时使用软件实现"""
         if self.camera:
-            self.remote_feature.get_enum_feature("BalanceWhiteAuto").set(
-                "Continuous" if auto else "Off"
-            )
+            try:
+                # 尝试设置硬件白平衡
+                self.remote_feature.get_enum_feature("BalanceWhiteAuto").set(
+                    "Continuous" if auto else "Off"
+                )
+            except Exception as e:
+                # 硬件不支持时，记录状态用于软件白平衡
+                self.logger.info("硬件白平衡不支持，将使用软件白平衡")
+                self._wb_auto = auto
+
+    def is_wb_auto(self) -> bool:
+        """获取当前白平衡模式"""
+        return self._wb_auto
 
     def get_exposure_time(self) -> float:
         """获取当前曝光时间"""
