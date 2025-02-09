@@ -1,0 +1,17 @@
+name: polcam
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - opencv
+  - pyside6
+  - qtpy
+  - matplotlib
+  - pytest
+  - pytest-qt
+  - pip
+  - pip:
+    - polanalyser
+
