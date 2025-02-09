@@ -8,6 +8,7 @@ import gxipy as gx
 import numpy as np
 import logging
 from typing import Optional, Tuple
+import time
 
 class Camera:
     def __init__(self):
@@ -94,9 +95,31 @@ class Camera:
 
     def set_exposure_auto(self, auto: bool):
         if self.camera:
-            self.remote_feature.get_enum_feature("ExposureAuto").set(
-                "Continuous" if auto else "Off"
-            )
+            if auto:
+                self.remote_feature.get_enum_feature("ExposureAuto").set("Continuous")
+            else:
+                self.remote_feature.get_enum_feature("ExposureAuto").set("Off")
+
+    def set_exposure_once(self):
+        """执行单次自动曝光"""
+        if self.camera:
+            try:
+                self.remote_feature.get_enum_feature("ExposureAuto").set("Once")
+                # 等待自动曝光完成
+                max_wait_time = 5  # 最大等待时间（秒）
+                start_time = time.time()
+                while (time.time() - start_time) < max_wait_time:
+                    if self.remote_feature.get_enum_feature("ExposureAuto").get() == "Off":
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.logger.warning("单次自动曝光超时")
+                    
+                # 更新最后的曝光值
+                self._last_exposure = self.get_exposure_time()
+            except Exception as e:
+                self.logger.error(f"单次自动曝光失败: {e}")
+                raise  # 重新抛出异常以便上层处理
 
     def set_gain(self, gain: float):
         if self.camera:
@@ -108,22 +131,61 @@ class Camera:
 
     def set_gain_auto(self, auto: bool):
         if self.camera:
-            self.remote_feature.get_enum_feature("GainAuto").set(
-                "Continuous" if auto else "Off"
-            )
+            if auto:
+                self.remote_feature.get_enum_feature("GainAuto").set("Continuous")
+            else:
+                self.remote_feature.get_enum_feature("GainAuto").set("Off")
 
-    def set_balance_white_auto(self, auto: bool):
-        """设置白平衡模式，当硬件不支持时使用软件实现"""
+    def set_gain_once(self):
+        """执行单次自动增益"""
         if self.camera:
             try:
-                # 尝试设置硬件白平衡
-                self.remote_feature.get_enum_feature("BalanceWhiteAuto").set(
-                    "Continuous" if auto else "Off"
-                )
+                self.remote_feature.get_enum_feature("GainAuto").set("Once")
+                # 等待自动增益完成
+                max_wait_time = 5  # 最大等待时间（秒）
+                start_time = time.time()
+                while (time.time() - start_time) < max_wait_time:
+                    if self.remote_feature.get_enum_feature("GainAuto").get() == "Off":
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.logger.warning("单次自动增益超时")
+                    
+                # 更新最后的增益值
+                self._last_gain = self.get_gain()
             except Exception as e:
-                # 硬件不支持时，记录状态用于软件白平衡
+                self.logger.error(f"单次自动增益失败: {e}")
+                raise  # 重新抛出异常以便上层处理
+
+    def set_balance_white_auto(self, auto: bool):
+        """设置白平衡模式"""
+        if self.camera:
+            try:
+                if auto:
+                    self.remote_feature.get_enum_feature("BalanceWhiteAuto").set("Continuous")
+                else:
+                    self.remote_feature.get_enum_feature("BalanceWhiteAuto").set("Off")
+            except Exception as e:
                 self.logger.info("硬件白平衡不支持，将使用软件白平衡")
                 self._wb_auto = auto
+
+    def set_balance_white_once(self):
+        """执行单次白平衡"""
+        if self.camera:
+            try:
+                self.remote_feature.get_enum_feature("BalanceWhiteAuto").set("Once")
+                # 等待白平衡完成
+                max_wait_time = 5  # 最大等待时间（秒）
+                start_time = time.time()
+                while (time.time() - start_time) < max_wait_time:
+                    if self.remote_feature.get_enum_feature("BalanceWhiteAuto").get() == "Off":
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.logger.warning("单次白平衡超时")
+            except Exception as e:
+                self.logger.error(f"单次白平衡失败: {e}")
+                raise  # 重新抛出异常以便上层处理
 
     def is_wb_auto(self) -> bool:
         """获取当前白平衡模式"""

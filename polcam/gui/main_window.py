@@ -7,6 +7,7 @@ See LICENSE file for full license details.
 from qtpy import QtWidgets, QtCore
 import time
 import numpy as np
+import concurrent.futures
 from ..core.camera import Camera
 from ..core.image_processor import ImageProcessor
 from .camera_control import CameraControl
@@ -69,6 +70,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_display.display_mode.currentIndexChanged.connect(
             lambda: self.process_and_display_frame(self.current_frame, reprocess=True)
         )
+        
+        # 修改单次按钮连接
+        self.camera_control.exposure_once.clicked.connect(self._handle_exposure_once)
+        self.camera_control.gain_once.clicked.connect(self._handle_gain_once)
+        self.camera_control.wb_once.clicked.connect(self._handle_wb_once)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -260,3 +266,73 @@ class MainWindow(QtWidgets.QMainWindow):
         # 只在非连续采集模式下触发重新处理
         if not self.timer.isActive() and self.current_frame is not None:
             self.process_and_display_frame(self.current_frame, reprocess=True)
+
+    def _handle_exposure_once(self):
+        """处理单次自动曝光"""
+        # 禁用相关控件
+        self.camera_control.enable_exposure_controls(False)
+        
+        def on_complete(future):
+            try:
+                future.result()
+                QtCore.QTimer.singleShot(0, self._update_exposure_controls)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "错误", f"单次自动曝光失败: {str(e)}")
+                QtCore.QTimer.singleShot(0, lambda: self.camera_control.enable_exposure_controls(True))
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self.camera.set_exposure_once)
+            future.add_done_callback(on_complete)
+
+    def _handle_gain_once(self):
+        """处理单次自动增益"""
+        self.camera_control.enable_gain_controls(False)
+        
+        def on_complete(future):
+            try:
+                future.result()
+                QtCore.QTimer.singleShot(0, self._update_gain_controls)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "错误", f"单次自动增益失败: {str(e)}")
+                QtCore.QTimer.singleShot(0, lambda: self.camera_control.enable_gain_controls(True))
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self.camera.set_gain_once)
+            future.add_done_callback(on_complete)
+
+    def _handle_wb_once(self):
+        """处理单次白平衡"""
+        self.camera_control.enable_wb_controls(False)
+        
+        def on_complete(future):
+            try:
+                future.result()
+                QtCore.QTimer.singleShot(0, self._update_wb_controls)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "错误", f"单次白平衡失败: {str(e)}")
+                QtCore.QTimer.singleShot(0, lambda: self.camera_control.enable_wb_controls(True))
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self.camera.set_balance_white_once)
+            future.add_done_callback(on_complete)
+
+    @QtCore.Slot()
+    def _update_exposure_controls(self):
+        """更新曝光控件状态"""
+        self.camera_control.enable_exposure_controls(True)
+        # 更新显示值
+        current_exposure = self.camera.get_exposure_time()
+        self.camera_control.update_exposure_value(current_exposure)
+
+    @QtCore.Slot()
+    def _update_gain_controls(self):
+        """更新增益控件状态"""
+        self.camera_control.enable_gain_controls(True)
+        current_gain = self.camera.get_gain()
+        self.camera_control.update_gain_value(current_gain)
+
+    @QtCore.Slot()
+    def _update_wb_controls(self):
+        """更新白平衡控件状态"""
+        self.camera_control.enable_wb_controls(True)
+        self.camera_control.wb_once.setChecked(False)
