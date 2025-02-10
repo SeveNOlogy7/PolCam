@@ -37,6 +37,8 @@ class CameraControl(QtWidgets.QWidget):
         self.capture_btn = QtWidgets.QPushButton("单帧采集")
         self.stream_btn = QtWidgets.QPushButton("连续采集")
         self.stream_btn.setCheckable(True)
+        # 添加状态变化处理
+        self.stream_btn.toggled.connect(self._handle_stream_toggled)
         layout.addWidget(self.capture_btn)
         layout.addWidget(self.stream_btn)
         
@@ -159,6 +161,11 @@ class CameraControl(QtWidgets.QWidget):
         self.gain_spin.setEnabled(True)          # 保持启用状态以显示数值
         self.gain_auto_changed.emit(checked)
         
+    def _handle_stream_toggled(self, checked: bool):
+        """处理连续采集按钮状态改变"""
+        self.stream_btn.setText("停止采集" if checked else "连续采集")
+        self.stream_clicked.emit(checked)
+
     def update_exposure_value(self, value: float):
         """更新曝光值（不触发信号）"""
         self.exposure_spin.blockSignals(True)
