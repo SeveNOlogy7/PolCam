@@ -30,7 +30,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_processor = ImageProcessor()
         self.setup_connections()
         self.setup_statusbar()
-        self.current_frame = None  # 添加原始帧缓存
+        self.current_frame = None      # 原始帧缓存
+        self.raw_changed = False      # 原始帧改变标志
+        self.params_changed = False   # 参数改变标志
+        self._cache = {              # 处理结果缓存
+            'color_images': None,     # 解码后的彩色图像
+            'color_image': None,      # 合成的彩色图像
+            'gray_images': None,      # 灰度图像缓存
+            'dolp': None,            # 偏振度缓存
+            'aolp': None,            # 偏振角缓存
+            'docp': None             # 圆偏振度缓存
+        }
         
         # 设置关闭事件处理标志
         self.close_flag = False
@@ -152,14 +162,37 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera_info.clear()
 
     def _update_auto_parameters(self):
-        """更新自动参数的显示值"""
+        """更新自动参数的显示值，并标记参数改变"""
+        params_changed = False
         if self.camera_control.exposure_auto.isChecked():
             current_exposure = self.camera.get_exposure_time()
-            self.camera_control.update_exposure_value(current_exposure)
+            if current_exposure != self.camera_control.exposure_spin.value():
+                self.camera_control.update_exposure_value(current_exposure)
+                params_changed = True
             
         if self.camera_control.gain_auto.isChecked():
             current_gain = self.camera.get_gain()
-            self.camera_control.update_gain_value(current_gain)
+            if current_gain != self.camera_control.gain_spin.value():
+                self.camera_control.update_gain_value(current_gain)
+                params_changed = True
+                
+        if params_changed:
+            self.params_changed = True
+            self._clear_cache()
+
+    def _clear_cache(self, full=False):
+        """清除缓存
+        Args:
+            full: 是否完全清除。True则清除所有缓存，False只清除依赖于参数的缓存
+        """
+        if full:
+            self._cache = {key: None for key in self._cache}
+        else:
+            # 只清除依赖于相机参数的缓存
+            self._cache.update({
+                'color_images': None,
+                'color_image': None
+            })
 
     def handle_capture(self):
         if not self.camera or not hasattr(self.camera, 'camera'):
@@ -246,55 +279,94 @@ class MainWindow(QtWidgets.QMainWindow):
             return
             
         try:
-            is_new_frame = frame is not self.current_frame
-            self.current_frame = frame
+            # 检查帧是否改变
+            if frame is not self.current_frame:
+                self.current_frame = frame
+                self.raw_changed = True
+                self._clear_cache(full=True)
+            
             mode = self.image_display.display_mode.currentIndex()
             
             if mode == 0:  # 原始图像
                 self.image_display.show_image(frame)
-            else:
-                # 在新帧到来或需要重新处理时进行解码
-                if is_new_frame or reprocess or not hasattr(self, '_color_images'):
-                    # 只解码彩色图像
-                    self._color_images = self.image_processor.demosaic_polarization(frame)
-                    
-                    # 应用白平衡处理
-                    if self.camera.is_wb_auto():
-                        # 对第一个角度图像执行自动白平衡以获取增益系数
-                        self._color_images[0] = self.image_processor.auto_white_balance(
-                            self._color_images[0]
-                        )
-                        # 对其他角度图像应用相同的白平衡系数
-                        for i in range(1, 4):
-                            self._color_images[i] = self.image_processor.apply_white_balance(
-                                self._color_images[i]
-                            )
-                    
-                    # 计算合成彩色图像
-                    self._color_image = np.mean(self._color_images, axis=0).astype(np.uint8)
+                return
                 
-                if mode == 1:  # 单角度彩色
-                    self.image_display.show_image(self._color_images[0])
-                elif mode == 2:  # 单角度灰度
-                    gray = self.image_processor.to_grayscale(self._color_images[0])
-                    self.image_display.show_image(gray)
-                elif mode == 3:  # 彩色图像
-                    self.image_display.show_image(self._color_image)
-                elif mode == 4:  # 灰度图像
-                    gray = self.image_processor.to_grayscale(self._color_image)
-                    self.image_display.show_image(gray)
-                elif mode == 5:  # 四角度彩色
-                    self.image_display.show_quad_view(self._color_images, gray=False)
-                elif mode == 6:  # 四角度灰度
-                    self.image_display.show_quad_view(self._color_images, gray=True)
-                elif mode == 7:  # 偏振分析
-                    # 仅在需要时计算偏振参数
-                    dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(
-                        self._color_images
+            # 需要重新处理的情况
+            need_reprocess = (
+                self.raw_changed or      # 原始帧改变
+                self.params_changed or   # 参数改变
+                reprocess or             # 强制重新处理
+                self._cache['color_images'] is None  # 缓存不存在
+            )
+            
+            if need_reprocess:
+                # 解码彩色图像
+                self._cache['color_images'] = self.image_processor.demosaic_polarization(frame)
+                
+                # 应用白平衡处理
+                if self.camera.is_wb_auto():
+                    # 对第一个角度图像执行自动白平衡以获取增益系数
+                    self._cache['color_images'][0] = self.image_processor.auto_white_balance(
+                        self._cache['color_images'][0]
                     )
-                    self.image_display.show_polarization_quad_view(
-                        self._color_image, dolp, aolp, docp
+                    # 对其他角度图像应用相同的白平衡系数
+                    for i in range(1, 4):
+                        self._cache['color_images'][i] = self.image_processor.apply_white_balance(
+                            self._cache['color_images'][i]
+                        )
+                
+                # 计算合成彩色图像
+                self._cache['color_image'] = np.mean(
+                    self._cache['color_images'], axis=0
+                ).astype(np.uint8)
+                
+                # 重置状态标志
+                self.raw_changed = False
+                self.params_changed = False
+            
+            # 根据显示模式处理
+            if mode == 1:  # 单角度彩色
+                self.image_display.show_image(self._cache['color_images'][0])
+            elif mode == 2:  # 单角度灰度
+                if self._cache.get('gray_images') is None:
+                    self._cache['gray_images'] = [
+                        self.image_processor.to_grayscale(img) 
+                        for img in self._cache['color_images']
+                    ]
+                self.image_display.show_image(self._cache['gray_images'][0])
+            elif mode == 3:  # 彩色图像
+                self.image_display.show_image(self._cache['color_image'])
+            elif mode == 4:  # 灰度图像
+                if self._cache.get('gray_image') is None:
+                    self._cache['gray_image'] = self.image_processor.to_grayscale(
+                        self._cache['color_image']
                     )
+                self.image_display.show_image(self._cache['gray_image'])
+            elif mode == 5:  # 四角度彩色
+                self.image_display.show_quad_view(self._cache['color_images'], gray=False)
+            elif mode == 6:  # 四角度灰度
+                if self._cache.get('gray_images') is None:
+                    self._cache['gray_images'] = [
+                        self.image_processor.to_grayscale(img) 
+                        for img in self._cache['color_images']
+                    ]
+                self.image_display.show_quad_view(self._cache['gray_images'], gray=True)
+            elif mode == 7:  # 偏振分析
+                # 仅在需要时计算偏振参数
+                if (self._cache['dolp'] is None or 
+                    self._cache['aolp'] is None or 
+                    self._cache['docp'] is None):
+                    self._cache['dolp'], self._cache['aolp'], self._cache['docp'] = (
+                        self.image_processor.calculate_polarization_parameters(
+                            self._cache['color_images']
+                        )
+                    )
+                self.image_display.show_polarization_quad_view(
+                    self._cache['color_image'], 
+                    self._cache['dolp'],
+                    self._cache['aolp'], 
+                    self._cache['docp']
+                )
                     
         except Exception as e:
             raise Exception(f"图像处理失败: {e}")
