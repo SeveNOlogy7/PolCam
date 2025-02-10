@@ -130,6 +130,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status_label.setText(error_msg)
                 self.camera_info.clear()
         else:
+            # 断开前先停止连续采集
+            if self.timer.isActive():
+                self.handle_stream(False)  # 停止连续采集
+                self.camera_control.stream_btn.setChecked(False)  # 更新按钮状态
+                
             self.camera.disconnect()
             self.camera_control.set_connected(False)
             self.status_indicator.setEnabled(False)
@@ -244,9 +249,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 elif mode == 4:  # 灰度图像
                     gray = self.image_processor.to_grayscale(self._color_image)
                     self.image_display.show_image(gray)
-                elif mode == 5:  # 四角度视图
-                    self.image_display.show_quad_view(self._color_images)
-                elif mode == 6:  # 偏振分析
+                elif mode == 5:  # 四角度彩色
+                    self.image_display.show_quad_view(self._color_images, gray=False)
+                elif mode == 6:  # 四角度灰度
+                    self.image_display.show_quad_view(self._color_images, gray=True)
+                elif mode == 7:  # 偏振分析
                     # 仅在需要时计算偏振参数
                     dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(
                         self._color_images

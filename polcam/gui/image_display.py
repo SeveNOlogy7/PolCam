@@ -26,7 +26,8 @@ class ImageDisplay(QtWidgets.QWidget):
             "单角度灰度",   # 单偏振角度分量的灰度图像
             "彩色图像",     # 全偏振分量合成的彩色图像
             "灰度图像",     # 全偏振分量合成的灰度图像
-            "四角度视图",
+            "四角度彩色",   # 四个角度的彩色图像
+            "四角度灰度",   # 四个角度的灰度图像
             "偏振度图像"
         ])
         layout.addWidget(self.display_mode)
@@ -97,8 +98,27 @@ class ImageDisplay(QtWidgets.QWidget):
         except Exception as e:
             print(f"图像显示错误: {e}")
         
-    def show_quad_view(self, images: List[np.ndarray]):
-        """四角度视图显示接口"""
+    def to_grayscale(self, image: np.ndarray) -> np.ndarray:
+        """将彩色图像转换为灰度图像"""
+        if len(image.shape) == 2:
+            return image
+        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    def show_quad_view(self, images: List[np.ndarray], gray: bool = False):
+        """四角度视图显示接口
+        
+        Args:
+            images: 四个角度的图像列表
+            gray: 是否显示灰度图像
+        """
+        if gray:
+            # 使用内部的灰度转换方法
+            images = [self.to_grayscale(img) for img in images]
+            # 转换单通道灰度图为三通道图像以便添加文字
+            images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
+        else:
+            images = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in images]
+            
         h, w = images[0].shape[:2]
         canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
         
@@ -106,14 +126,12 @@ class ImageDisplay(QtWidgets.QWidget):
         positions = [(0, 0), (0, w), (h, 0), (h, w)]
         titles = ['0°', '45°', '90°', '135°']
         
-        for img, (y, x) in zip(images, positions):
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            canvas[y:y+h, x:x+w] = img_rgb
+        for img, (y, x), title in zip(images, positions, titles):
+            canvas[y:y+h, x:x+w] = img
             
             # 添加标题
-            cv2.putText(canvas, titles[positions.index((y, x))],
-                       (x+10, y+30), cv2.FONT_HERSHEY_SIMPLEX,
-                       1, (255, 255, 255), 2)
+            cv2.putText(canvas, title, (x+10, y+30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         
         self.show_image(canvas)
 
@@ -148,5 +166,5 @@ class ImageDisplay(QtWidgets.QWidget):
             # 添加标题
             cv2.putText(canvas, title, (x+10, y+30),
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        
+            
         self.show_image(canvas)
