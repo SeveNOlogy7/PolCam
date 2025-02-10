@@ -162,20 +162,66 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.camera or not hasattr(self.camera, 'camera'):
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
+        
+        # 禁用采集按钮
+        self.camera_control.capture_btn.setEnabled(False)
+        self.camera_control.stream_btn.setEnabled(False)
             
         # 开始计时
         t_start = time.perf_counter()
         
-        frame = self.camera.get_frame()
-        if frame is not None:
-            # 记录采集时间
-            t_capture = time.perf_counter() - t_start
-            
-            try:
-                # 图像处理开始计时
+        try:
+            frame = self.camera.get_frame()
+            if frame is not None:
+                # 记录采集时间
+                t_capture = time.perf_counter() - t_start
+                
+                try:
+                    # 图像处理开始计时
+                    t_proc_start = time.perf_counter()
+                    self.process_and_display_frame(frame)
+                    # 记录处理时间
+                    t_proc = time.perf_counter() - t_proc_start
+                    
+                    self._update_auto_parameters()  # 更新自动参数值
+                    
+                    # 更新状态栏时间信息
+                    self.time_label.setText(
+                        f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
+                    )
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(self, "错误", f"处理图像失败: {e}")
+            else:
+                QtWidgets.QMessageBox.warning(self, "错误", "获取图像失败")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {str(e)}")
+        finally:
+            # 重新启用采集按钮
+            self.camera_control.capture_btn.setEnabled(True)
+            self.camera_control.stream_btn.setEnabled(True)
+
+    def handle_stream(self, start: bool):
+        if start:
+            # 开始连续采集时禁用单帧采集
+            self.camera_control.capture_btn.setEnabled(False)
+            self.camera.start_streaming()
+            self.timer.start(33)  # ~30 FPS
+            self.camera_control.stream_btn.setText("停止采集")  # 更新按钮文字
+        else:
+            # 停止连续采集时启用单帧采集
+            self.camera.stop_streaming()
+            self.timer.stop()
+            self.camera_control.capture_btn.setEnabled(True)
+            self.camera_control.stream_btn.setText("连续采集")  # 恢复按钮文字
+
+    def update_frame(self):
+        t_start = time.perf_counter()
+        try:
+            frame = self.camera.get_frame()
+            if frame is not None:
+                t_capture = time.perf_counter() - t_start
                 t_proc_start = time.perf_counter()
                 self.process_and_display_frame(frame)
-                # 记录处理时间
                 t_proc = time.perf_counter() - t_proc_start
                 
                 self._update_auto_parameters()  # 更新自动参数值
@@ -184,34 +230,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.time_label.setText(
                     f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
                 )
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "错误", f"处理图像失败: {e}")
-        else:
-            QtWidgets.QMessageBox.warning(self, "错误", "获取图像失败")
-
-    def handle_stream(self, start: bool):
-        if start:
-            self.camera.start_streaming()
-            self.timer.start(33)  # ~30 FPS
-        else:
-            self.camera.stop_streaming()
-            self.timer.stop()
-
-    def update_frame(self):
-        t_start = time.perf_counter()
-        frame = self.camera.get_frame()
-        if frame is not None:
-            t_capture = time.perf_counter() - t_start
-            t_proc_start = time.perf_counter()
-            self.process_and_display_frame(frame)
-            t_proc = time.perf_counter() - t_proc_start
-            
-            self._update_auto_parameters()  # 更新自动参数值
-            
-            # 更新状态栏时间信息
-            self.time_label.setText(
-                f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
-            )
+        except Exception as e:
+            # 流模式下的错误不显示弹窗，只更新状态栏
+            self.status_label.setText(f"采集错误: {str(e)}")
 
     def process_and_display_frame(self, frame, reprocess=False):
         if frame is None:

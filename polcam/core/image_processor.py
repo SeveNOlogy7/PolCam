@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 PolCam Contributors
+Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
@@ -63,10 +63,24 @@ class ImageProcessor:
     @staticmethod
     def calculate_polarization_parameters(color_images: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """计算偏振参数：线偏振度(DoLP)、偏振角(AoLP)和圆偏振度(DoCP)"""
+        # 验证输入
+        if not isinstance(color_images, list):
+            raise TypeError("输入必须是图像列表")
+            
+        if len(color_images) != 4:
+            raise ValueError("必须提供4个角度的图像")
+            
+        # 确保图像类型和尺寸一致
+        for img in color_images:
+            if not isinstance(img, np.ndarray):
+                raise TypeError("输入图像必须是numpy数组")
+            if img.dtype != np.uint8:
+                raise TypeError("输入图像必须是uint8类型")
+        
         # 确保输入都是灰度图
         gray_images = [
             img if len(img.shape) == 2 
-            else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) 
+            else cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2GRAY) 
             for img in color_images
         ]
         
@@ -95,6 +109,10 @@ class ImageProcessor:
 
     def auto_white_balance(self, image: np.ndarray) -> np.ndarray:
         """改进的自动白平衡算法"""
+        # 输入验证
+        if not isinstance(image, np.ndarray):
+            raise TypeError("输入必须是numpy数组类型")
+            
         if len(image.shape) != 3:
             return image
             
@@ -140,6 +158,10 @@ class ImageProcessor:
 
     def apply_white_balance(self, image: np.ndarray) -> np.ndarray:
         """应用已有的白平衡和亮度参数"""
+        # 输入验证
+        if not isinstance(image, np.ndarray):
+            raise TypeError("输入必须是numpy数组类型")
+            
         if len(image.shape) != 3:
             return image
             

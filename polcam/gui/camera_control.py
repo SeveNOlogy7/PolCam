@@ -233,3 +233,12 @@ class CameraControl(QtWidgets.QWidget):
         """设置白平衡相关控件的启用状态"""
         self.wb_auto.setEnabled(enabled)
         self.wb_once.setEnabled(enabled and not self.wb_auto.isChecked())
+
+    def _update_current_values(self):
+        """更新当前显示的参数值"""
+        if hasattr(self.parent(), 'camera') and self.parent().camera:
+            camera = self.parent().camera
+            # 更新曝光值显示
+            self.update_exposure_value(camera.get_exposure_time())
+            # 更新增益值显示
+            self.update_gain_value(camera.get_gain())

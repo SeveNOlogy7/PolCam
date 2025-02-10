@@ -9,8 +9,9 @@ from qtpy import QtWidgets, QtCore, QtGui
 class StatusIndicator(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(16, 16)
         self._status = False
+        self.setEnabled(False)  # 初始状态为禁用
+        self.setFixedSize(16, 16)  # 设置固定大小
         
     def setStatus(self, status: bool):
         self._status = status

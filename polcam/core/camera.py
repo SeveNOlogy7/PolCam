@@ -52,11 +52,16 @@ class Camera:
             return False, error_msg
 
     def disconnect(self):
+        """安全断开相机连接"""
         if self.camera:
-            if self.is_streaming:
-                self.stop_streaming()
-            self.camera.close_device()
-            self.camera = None
+            try:
+                if self.is_streaming:
+                    self.stop_streaming()
+                self.camera.close_device()
+            except Exception as e:
+                self.logger.error(f"断开相机连接时发生错误: {e}")
+            finally:
+                self.camera = None
 
     def start_streaming(self):
         if self.camera and not self.is_streaming:
