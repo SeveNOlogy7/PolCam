@@ -4,7 +4,7 @@ Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
-from qtpy import QtWidgets, QtCore
+from qtpy import QtWidgets, QtCore, QtGui
 import time
 import numpy as np
 import concurrent.futures
@@ -31,6 +31,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_connections()
         self.setup_statusbar()
         self.current_frame = None  # 添加原始帧缓存
+        
+        # 设置关闭事件处理标志
+        self.close_flag = False
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -201,6 +204,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera_control.stream_btn.setEnabled(True)
 
     def handle_stream(self, start: bool):
+        # 如果程序正在关闭，不允许开始新的采集
+        if self.close_flag and start:
+            return
+            
         if start:
             # 开始连续采集时禁用单帧采集
             self.camera_control.capture_btn.setEnabled(False)
@@ -370,3 +377,28 @@ class MainWindow(QtWidgets.QMainWindow):
         """更新白平衡控件状态"""
         self.camera_control.enable_wb_controls(True)
         self.camera_control.wb_once.setChecked(False)
+
+    def closeEvent(self, event: QtGui.QCloseEvent):
+        """处理窗口关闭事件"""
+        self.close_flag = True  # 设置关闭标志
+        
+        try:
+            # 如果正在连续采集，先停止采集
+            if self.timer.isActive():
+                self.handle_stream(False)
+                self.camera_control.stream_btn.setChecked(False)
+            
+            # 如果相机已连接，断开连接
+            if self.camera and hasattr(self.camera, 'camera') and self.camera.camera is not None:
+                self.camera.disconnect()
+                
+            # 接受关闭事件
+            event.accept()
+        except Exception as e:
+            # 显示错误消息框
+            QtWidgets.QMessageBox.warning(
+                self,
+                "关闭程序",
+                f"关闭程序时发生错误: {str(e)}\n程序将继续关闭。"
+            )
+            event.accept()
