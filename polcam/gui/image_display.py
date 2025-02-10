@@ -8,11 +8,15 @@ from qtpy import QtWidgets, QtCore, QtGui
 import numpy as np
 import cv2
 from typing import List
+from PIL import Image, ImageDraw, ImageFont
+import os
 
 class ImageDisplay(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.setup_ui()
+        self.current_image = None  # 添加当前图像缓存
+        self.show_default_image()
         
     def setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -53,7 +57,9 @@ class ImageDisplay(QtWidgets.QWidget):
     def resizeEvent(self, event: QtGui.QResizeEvent):
         """窗口大小变化时重新显示图像"""
         super().resizeEvent(event)
-        self.update_display()
+        # 如果有当前图像，则重新显示
+        if self.current_image is not None:
+            self.show_image(self.current_image)
         
     def update_display(self):
         """显示模式改变时的处理"""
@@ -64,30 +70,49 @@ class ImageDisplay(QtWidgets.QWidget):
         self.parent().process_and_display_frame(self.raw, reprocess=True)
 
     def show_image(self, image: np.ndarray):
-        """统一的图像显示接口"""
+        """统一的图像显示接口，自动调整图像大小以适应显示区域"""
         try:
             if image is None:
                 return
+                
+            # 保存当前图像的副本以便窗口大小改变时重新显示
+            self.current_image = image.copy() if isinstance(image, np.ndarray) else None
 
+            # 转换为QImage
             if len(image.shape) == 2:
-                # 单通道图像直接显示
                 h, w = image.shape
                 bytes_per_line = w
                 qt_image = QtGui.QImage(image.data, w, h, 
                                       bytes_per_line, QtGui.QImage.Format_Grayscale8)
             else:
-                # 三通道图像转RGB
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 h, w = image.shape[:2]
                 bytes_per_line = 3 * w
                 qt_image = QtGui.QImage(image.data.tobytes(), w, h, 
                                       bytes_per_line, QtGui.QImage.Format_RGB888)
             
-            # 调整图像大小以适应显示区域
-            pixmap = QtGui.QPixmap.fromImage(qt_image)
+            # 获取显示区域大小
             label_size = self.image_label.size()
+            label_w, label_h = label_size.width(), label_size.height()
+            
+            # 计算图像和显示区域的宽高比
+            image_ratio = w / h
+            label_ratio = label_w / label_h
+            
+            # 根据宽高比决定如何缩放
+            if image_ratio > label_ratio:
+                # 图像更宽，以宽度为准
+                new_w = label_w
+                new_h = int(label_w / image_ratio)
+            else:
+                # 图像更高，以高度为准
+                new_h = label_h
+                new_w = int(label_h * image_ratio)
+            
+            # 创建QPixmap并缩放
+            pixmap = QtGui.QPixmap.fromImage(qt_image)
             scaled_pixmap = pixmap.scaled(
-                label_size,
+                new_w, new_h,
                 QtCore.Qt.KeepAspectRatio,
                 QtCore.Qt.SmoothTransformation
             )
@@ -168,3 +193,56 @@ class ImageDisplay(QtWidgets.QWidget):
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             
         self.show_image(canvas)
+        
+    def show_default_image(self):
+        """显示默认的黑色图像，并添加引导文字"""
+        # 使用更高的分辨率创建PIL图像 (1920x1080)
+        pil_image = Image.new('RGB', (1920, 1080), color='black')
+        draw = ImageDraw.Draw(pil_image)
+        
+        # 加载中文字体并使用更大的字号
+        try:
+            font_path = "C:/Windows/Fonts/msyh.ttc"  # 微软雅黑
+            if not os.path.exists(font_path):
+                font_path = "C:/Windows/Fonts/simhei.ttf"  # 备选：黑体
+            title_font = ImageFont.truetype(font_path, 48)  # 更大的标题字号
+            text_font = ImageFont.truetype(font_path, 36)   # 更大的正文字号
+        except Exception as e:
+            self.logger.error(f"加载字体失败: {e}")
+            return
+        
+        # 添加引导文字
+        guide_text = [
+            "欢迎使用偏振相机控制系统",
+            "请按以下步骤操作：",
+            "1. 点击左侧'连接相机'按钮",
+            "2. 通过曝光和增益控制调节图像亮度",
+            "3. 使用'单帧采集'或'连续采集'获取图像",
+            "4. 选择不同的显示模式查看图像"
+        ]
+        
+        # 计算文字位置 - 根据新的分辨率调整
+        text_height = 70  # 增加行高
+        start_y = (1080 - len(guide_text) * text_height) // 2  # 基于新高度计算垂直居中
+        
+        # 绘制每行文字
+        for i, text in enumerate(guide_text):
+            # 获取文字大小以居中显示
+            if i == 0:
+                font = title_font
+                text_width = title_font.getlength(text)
+                color = (100, 200, 255)  # 标题使用蓝色
+            else:
+                font = text_font
+                text_width = text_font.getlength(text)
+                color = (200, 200, 200)  # 正文使用灰色
+            
+            x = (1920 - text_width) // 2  # 基于新宽度计算水平居中
+            y = start_y + i * text_height
+            
+            # 绘制文字
+            draw.text((x, y), text, font=font, fill=color)
+        
+        # 转换回OpenCV格式并显示
+        cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        self.show_image(cv_image)
