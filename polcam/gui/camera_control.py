@@ -5,6 +5,8 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore
+from qtpy import QtGui
+from .styles import Styles
 
 class CameraControl(QtWidgets.QWidget):
     # 扩展信号定义
@@ -37,17 +39,17 @@ class CameraControl(QtWidgets.QWidget):
         self.capture_btn = QtWidgets.QPushButton("单帧采集")
         self.stream_btn = QtWidgets.QPushButton("连续采集")
         self.stream_btn.setCheckable(True)
-        # 添加状态变化处理
-        self.stream_btn.toggled.connect(self._handle_stream_toggled)
         layout.addWidget(self.capture_btn)
         layout.addWidget(self.stream_btn)
         
         # 参数控制区域
         param_group = QtWidgets.QGroupBox("参数设置")
+        Styles.apply_group_title_style(param_group)
         param_layout = QtWidgets.QVBoxLayout(param_group)
         
         # 曝光控制组
         exposure_group = QtWidgets.QGroupBox("曝光控制")
+        Styles.apply_group_title_style(exposure_group)
         exposure_layout = QtWidgets.QVBoxLayout(exposure_group)
         
         # 曝光时间设置
@@ -55,13 +57,18 @@ class CameraControl(QtWidgets.QWidget):
         exposure_value_layout.addWidget(QtWidgets.QLabel("曝光时间:"))
         self.exposure_spin = QtWidgets.QDoubleSpinBox()
         self.exposure_spin.setDecimals(1)
+        self.exposure_spin.setFont(QtGui.QFont("", 11))
+        self.exposure_spin.setMinimumHeight(30)
         exposure_value_layout.addWidget(self.exposure_spin)
         exposure_layout.addLayout(exposure_value_layout)
         
         # 曝光自动控制
         exposure_auto_layout = QtWidgets.QHBoxLayout()
         self.exposure_auto = QtWidgets.QCheckBox("自动")
-        self.exposure_once = QtWidgets.QPushButton("单次") 
+        self.exposure_auto.setFont(QtGui.QFont("", 11))
+        self.exposure_once = QtWidgets.QPushButton("单次")
+        self.exposure_once.setFont(QtGui.QFont("", 11))
+        self.exposure_once.setMinimumHeight(30)
         exposure_auto_layout.addWidget(self.exposure_auto)
         exposure_auto_layout.addWidget(self.exposure_once)
         exposure_layout.addLayout(exposure_auto_layout)
@@ -70,6 +77,7 @@ class CameraControl(QtWidgets.QWidget):
         
         # 增益控制组
         gain_group = QtWidgets.QGroupBox("增益控制")
+        Styles.apply_group_title_style(gain_group)
         gain_layout = QtWidgets.QVBoxLayout(gain_group)
         
         # 增益值设置
@@ -77,13 +85,18 @@ class CameraControl(QtWidgets.QWidget):
         gain_value_layout.addWidget(QtWidgets.QLabel("增益:"))
         self.gain_spin = QtWidgets.QDoubleSpinBox()
         self.gain_spin.setDecimals(1)
+        self.gain_spin.setFont(QtGui.QFont("", 11))
+        self.gain_spin.setMinimumHeight(30)
         gain_value_layout.addWidget(self.gain_spin)
         gain_layout.addLayout(gain_value_layout)
         
         # 增益自动控制
         gain_auto_layout = QtWidgets.QHBoxLayout()
         self.gain_auto = QtWidgets.QCheckBox("自动")
+        self.gain_auto.setFont(QtGui.QFont("", 11))
         self.gain_once = QtWidgets.QPushButton("单次")
+        self.gain_once.setFont(QtGui.QFont("", 11))
+        self.gain_once.setMinimumHeight(30)
         gain_auto_layout.addWidget(self.gain_auto)
         gain_auto_layout.addWidget(self.gain_once)
         gain_layout.addLayout(gain_auto_layout)
@@ -92,10 +105,14 @@ class CameraControl(QtWidgets.QWidget):
         
         # 白平衡控制组
         wb_group = QtWidgets.QGroupBox("白平衡控制")
+        Styles.apply_group_title_style(wb_group)
         wb_layout = QtWidgets.QHBoxLayout(wb_group)
         
         self.wb_auto = QtWidgets.QCheckBox("自动")
+        self.wb_auto.setFont(QtGui.QFont("", 11))
         self.wb_once = QtWidgets.QPushButton("单次")
+        self.wb_once.setFont(QtGui.QFont("", 11))
+        self.wb_once.setMinimumHeight(30)
         wb_layout.addWidget(self.wb_auto)
         wb_layout.addWidget(self.wb_once)
         param_layout.addWidget(wb_group)
@@ -112,6 +129,19 @@ class CameraControl(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Preferred,
             QtWidgets.QSizePolicy.Preferred
         )
+        
+        # 应用样式到所有按钮
+        for btn in [self.connect_btn, self.capture_btn, self.stream_btn,
+                   self.exposure_once, self.gain_once, self.wb_once]:
+            Styles.apply_button_style(btn)
+        
+        # 应用样式到所有数值框
+        for spinbox in [self.exposure_spin, self.gain_spin]:
+            Styles.apply_spinbox_style(spinbox)
+        
+        # 应用样式到所有复选框
+        for checkbox in [self.exposure_auto, self.gain_auto, self.wb_auto]:
+            Styles.apply_checkbox_style(checkbox)
         
     def setup_connections(self):
         # 设置参数范围
@@ -161,11 +191,6 @@ class CameraControl(QtWidgets.QWidget):
         self.gain_spin.setEnabled(True)          # 保持启用状态以显示数值
         self.gain_auto_changed.emit(checked)
         
-    def _handle_stream_toggled(self, checked: bool):
-        """处理连续采集按钮状态改变"""
-        self.stream_btn.setText("停止采集" if checked else "连续采集")
-        self.stream_clicked.emit(checked)
-
     def update_exposure_value(self, value: float):
         """更新曝光值（不触发信号）"""
         self.exposure_spin.blockSignals(True)

@@ -10,6 +10,7 @@ import cv2
 from typing import List
 from PIL import Image, ImageDraw, ImageFont
 import os
+from .styles import Styles
 
 class ImageDisplay(QtWidgets.QWidget):
     def __init__(self):
@@ -24,6 +25,9 @@ class ImageDisplay(QtWidgets.QWidget):
         
         # 显示模式选择
         self.display_mode = QtWidgets.QComboBox()
+        Styles.apply_combobox_style(self.display_mode)
+        self.display_mode.setFont(QtGui.QFont("", 11))  # 设置下拉框字体
+        self.display_mode.setMinimumHeight(30)  # 增加高度
         self.display_mode.addItems([
             "原始图像",
             "单角度彩色",   # 单偏振角度分量的彩色图像
@@ -156,7 +160,7 @@ class ImageDisplay(QtWidgets.QWidget):
             
             # 添加标题
             cv2.putText(canvas, title, (x+10, y+30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
         
         self.show_image(canvas)
 
@@ -190,7 +194,7 @@ class ImageDisplay(QtWidgets.QWidget):
             
             # 添加标题
             cv2.putText(canvas, title, (x+10, y+30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
             
         self.show_image(canvas)
         

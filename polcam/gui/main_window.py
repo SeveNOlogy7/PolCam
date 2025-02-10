@@ -13,10 +13,16 @@ from ..core.image_processor import ImageProcessor
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
 from .status_indicator import StatusIndicator
+from .styles import Styles
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        # 设置全局字体
+        app = QtWidgets.QApplication.instance()
+        Styles.setup_application_font(app)
+        
         self.setWindowTitle("偏振相机控制系统")
         self.setup_ui()
         
@@ -82,6 +88,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # 添加状态指示灯
         self.status_indicator = StatusIndicator()
+        self.status_indicator.setEnabled(False)  # 初始状态设为禁用
         self.statusBar().addWidget(self.status_indicator)
         
         # 添加分隔线
@@ -134,7 +141,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.timer.isActive():
                 self.handle_stream(False)  # 停止连续采集
                 self.camera_control.stream_btn.setChecked(False)  # 更新按钮状态
-                
             self.camera.disconnect()
             self.camera_control.set_connected(False)
             self.status_indicator.setEnabled(False)
