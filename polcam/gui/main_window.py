@@ -8,6 +8,7 @@ from qtpy import QtWidgets, QtCore, QtGui
 import time
 import numpy as np
 import concurrent.futures
+from typing import List, Tuple
 from ..core.camera_module import CameraModule
 from ..core.image_processor import ImageProcessor
 from ..core.events import EventType
@@ -163,47 +164,35 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.camera_control.update_gain_value(current_gain)
 
     def handle_capture(self):
-        # 修改检查相机连接状态的条件
         if not self.camera.is_connected():
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
         
-        # 禁用采集按钮
-        self.camera_control.capture_btn.setEnabled(False)
-        self.camera_control.stream_btn.setEnabled(False)
-            
-        # 开始计时
-        t_start = time.perf_counter()
+        self._set_capture_buttons_enabled(False)
         
         try:
             frame = self.camera.get_frame()
             if frame is not None:
-                # 记录采集时间
-                t_capture = time.perf_counter() - t_start
-                
-                try:
-                    # 图像处理开始计时
-                    t_proc_start = time.perf_counter()
-                    self.process_and_display_frame(frame)
-                    # 记录处理时间
-                    t_proc = time.perf_counter() - t_proc_start
-                    
-                    self._update_auto_parameters()  # 更新自动参数值
-                    
-                    # 更新状态栏时间信息
-                    self.time_label.setText(
-                        f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
-                    )
-                except Exception as e:
-                    QtWidgets.QMessageBox.warning(self, "错误", f"处理图像失败: {e}")
+                t_capture, t_proc = self._handle_frame_processing(frame)
+                self._update_auto_parameters()
+                self._update_timing_display(t_capture, t_proc)
             else:
                 QtWidgets.QMessageBox.warning(self, "错误", "获取图像失败")
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {str(e)}")
         finally:
-            # 重新启用采集按钮
-            self.camera_control.capture_btn.setEnabled(True)
-            self.camera_control.stream_btn.setEnabled(True)
+            self._set_capture_buttons_enabled(True)
+
+    def _set_capture_buttons_enabled(self, enabled: bool):
+        """设置采集按钮的启用状态"""
+        self.camera_control.capture_btn.setEnabled(enabled)
+        self.camera_control.stream_btn.setEnabled(enabled)
+
+    def _update_timing_display(self, t_capture: float, t_proc: float):
+        """更新时间显示"""
+        self.time_label.setText(
+            f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
+        )
 
     def handle_stream(self, start: bool):
         # 如果程序正在关闭，不允许开始新的采集
@@ -244,12 +233,74 @@ class MainWindow(QtWidgets.QMainWindow):
             # 流模式下的错误不显示弹窗，只更新状态栏
             self.status_label.setText(f"采集错误: {str(e)}")
 
+    def _process_image_by_mode(self, mode: int, color_images: List[np.ndarray], color_image: np.ndarray) -> None:
+        """根据显示模式处理并显示图像
+        
+        Args:
+            mode: 显示模式索引
+            color_images: 四个角度的彩色图像列表
+            color_image: 合成的彩色图像
+        """
+        if mode == 1:  # 单角度彩色
+            self.image_display.show_image(color_images[0])
+        elif mode == 2:  # 单角度灰度
+            gray_image = self.image_processor.to_grayscale(color_images[0])
+            self.image_display.show_image(gray_image)
+        elif mode == 3:  # 彩色图像
+            self.image_display.show_image(color_image)
+        elif mode == 4:  # 灰度图像
+            gray_image = self.image_processor.to_grayscale(color_image)
+            self.image_display.show_image(gray_image)
+        elif mode == 5:  # 四角度彩色
+            self.image_display.show_quad_view(color_images, gray=False)
+        elif mode == 6:  # 四角度灰度
+            gray_images = [self.image_processor.to_grayscale(img) for img in color_images]
+            self.image_display.show_quad_view(gray_images, gray=True)
+        elif mode == 7:  # 偏振分析
+            dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(color_images)
+            self.image_display.show_polarization_quad_view(color_image, dolp, aolp, docp)
+
+    def _apply_white_balance(self, color_images: List[np.ndarray]) -> List[np.ndarray]:
+        """应用白平衡处理
+        
+        Args:
+            color_images: 原始彩色图像列表
+            
+        Returns:
+            处理后的彩色图像列表
+        """
+        if self.camera.is_wb_auto() and self.camera.is_using_software_wb():
+            # 对第一个角度图像执行自动白平衡以获取增益系数
+            color_images[0] = self.image_processor.auto_white_balance(color_images[0])
+            # 对其他角度图像应用相同的白平衡系数
+            for i in range(1, 4):
+                color_images[i] = self.image_processor.apply_white_balance(color_images[i])
+        return color_images
+
+    def _handle_frame_processing(self, frame: np.ndarray) -> Tuple[float, float]:
+        """处理单帧图像并返回处理时间
+        
+        Args:
+            frame: 输入图像帧
+            
+        Returns:
+            (采集时间, 处理时间) 的元组
+        """
+        t_start = time.perf_counter()
+        t_capture = time.perf_counter() - t_start
+        
+        t_proc_start = time.perf_counter()
+        self.process_and_display_frame(frame)
+        t_proc = time.perf_counter() - t_proc_start
+        
+        return t_capture, t_proc
+
     def process_and_display_frame(self, frame, reprocess=False):
         if frame is None:
             return
             
         try:
-            self.current_frame = frame  # 保存当前帧
+            self.current_frame = frame
             mode = self.image_display.display_mode.currentIndex()
             
             if mode == 0:  # 原始图像
@@ -259,38 +310,14 @@ class MainWindow(QtWidgets.QMainWindow):
             # 解码彩色图像
             color_images = self.image_processor.demosaic_polarization(frame)
             
-            # 处理白平衡
-            if self.camera.is_wb_auto() and self.camera.is_using_software_wb():
-                # 对第一个角度图像执行自动白平衡以获取增益系数
-                color_images[0] = self.image_processor.auto_white_balance(color_images[0])
-                # 对其他角度图像应用相同的白平衡系数
-                for i in range(1, 4):
-                    color_images[i] = self.image_processor.apply_white_balance(color_images[i])
+            # 应用白平衡处理
+            color_images = self._apply_white_balance(color_images)
             
             # 计算合成彩色图像
             color_image = np.mean(color_images, axis=0).astype(np.uint8)
             
             # 根据显示模式处理
-            if mode == 1:  # 单角度彩色
-                self.image_display.show_image(color_images[0])
-            elif mode == 2:  # 单角度灰度
-                gray_image = self.image_processor.to_grayscale(color_images[0])
-                self.image_display.show_image(gray_image)
-            elif mode == 3:  # 彩色图像
-                self.image_display.show_image(color_image)
-            elif mode == 4:  # 灰度图像
-                gray_image = self.image_processor.to_grayscale(color_image)
-                self.image_display.show_image(gray_image)
-            elif mode == 5:  # 四角度彩色
-                self.image_display.show_quad_view(color_images, gray=False)
-            elif mode == 6:  # 四角度灰度
-                gray_images = [self.image_processor.to_grayscale(img) for img in color_images]
-                self.image_display.show_quad_view(gray_images, gray=True)
-            elif mode == 7:  # 偏振分析
-                dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(color_images)
-                self.image_display.show_polarization_quad_view(
-                    color_image, dolp, aolp, docp
-                )
+            self._process_image_by_mode(mode, color_images, color_image)
                     
         except Exception as e:
             raise Exception(f"图像处理失败: {e}")
