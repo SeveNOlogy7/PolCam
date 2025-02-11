@@ -21,6 +21,7 @@ class CameraControl(QtWidgets.QWidget):
     gain_once_clicked = QtCore.Signal()
     wb_auto_changed = QtCore.Signal(bool)
     wb_once_clicked = QtCore.Signal()
+    angle_changed = QtCore.Signal(int)
     
     def __init__(self):
         super().__init__()
@@ -103,6 +104,25 @@ class CameraControl(QtWidgets.QWidget):
         
         param_layout.addWidget(gain_group)
         
+        # 角度选择控制组 - 确保添加在参数布局中的正确位置
+        self.angle_group = QtWidgets.QGroupBox("角度选择")
+        Styles.apply_group_title_style(self.angle_group)
+        angle_layout = QtWidgets.QHBoxLayout(self.angle_group)
+        
+        angle_label = QtWidgets.QLabel("偏振角度:")
+        angle_label.setFont(QtGui.QFont("", 11))
+        angle_layout.addWidget(angle_label)
+        
+        self.angle_combo = QtWidgets.QComboBox()
+        self.angle_combo.setFont(QtGui.QFont("", 11))
+        self.angle_combo.setMinimumHeight(30)
+        self.angle_combo.addItems(["0°", "45°", "90°", "135°"])
+        Styles.apply_combobox_style(self.angle_combo)
+        angle_layout.addWidget(self.angle_combo)
+        
+        param_layout.addWidget(self.angle_group)
+        self.angle_group.setVisible(False)  # 初始时隐藏
+        
         # 白平衡控制组
         self.wb_group = QtWidgets.QGroupBox("白平衡控制")  # 修改变量名以便访问
         Styles.apply_group_title_style(self.wb_group)
@@ -179,6 +199,11 @@ class CameraControl(QtWidgets.QWidget):
             lambda checked: self.wb_once.setEnabled(not checked)
         )
         
+        # 添加角度选择信号连接
+        self.angle_combo.currentIndexChanged.connect(
+            lambda idx: self.angle_changed.emit(idx * 45)  # 转换为实际角度值
+        )
+        
     def _handle_exposure_auto(self, checked: bool):
         """处理曝光自动模式切换"""
         self.exposure_spin.setReadOnly(checked)  # 只读而不是禁用
@@ -241,6 +266,18 @@ class CameraControl(QtWidgets.QWidget):
             # 立即重新计算布局
             self.updateGeometry()
             self.parentWidget().updateGeometry()
+
+    def set_angle_controls_visible(self, visible: bool):
+        """设置角度选择控制组的可见性"""
+        if self.angle_group.isVisible() != visible:  # 只在状态不同时才更新
+            self.angle_group.setVisible(visible)
+            # 立即重新计算布局
+            self.updateGeometry()
+            self.parentWidget().updateGeometry()
+            
+    def get_selected_angle(self) -> int:
+        """获取当前选择的角度值"""
+        return self.angle_combo.currentIndex() * 45
 
     def _update_current_values(self):
         """更新当前显示的参数值"""

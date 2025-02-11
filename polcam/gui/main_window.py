@@ -86,7 +86,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # 在创建完 ImageDisplay 后立即设置白平衡控件的初始可见性
         mode = ProcessingMode.RAW  # 初始模式
         show_wb = not self._is_grayscale_mode(mode)
+        show_angle = mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]
+        
         self.camera_control.set_wb_controls_visible(show_wb)
+        self.camera_control.set_angle_controls_visible(show_angle)
         
         self.resize(1200, 800)
 
@@ -114,6 +117,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 设置初始白平衡控件可见性
         show_wb = not self._is_grayscale_mode(ProcessingMode.RAW)
         self.camera_control.set_wb_controls_visible(show_wb)
+
+        # 添加角度选择信号处理
+        self.camera_control.angle_changed.connect(self._handle_angle_changed)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -257,10 +263,14 @@ class MainWindow(QtWidgets.QMainWindow):
         mode = ProcessingMode.index_to_mode(index)
         self.processor.set_mode(mode)
         
-        # 更新白平衡控件的可见性
+        # 更新控件可见性
         show_wb = not self._is_grayscale_mode(mode)
-        self._logger.debug(f"显示模式改变: {mode}, 显示白平衡: {show_wb}")  # 添加调试日志
+        show_angle = mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]
+        
+        self._logger.debug(f"显示模式改变: {mode}, 显示白平衡: {show_wb}, 显示角度: {show_angle}")
+        
         self.camera_control.set_wb_controls_visible(show_wb)
+        self.camera_control.set_angle_controls_visible(show_angle)
         
         # 处理当前帧
         if self.current_frame is not None:
@@ -475,3 +485,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera_control.update_exposure_value(param_value)
         elif param_name == "gain":
             self.camera_control.update_gain_value(param_value)
+
+    def _handle_angle_changed(self, angle: int):
+        """处理角度选择改变"""
+        # 更新处理模块的角度参数
+        self.processor.set_parameter('selected_angle', angle)
+        
+        # 重新处理当前帧
+        if self.current_frame is not None and not self._continuous_mode:
+            self.processor.process_frame(self.current_frame, priority=5)

@@ -93,6 +93,7 @@ class ProcessingModule(BaseModule):
             'contrast': 1.0,            # 对比度调节
             'sharpness': 0.0,          # 锐化强度
             'denoise': 0.0,            # 降噪强度
+            'selected_angle': 0,        # 选择的角度 (0, 45, 90, 135)
         }
         
         # 缓存管理
@@ -257,10 +258,11 @@ class ProcessingModule(BaseModule):
             elif task.mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]:
                 # 解码获取单角度图像
                 decoded = self._processor.demosaic_polarization(task.frame)
-                images = [decoded[0]]  # 使用0度方向
+                angle_index = task.params.get('selected_angle', 0) // 45
+                images = [decoded[angle_index]]  # 使用选择的角度
                 if task.mode == ProcessingMode.SINGLE_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
-                metadata = {'angle': 0}
+                metadata = {'angle': task.params.get('selected_angle', 0)}
                 
             elif task.mode in [ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY]:
                 # 解码并合成图像
