@@ -14,6 +14,7 @@ from .status_indicator import StatusIndicator
 from .styles import Styles
 import logging
 from ..core.processing_module import ProcessingModule, ProcessingMode
+import os
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -26,7 +27,19 @@ class MainWindow(QtWidgets.QMainWindow):
         app = QtWidgets.QApplication.instance()
         Styles.setup_application_font(app)
         
-        self.setWindowTitle("偏振相机控制系统")
+        self.setWindowTitle("PolCam")
+
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon", "icon.svg")
+        if os.path.exists(icon_path):
+            icon = QtGui.QIcon(icon_path)
+            self._logger.info(f"加载图标: {icon_path}")
+        
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+            self._logger.info("成功设置窗口图标")
+        else:
+            self._logger.error("无法加载图标")
+        
         self.setup_ui()
         
         self.camera = CameraModule()
