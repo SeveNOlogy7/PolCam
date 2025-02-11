@@ -20,14 +20,24 @@ from .image_processor import ImageProcessor
 
 class ProcessingMode(Enum):
     """图像处理模式"""
-    RAW = auto()               # 原始图像
-    SINGLE_COLOR = auto()      # 单角度彩色
-    SINGLE_GRAY = auto()       # 单角度灰度
-    MERGED_COLOR = auto()      # 合成彩色
-    MERGED_GRAY = auto()       # 合成灰度
-    QUAD_COLOR = auto()        # 四角度彩色
-    QUAD_GRAY = auto()         # 四角度灰度
-    POLARIZATION = auto()      # 偏振分析
+    RAW = 0                # 原始图像
+    SINGLE_COLOR = 1       # 单角度彩色
+    SINGLE_GRAY = 2        # 单角度灰度
+    MERGED_COLOR = 3       # 彩色图像
+    MERGED_GRAY = 4        # 灰度图像
+    QUAD_COLOR = 5         # 四角度彩色
+    QUAD_GRAY = 6          # 四角度灰度
+    POLARIZATION = 7       # 偏振分析
+
+    @staticmethod
+    def mode_to_index(mode):
+        """转换处理模式为显示模式索引"""
+        return mode.value
+
+    @staticmethod
+    def index_to_mode(index):
+        """转换显示模式索引为处理模式"""
+        return ProcessingMode(index)
 
 @dataclass
 class ProcessingResult:
@@ -413,36 +423,6 @@ class ProcessingModule(BaseModule):
     def get_task_count(self) -> int:
         """获取等待处理的任务数量"""
         return self._task_queue.qsize()
-
-    @staticmethod
-    def mode_to_index(mode: ProcessingMode) -> int:
-        """将处理模式转换为显示模式索引"""
-        mode_map = {
-            ProcessingMode.RAW: 0,
-            ProcessingMode.SINGLE_COLOR: 1,
-            ProcessingMode.SINGLE_GRAY: 2,
-            ProcessingMode.MERGED_COLOR: 3,
-            ProcessingMode.MERGED_GRAY: 4,
-            ProcessingMode.QUAD_COLOR: 5,
-            ProcessingMode.QUAD_GRAY: 6,
-            ProcessingMode.POLARIZATION: 7
-        }
-        return mode_map.get(mode, 0)
-
-    @staticmethod
-    def index_to_mode(index: int) -> ProcessingMode:
-        """将显示模式索引转换为处理模式"""
-        index_map = {
-            0: ProcessingMode.RAW,
-            1: ProcessingMode.SINGLE_COLOR,
-            2: ProcessingMode.SINGLE_GRAY,
-            3: ProcessingMode.MERGED_COLOR,
-            4: ProcessingMode.MERGED_GRAY,
-            5: ProcessingMode.QUAD_COLOR,
-            6: ProcessingMode.QUAD_GRAY,
-            7: ProcessingMode.POLARIZATION
-        }
-        return index_map.get(index, ProcessingMode.RAW)
 
     def get_parameters(self) -> Dict[str, Any]:
         """获取当前处理参数的副本"""

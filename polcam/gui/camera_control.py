@@ -104,9 +104,9 @@ class CameraControl(QtWidgets.QWidget):
         param_layout.addWidget(gain_group)
         
         # 白平衡控制组
-        wb_group = QtWidgets.QGroupBox("白平衡控制")
-        Styles.apply_group_title_style(wb_group)
-        wb_layout = QtWidgets.QHBoxLayout(wb_group)
+        self.wb_group = QtWidgets.QGroupBox("白平衡控制")  # 修改变量名以便访问
+        Styles.apply_group_title_style(self.wb_group)
+        wb_layout = QtWidgets.QHBoxLayout(self.wb_group)
         
         self.wb_auto = QtWidgets.QCheckBox("自动")
         self.wb_auto.setFont(QtGui.QFont("", 11))
@@ -115,7 +115,7 @@ class CameraControl(QtWidgets.QWidget):
         self.wb_once.setMinimumHeight(30)
         wb_layout.addWidget(self.wb_auto)
         wb_layout.addWidget(self.wb_once)
-        param_layout.addWidget(wb_group)
+        param_layout.addWidget(self.wb_group)
         
         layout.addWidget(param_group)
         layout.addStretch()
@@ -233,6 +233,14 @@ class CameraControl(QtWidgets.QWidget):
         """设置白平衡相关控件的启用状态"""
         self.wb_auto.setEnabled(enabled)
         self.wb_once.setEnabled(enabled and not self.wb_auto.isChecked())
+
+    def set_wb_controls_visible(self, visible: bool):
+        """设置白平衡控制组的可见性"""
+        if self.wb_group.isVisible() != visible:  # 只在状态不同时才更新
+            self.wb_group.setVisible(visible)
+            # 立即重新计算布局
+            self.updateGeometry()
+            self.parentWidget().updateGeometry()
 
     def _update_current_values(self):
         """更新当前显示的参数值"""

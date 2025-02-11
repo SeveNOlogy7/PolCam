@@ -83,6 +83,11 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
         
+        # 在创建完 ImageDisplay 后立即设置白平衡控件的初始可见性
+        mode = ProcessingMode.RAW  # 初始模式
+        show_wb = not self._is_grayscale_mode(mode)
+        self.camera_control.set_wb_controls_visible(show_wb)
+        
         self.resize(1200, 800)
 
     def setup_connections(self):
@@ -105,6 +110,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.exposure_once.clicked.connect(self.camera.set_exposure_once)
         self.camera_control.gain_once.clicked.connect(self.camera.set_gain_once)
         self.camera_control.wb_once.clicked.connect(self.camera.set_balance_white_once)
+
+        # 设置初始白平衡控件可见性
+        show_wb = not self._is_grayscale_mode(ProcessingMode.RAW)
+        self.camera_control.set_wb_controls_visible(show_wb)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -245,11 +254,28 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
-        mode = ProcessingModule.index_to_mode(index)
+        mode = ProcessingMode.index_to_mode(index)
         self.processor.set_mode(mode)
-        # 重新处理当前帧
+        
+        # 更新白平衡控件的可见性
+        show_wb = not self._is_grayscale_mode(mode)
+        self._logger.debug(f"显示模式改变: {mode}, 显示白平衡: {show_wb}")  # 添加调试日志
+        self.camera_control.set_wb_controls_visible(show_wb)
+        
+        # 处理当前帧
         if self.current_frame is not None:
             self.processor.process_frame(self.current_frame, priority=5)
+
+    def _is_grayscale_mode(self, mode: ProcessingMode) -> bool:
+        """判断是否是需要隐藏白平衡的显示模式"""
+        grayscale_modes = [
+            ProcessingMode.RAW,            # 原始图像
+            ProcessingMode.SINGLE_GRAY,    # 单角度灰度
+            ProcessingMode.MERGED_GRAY,    # 灰度图像
+            ProcessingMode.QUAD_GRAY,      # 四角度灰度
+            ProcessingMode.POLARIZATION    # 偏振分析
+        ]
+        return mode in grayscale_modes
 
     def _on_frame_processed(self, event: Event):
         """处理帧处理完成事件"""
