@@ -186,15 +186,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_auto_parameters(self):
         """更新自动参数的显示值"""
-        if self.camera_control.exposure_control.auto_check.isChecked():
-            current_exposure = self.camera.get_exposure_time()
-            if current_exposure != self.camera_control.exposure_control.value_spin.value():
-                self.camera_control.update_exposure_value(current_exposure)
-            
-        if self.camera_control.gain_control.auto_check.isChecked():
-            current_gain = self.camera.get_gain()
-            if current_gain != self.camera_control.gain_control.value_spin.value():
-                self.camera_control.update_gain_value(current_gain)
+        current_exposure = self.camera.get_exposure_time()
+        current_gain = self.camera.get_gain()
+        self.camera_control.update_auto_parameters(current_exposure, current_gain)
 
     def handle_capture(self):
         if not self.camera.is_connected():
@@ -268,6 +262,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._continuous_mode = False
             self.status_indicator.setProcessing(False)
             self.status_label.setText("就绪")
+            
+        self.camera_control.handle_stream_state(start)
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
@@ -353,55 +349,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # 只在非连续采集模式下触发重新处理
         if not self._continuous_mode and self.current_frame is not None:
             self.processor.process_frame(self.current_frame, priority=5)
-
-    def _handle_exposure_once(self):
-        """处理单次自动曝光"""
-        # 禁用相关控件
-        self.camera_control.enable_exposure_controls(False)
-        
-        def on_complete(future):
-            try:
-                future.result()
-                QtCore.QTimer.singleShot(0, self._update_exposure_controls)
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "错误", f"单次自动曝光失败: {str(e)}")
-                QtCore.QTimer.singleShot(0, lambda: self.camera_control.enable_exposure_controls(True))
-        
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self.camera.set_exposure_once)
-            future.add_done_callback(on_complete)
-
-    def _handle_gain_once(self):
-        """处理单次自动增益"""
-        self.camera_control.enable_gain_controls(False)
-        
-        def on_complete(future):
-            try:
-                future.result()
-                QtCore.QTimer.singleShot(0, self._update_gain_controls)
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "错误", f"单次自动增益失败: {str(e)}")
-                QtCore.QTimer.singleShot(0, lambda: self.camera_control.enable_gain_controls(True))
-        
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self.camera.set_gain_once)
-            future.add_done_callback(on_complete)
-
-    def _handle_wb_once(self):
-        """处理单次白平衡"""
-        self.camera_control.enable_wb_controls(False)
-        
-        def on_complete(future):
-            try:
-                future.result()
-                QtCore.QTimer.singleShot(0, self._update_wb_controls)
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "错误", f"单次白平衡失败: {str(e)}")
-                QtCore.QTimer.singleShot(0, lambda: self.camera_control.enable_wb_controls(True))
-        
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self.camera.set_balance_white_once)
-            future.add_done_callback(on_complete)
 
     def _handle_pol_color_mode_changed(self, is_color: bool):
         """处理偏振分析模式下的颜色模式改变"""
@@ -513,11 +460,7 @@ class MainWindow(QtWidgets.QMainWindow):
         param_data = event.data
         param_name = param_data.get("parameter")
         param_value = param_data.get("value")
-        
-        if param_name == "exposure":
-            self.camera_control.update_exposure_value(param_value)
-        elif param_name == "gain":
-            self.camera_control.update_gain_value(param_value)
+        self.camera_control.handle_parameter_change(param_name, param_value)
 
     def _handle_angle_changed(self, angle: int):
         """处理角度选择改变"""

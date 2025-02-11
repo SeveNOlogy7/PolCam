@@ -62,6 +62,10 @@ class ParameterControl(ControlGroup):
         self.value_spin.setValue(value)
         self.value_spin.blockSignals(False)
         
+    def is_auto(self) -> bool:
+        """返回是否处于自动模式"""
+        return self.auto_check.isChecked()
+
     def set_enabled(self, enabled: bool):
         self.value_spin.setEnabled(enabled)
         self.auto_check.setEnabled(enabled)

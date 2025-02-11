@@ -59,14 +59,15 @@ class CameraControl(QtWidgets.QWidget):
         layout.addWidget(self.angle_selector)
         self.angle_selector.setVisible(False)
         
-        # 添加白平衡控制组
-        self.wb_control = WhiteBalance()
-        layout.addWidget(self.wb_control)
-        
         # 添加偏振分析控制组
         self.pol_control = PolarizationControl()
         layout.addWidget(self.pol_control)
         self.pol_control.setVisible(False)
+        
+        # 添加白平衡控制组
+        self.wb_control = WhiteBalance()
+        layout.addWidget(self.wb_control)
+        self.wb_control.setVisible(False)
         
         layout.addStretch()
         
@@ -195,3 +196,60 @@ class CameraControl(QtWidgets.QWidget):
             self.update_exposure_value(camera.get_exposure_time())
             # 更新增益值显示
             self.update_gain_value(camera.get_gain())
+
+    def handle_one_shot_auto(self, control_type: str):
+        """处理单次自动调整
+        
+        Args:
+            control_type: 'exposure', 'gain' 或 'wb'
+        """
+        if control_type == 'exposure':
+            self.exposure_control.set_enabled(False)
+        elif control_type == 'gain':
+            self.gain_control.set_enabled(False)
+        elif control_type == 'wb':
+            self.wb_control.set_enabled(False)
+
+    def handle_one_shot_complete(self, control_type: str, value: float = None):
+        """处理单次自动调整完成
+        
+        Args:
+            control_type: 'exposure', 'gain' 或 'wb'
+            value: 新的参数值(可选)
+        """
+        if control_type == 'exposure':
+            self.exposure_control.set_enabled(True)
+            if value is not None:
+                self.update_exposure_value(value)
+        elif control_type == 'gain':
+            self.gain_control.set_enabled(True)
+            if value is not None:
+                self.update_gain_value(value)
+        elif control_type == 'wb':
+            self.wb_control.set_enabled(True)
+            self.wb_control.once_button.setChecked(False)
+
+    def handle_parameter_change(self, param_name: str, value: float):
+        """处理参数变化
+        
+        Args:
+            param_name: 'exposure' 或 'gain'
+            value: 新的参数值
+        """
+        if param_name == 'exposure':
+            self.update_exposure_value(value)
+        elif param_name == 'gain':
+            self.update_gain_value(value)
+
+    def update_auto_parameters(self, exposure: float = None, gain: float = None):
+        """更新自动参数显示值"""
+        if exposure is not None and self.exposure_control.is_auto():
+            self.update_exposure_value(exposure)
+            
+        if gain is not None and self.gain_control.is_auto():
+            self.update_gain_value(gain)
+
+    def handle_stream_state(self, streaming: bool):
+        """处理连续采集状态改变"""
+        self.capture_btn.setEnabled(not streaming)
+        self.stream_btn.setText("停止采集" if streaming else "连续采集")
