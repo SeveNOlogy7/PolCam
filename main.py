@@ -1,8 +1,10 @@
 import sys
 from qtpy import QtWidgets
 from polcam.gui.main_window import MainWindow
+from polcam.utils.logger import setup_logger
 
 def main():
+    setup_logger()
     app = QtWidgets.QApplication(sys.argv)
     window = MainWindow()
     window.show()

@@ -8,16 +8,21 @@ from qtpy import QtWidgets, QtCore, QtGui
 import time
 import numpy as np
 import concurrent.futures
-from ..core.camera import Camera
+from ..core.camera_module import CameraModule
 from ..core.image_processor import ImageProcessor
+from ..core.events import EventType
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
 from .status_indicator import StatusIndicator
 from .styles import Styles
+import logging
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        # 设置日志记录器
+        self._logger = logging.getLogger("polcam.gui.MainWindow")
         
         # 设置全局字体
         app = QtWidgets.QApplication.instance()
@@ -26,24 +31,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("偏振相机控制系统")
         self.setup_ui()
         
-        self.camera = Camera()
+        self.camera = CameraModule()
+        self.camera.initialize()  # 初始化相机模块
         self.image_processor = ImageProcessor()
         self.setup_connections()
         self.setup_statusbar()
         self.current_frame = None      # 原始帧缓存
-        self.raw_changed = False      # 原始帧改变标志
-        self.params_changed = False   # 参数改变标志
-        self._cache = {              # 处理结果缓存
-            'color_images': None,     # 解码后的彩色图像
-            'color_image': None,      # 合成的彩色图像
-            'gray_images': None,      # 灰度图像缓存
-            'dolp': None,            # 偏振度缓存
-            'aolp': None,            # 偏振角缓存
-            'docp': None             # 圆偏振度缓存
-        }
         
         # 设置关闭事件处理标志
         self.close_flag = False
+
+        # 订阅相机事件
+        self.camera.subscribe_event(EventType.CAMERA_CONNECTED, self._on_camera_connected)
+        self.camera.subscribe_event(EventType.CAMERA_DISCONNECTED, self._on_camera_disconnected)
+        self.camera.subscribe_event(EventType.FRAME_CAPTURED, self._on_frame_captured)
+        self.camera.subscribe_event(EventType.ERROR_OCCURRED, self._on_error)
+        self.camera.subscribe_event(EventType.PARAMETER_CHANGED, self._on_parameter_changed)
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -83,7 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.exposure_auto_changed.connect(self.camera.set_exposure_auto)
         self.camera_control.gain_changed.connect(self.camera.set_gain)
         self.camera_control.gain_auto_changed.connect(self.camera.set_gain_auto)
-        self.camera_control.wb_auto_changed.connect(self._handle_wb_auto_changed)
+        self.camera_control.wb_auto_changed.connect(self.camera.set_white_balance_auto)
         
         # 添加显示模式变化和白平衡状态变化的信号处理
         self.image_display.display_mode.currentIndexChanged.connect(
@@ -91,9 +94,9 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         
         # 修改单次按钮连接
-        self.camera_control.exposure_once.clicked.connect(self._handle_exposure_once)
-        self.camera_control.gain_once.clicked.connect(self._handle_gain_once)
-        self.camera_control.wb_once.clicked.connect(self._handle_wb_once)
+        self.camera_control.exposure_once.clicked.connect(self.camera.set_exposure_once)
+        self.camera_control.gain_once.clicked.connect(self.camera.set_gain_once)
+        self.camera_control.wb_once.clicked.connect(self.camera.set_balance_white_once)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -125,77 +128,43 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def handle_connect(self, connect: bool):
         if connect:
-            success, error_msg = self.camera.connect()
+            success = self.camera.start()  # 使用CameraModule的start方法
             if success:
                 self.camera_control.set_connected(True)
                 self.status_indicator.setEnabled(True)
                 self.status_indicator.setStatus(True)
-                self.status_label.setText("相机已连接")
-                # 获取并显示相机信息
-                self.camera_info.setText("MER2-503-23GC-POL")
-                
-                # 初始化相机参数 - 使用相机当前值
-                self.camera.set_exposure_auto(False)
-                self.camera.set_gain_auto(False)
-                
-                # 更新控制面板显示值
-                self.camera_control.update_exposure_value(self.camera.get_last_exposure())
-                self.camera_control.update_gain_value(self.camera.get_last_gain())
+                # 添加连接状态日志
+                self._logger.info("相机连接状态: " + str(self.camera.is_connected()))
             else:
-                # 连接失败，恢复按钮状态和指示器状态
                 self.camera_control.connect_btn.setChecked(False)
                 self.camera_control.set_connected(False)
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
-                self.status_label.setText(error_msg)
-                self.camera_info.clear()
         else:
             # 断开前先停止连续采集
             if self.timer.isActive():
                 self.handle_stream(False)  # 停止连续采集
                 self.camera_control.stream_btn.setChecked(False)  # 更新按钮状态
-            self.camera.disconnect()
+            self.camera.stop()  # 使用CameraModule的stop方法
             self.camera_control.set_connected(False)
             self.status_indicator.setEnabled(False)
             self.status_indicator.setStatus(False)
-            self.status_label.setText("就绪")
-            self.camera_info.clear()
 
     def _update_auto_parameters(self):
-        """更新自动参数的显示值，并标记参数改变"""
-        params_changed = False
+        """更新自动参数的显示值"""
         if self.camera_control.exposure_auto.isChecked():
             current_exposure = self.camera.get_exposure_time()
             if current_exposure != self.camera_control.exposure_spin.value():
                 self.camera_control.update_exposure_value(current_exposure)
-                params_changed = True
             
         if self.camera_control.gain_auto.isChecked():
             current_gain = self.camera.get_gain()
             if current_gain != self.camera_control.gain_spin.value():
                 self.camera_control.update_gain_value(current_gain)
-                params_changed = True
-                
-        if params_changed:
-            self.params_changed = True
-            self._clear_cache()
-
-    def _clear_cache(self, full=False):
-        """清除缓存
-        Args:
-            full: 是否完全清除。True则清除所有缓存，False只清除依赖于参数的缓存
-        """
-        if full:
-            self._cache = {key: None for key in self._cache}
-        else:
-            # 只清除依赖于相机参数的缓存
-            self._cache.update({
-                'color_images': None,
-                'color_image': None
-            })
 
     def handle_capture(self):
-        if not self.camera or not hasattr(self.camera, 'camera'):
+        # 修改检查相机连接状态的条件
+        if not self.camera.is_connected():
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
         
@@ -259,6 +228,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             frame = self.camera.get_frame()
             if frame is not None:
+                
                 t_capture = time.perf_counter() - t_start
                 t_proc_start = time.perf_counter()
                 self.process_and_display_frame(frame)
@@ -279,93 +249,47 @@ class MainWindow(QtWidgets.QMainWindow):
             return
             
         try:
-            # 检查帧是否改变
-            if frame is not self.current_frame:
-                self.current_frame = frame
-                self.raw_changed = True
-                self._clear_cache(full=True)
-            
+            self.current_frame = frame  # 保存当前帧
             mode = self.image_display.display_mode.currentIndex()
             
             if mode == 0:  # 原始图像
                 self.image_display.show_image(frame)
                 return
                 
-            # 需要重新处理的情况
-            need_reprocess = (
-                self.raw_changed or      # 原始帧改变
-                self.params_changed or   # 参数改变
-                reprocess or             # 强制重新处理
-                self._cache['color_images'] is None  # 缓存不存在
-            )
+            # 解码彩色图像
+            color_images = self.image_processor.demosaic_polarization(frame)
             
-            if need_reprocess:
-                # 解码彩色图像
-                self._cache['color_images'] = self.image_processor.demosaic_polarization(frame)
-                
-                # 应用白平衡处理
-                if self.camera.is_wb_auto():
-                    # 对第一个角度图像执行自动白平衡以获取增益系数
-                    self._cache['color_images'][0] = self.image_processor.auto_white_balance(
-                        self._cache['color_images'][0]
-                    )
-                    # 对其他角度图像应用相同的白平衡系数
-                    for i in range(1, 4):
-                        self._cache['color_images'][i] = self.image_processor.apply_white_balance(
-                            self._cache['color_images'][i]
-                        )
-                
-                # 计算合成彩色图像
-                self._cache['color_image'] = np.mean(
-                    self._cache['color_images'], axis=0
-                ).astype(np.uint8)
-                
-                # 重置状态标志
-                self.raw_changed = False
-                self.params_changed = False
+            # 处理白平衡
+            if self.camera.is_wb_auto() and self.camera.is_using_software_wb():
+                # 对第一个角度图像执行自动白平衡以获取增益系数
+                color_images[0] = self.image_processor.auto_white_balance(color_images[0])
+                # 对其他角度图像应用相同的白平衡系数
+                for i in range(1, 4):
+                    color_images[i] = self.image_processor.apply_white_balance(color_images[i])
+            
+            # 计算合成彩色图像
+            color_image = np.mean(color_images, axis=0).astype(np.uint8)
             
             # 根据显示模式处理
             if mode == 1:  # 单角度彩色
-                self.image_display.show_image(self._cache['color_images'][0])
+                self.image_display.show_image(color_images[0])
             elif mode == 2:  # 单角度灰度
-                if self._cache.get('gray_images') is None:
-                    self._cache['gray_images'] = [
-                        self.image_processor.to_grayscale(img) 
-                        for img in self._cache['color_images']
-                    ]
-                self.image_display.show_image(self._cache['gray_images'][0])
+                gray_image = self.image_processor.to_grayscale(color_images[0])
+                self.image_display.show_image(gray_image)
             elif mode == 3:  # 彩色图像
-                self.image_display.show_image(self._cache['color_image'])
+                self.image_display.show_image(color_image)
             elif mode == 4:  # 灰度图像
-                if self._cache.get('gray_image') is None:
-                    self._cache['gray_image'] = self.image_processor.to_grayscale(
-                        self._cache['color_image']
-                    )
-                self.image_display.show_image(self._cache['gray_image'])
+                gray_image = self.image_processor.to_grayscale(color_image)
+                self.image_display.show_image(gray_image)
             elif mode == 5:  # 四角度彩色
-                self.image_display.show_quad_view(self._cache['color_images'], gray=False)
+                self.image_display.show_quad_view(color_images, gray=False)
             elif mode == 6:  # 四角度灰度
-                if self._cache.get('gray_images') is None:
-                    self._cache['gray_images'] = [
-                        self.image_processor.to_grayscale(img) 
-                        for img in self._cache['color_images']
-                    ]
-                self.image_display.show_quad_view(self._cache['gray_images'], gray=True)
+                gray_images = [self.image_processor.to_grayscale(img) for img in color_images]
+                self.image_display.show_quad_view(gray_images, gray=True)
             elif mode == 7:  # 偏振分析
-                # 仅在需要时计算偏振参数
-                if (self._cache['dolp'] is None or 
-                    self._cache['aolp'] is None or 
-                    self._cache['docp'] is None):
-                    self._cache['dolp'], self._cache['aolp'], self._cache['docp'] = (
-                        self.image_processor.calculate_polarization_parameters(
-                            self._cache['color_images']
-                        )
-                    )
+                dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(color_images)
                 self.image_display.show_polarization_quad_view(
-                    self._cache['color_image'], 
-                    self._cache['dolp'],
-                    self._cache['aolp'], 
-                    self._cache['docp']
+                    color_image, dolp, aolp, docp
                 )
                     
         except Exception as e:
@@ -461,8 +385,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.camera_control.stream_btn.setChecked(False)
             
             # 如果相机已连接，断开连接
-            if self.camera and hasattr(self.camera, 'camera') and self.camera.camera is not None:
-                self.camera.disconnect()
+            if self.camera.is_running():
+                self.camera.stop()
+                self.camera.destroy()  # 清理相机模块资源
                 
             # 接受关闭事件
             event.accept()
@@ -474,3 +399,42 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"关闭程序时发生错误: {str(e)}\n程序将继续关闭。"
             )
             event.accept()
+
+    def _on_camera_connected(self, event):
+        """处理相机连接事件"""
+        self.camera_info.setText(event.data.get("device_info", ""))
+        self.status_label.setText("相机已连接")
+        
+        # 使用相机当前值更新控制面板
+        self.camera_control.update_exposure_value(self.camera.get_last_exposure())
+        self.camera_control.update_gain_value(self.camera.get_last_gain())
+
+    def _on_camera_disconnected(self, event):
+        """处理相机断开事件"""
+        self.status_label.setText("相机已断开")
+        self.camera_info.clear()
+
+    def _on_frame_captured(self, event):
+        """处理帧捕获事件"""
+        frame = event.data.get("frame")
+        if frame is not None:
+            self.process_and_display_frame(frame)
+
+    def _on_error(self, event):
+        """处理错误事件"""
+        error_data = event.data
+        error_msg = error_data.get("error", "未知错误")
+        self.status_label.setText(f"错误: {error_msg}")
+        if error_data.get("source") == "camera":
+            QtWidgets.QMessageBox.warning(self, "相机错误", error_msg)
+
+    def _on_parameter_changed(self, event):
+        """处理参数改变事件"""
+        param_data = event.data
+        param_name = param_data.get("parameter")
+        param_value = param_data.get("value")
+        
+        if param_name == "exposure":
+            self.camera_control.update_exposure_value(param_value)
+        elif param_name == "gain":
+            self.camera_control.update_gain_value(param_value)
