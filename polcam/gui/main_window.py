@@ -186,9 +186,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_auto_parameters(self):
         """更新自动参数的显示值"""
-        current_exposure = self.camera.get_exposure_time()
-        current_gain = self.camera.get_gain()
-        self.camera_control.update_auto_parameters(current_exposure, current_gain)
+        if self.camera_control.exposure_control.auto_check.isChecked():
+            current_exposure = self.camera.get_exposure_time()
+            if current_exposure != self.camera_control.exposure_control.value_spin.value():
+                self.camera_control.update_exposure_value(current_exposure)
+            
+        if self.camera_control.gain_control.auto_check.isChecked():
+            current_gain = self.camera.get_gain()
+            if current_gain != self.camera_control.gain_control.value_spin.value():
+                self.camera_control.update_gain_value(current_gain)
 
     def handle_capture(self):
         if not self.camera.is_connected():
@@ -262,8 +268,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self._continuous_mode = False
             self.status_indicator.setProcessing(False)
             self.status_label.setText("就绪")
-            
-        self.camera_control.handle_stream_state(start)
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
@@ -340,11 +344,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_wb_auto_changed(self, auto: bool):
         """处理白平衡状态改变"""
-        # 设置相机白平衡状态
-        self.camera.set_white_balance_auto(auto)
-        
         # 更新处理模块的白平衡状态
         self.processor.set_parameter('wb_auto', auto)
+        
+        self._logger.info(f"使用软件白平衡，自动模式: {auto}")
         
         # 只在非连续采集模式下触发重新处理
         if not self._continuous_mode and self.current_frame is not None:
@@ -460,7 +463,11 @@ class MainWindow(QtWidgets.QMainWindow):
         param_data = event.data
         param_name = param_data.get("parameter")
         param_value = param_data.get("value")
-        self.camera_control.handle_parameter_change(param_name, param_value)
+        
+        if param_name == "exposure":
+            self.camera_control.update_exposure_value(param_value)
+        elif param_name == "gain":
+            self.camera_control.update_gain_value(param_value)
 
     def _handle_angle_changed(self, angle: int):
         """处理角度选择改变"""

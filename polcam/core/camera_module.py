@@ -36,16 +36,10 @@ class CameraModule(BaseModule):
         self._frame_queue = queue.Queue(maxsize=4)  # 增加队列大小
         self._stop_flag = False
         
-        # 修改软件白平衡相关的标志
-        self._use_software_wb = True  # 默认使用软件白平衡
-        self._wb_auto = False        # 白平衡自动模式标志
-        
         # 缓存最后设置的参数值
         self._last_params = {
             'exposure': 10000.0,
-            'gain': 0.0,
-            'wb_auto': False,
-            'software_wb_auto': False  # 添加软件白平衡状态
+            'gain': 0.0
         }
         self._connected = False  # 添加连接状态标志
         self._device_indices = []  # 添加已打开设备的索引列表
@@ -372,21 +366,6 @@ class CameraModule(BaseModule):
             except Exception as e:
                 self._logger.error(f"读取增益参数失败: {str(e)}")
             
-            # 尝试设置硬件白平衡模式
-            try:
-                self._remote_feature.get_enum_feature("BalanceWhiteAuto")
-                self._use_software_wb = False  # 硬件支持白平衡
-            except Exception as e:
-                self._logger.info("硬件不支持白平衡，将使用软件白平衡")
-                self._use_software_wb = True
-                
-            # 如果需要打开白平衡，根据是否支持硬件白平衡选择处理方式
-            if self._last_params['wb_auto']:
-                if not self._use_software_wb:
-                    self._remote_feature.get_enum_feature("BalanceWhiteAuto").set("Continuous")
-                else:
-                    self._last_params['software_wb_auto'] = True
-            
         except Exception as e:
             self._logger.error(f"初始化相机参数失败: {str(e)}")
             self.publish_event(EventType.ERROR_OCCURRED, {
@@ -428,31 +407,6 @@ class CameraModule(BaseModule):
             })
         except Exception as e:
             self._logger.error(f"设置增益值失败: {str(e)}")
-
-    def set_white_balance_auto(self, auto: bool):
-        """设置白平衡模式"""
-        try:
-            if not self._use_software_wb:
-                # 尝试使用硬件白平衡
-                self._remote_feature.get_enum_feature("BalanceWhiteAuto").set(
-                    "Continuous" if auto else "Off"
-                )
-            else:
-                # 仅更新软件白平衡标志
-                self._wb_auto = auto
-                self._logger.info(f"使用软件白平衡，自动模式: {auto}")
-            
-            # 发布参数改变事件
-            self.publish_event(EventType.PARAMETER_CHANGED, {
-                "parameter": "white_balance_auto",
-                "value": auto,
-                "is_software": self._use_software_wb
-            })
-        except Exception as e:
-            self._logger.error(f"设置白平衡模式失败: {str(e)}")
-            # 出错时切换到软件白平衡
-            self._use_software_wb = True
-            self._wb_auto = auto
 
     def set_exposure_auto(self, auto: bool):
         """设置自动曝光模式"""
@@ -554,40 +508,6 @@ class CameraModule(BaseModule):
             })
             raise
 
-    def set_balance_white_once(self):
-        """执行单次白平衡"""
-        try:
-            if not self._use_software_wb:
-                # 尝试使用硬件白平衡
-                self._remote_feature.get_enum_feature("BalanceWhiteAuto").set("Once")
-                # 等待白平衡完成
-                max_wait_time = 5
-                start_time = time.time()
-                while (time.time() - start_time) < max_wait_time:
-                    if self._remote_feature.get_enum_feature("BalanceWhiteAuto").get() == "Off":
-                        break
-                    time.sleep(0.1)
-                else:
-                    self._logger.warning("单次白平衡超时")
-            else:
-                # 软件白平衡逻辑
-                self._logger.info("执行软件单次白平衡")
-                # 这里可以触发一个事件，让图像处理模块执行一次软件白平衡
-                self.publish_event(EventType.PARAMETER_CHANGED, {
-                    "parameter": "white_balance",
-                    "value": "once_requested"
-                })
-                
-            self.publish_event(EventType.PARAMETER_CHANGED, {
-                "parameter": "white_balance",
-                "value": "once_completed"
-            })
-        except Exception as e:
-            self._logger.error(f"单次白平衡失败: {str(e)}")
-            # 出错时切换到软件白平衡
-            self._use_software_wb = True
-            raise
-
     def get_exposure_time(self) -> float:
         """获取当前曝光时间"""
         if not self._remote_feature:
@@ -628,17 +548,3 @@ class CameraModule(BaseModule):
     def get_last_gain(self) -> float:
         """获取最后设置的增益值"""
         return self._last_params['gain']
-
-    def is_wb_auto(self) -> bool:
-        """获取白平衡是否为自动模式"""
-        if self._use_software_wb:
-            return self._wb_auto
-        try:
-            return self._remote_feature.get_enum_feature("BalanceWhiteAuto").get() == "Continuous"
-        except:
-            self._use_software_wb = True
-            return self._wb_auto
-
-    def is_using_software_wb(self) -> bool:
-        """获取是否使用软件白平衡"""
-        return self._use_software_wb
