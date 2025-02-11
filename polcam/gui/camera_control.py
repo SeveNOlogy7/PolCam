@@ -44,11 +44,6 @@ class CameraControl(QtWidgets.QWidget):
         layout.addWidget(self.capture_btn)
         layout.addWidget(self.stream_btn)
         
-        # 参数控制区域
-        param_group = QtWidgets.QGroupBox("参数设置")
-        Styles.apply_group_title_style(param_group)
-        param_layout = QtWidgets.QVBoxLayout(param_group)
-        
         # 曝光控制组
         exposure_group = QtWidgets.QGroupBox("曝光控制")
         Styles.apply_group_title_style(exposure_group)
@@ -75,7 +70,7 @@ class CameraControl(QtWidgets.QWidget):
         exposure_auto_layout.addWidget(self.exposure_once)
         exposure_layout.addLayout(exposure_auto_layout)
         
-        param_layout.addWidget(exposure_group)
+        layout.addWidget(exposure_group)
         
         # 增益控制组
         gain_group = QtWidgets.QGroupBox("增益控制")
@@ -103,7 +98,7 @@ class CameraControl(QtWidgets.QWidget):
         gain_auto_layout.addWidget(self.gain_once)
         gain_layout.addLayout(gain_auto_layout)
         
-        param_layout.addWidget(gain_group)
+        layout.addWidget(gain_group)
         
         # 角度选择控制组 - 确保添加在参数布局中的正确位置
         self.angle_group = QtWidgets.QGroupBox("角度选择")
@@ -121,7 +116,7 @@ class CameraControl(QtWidgets.QWidget):
         Styles.apply_combobox_style(self.angle_combo)
         angle_layout.addWidget(self.angle_combo)
         
-        param_layout.addWidget(self.angle_group)
+        layout.addWidget(self.angle_group)
         self.angle_group.setVisible(False)  # 初始时隐藏
         
         # 白平衡控制组
@@ -136,7 +131,7 @@ class CameraControl(QtWidgets.QWidget):
         self.wb_once.setMinimumHeight(30)
         wb_layout.addWidget(self.wb_auto)
         wb_layout.addWidget(self.wb_once)
-        param_layout.addWidget(self.wb_group)
+        layout.addWidget(self.wb_group)
         
         # 添加偏振分析模式的颜色设置组
         self.pol_color_group = QtWidgets.QGroupBox("合成图像设置")
@@ -163,10 +158,9 @@ class CameraControl(QtWidgets.QWidget):
         wb_layout.addWidget(self.pol_wb_once)
         pol_color_layout.addLayout(wb_layout)
         
-        param_layout.addWidget(self.pol_color_group)
+        layout.addWidget(self.pol_color_group)
         self.pol_color_group.setVisible(False)  # 初始隐藏
         
-        layout.addWidget(param_group)
         layout.addStretch()
         
         # 初始状态设置
