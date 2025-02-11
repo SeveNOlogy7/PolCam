@@ -121,6 +121,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # 添加角度选择信号处理
         self.camera_control.angle_changed.connect(self._handle_angle_changed)
 
+        # 添加偏振分析模式颜色控制连接
+        self.camera_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
+        self.camera_control.pol_wb_auto.toggled.connect(self._handle_pol_wb_auto_changed)
+        self.camera_control.pol_wb_once.clicked.connect(self._handle_pol_wb_once)
+
     def setup_statusbar(self):
         # 创建状态栏
         self.statusBar().setFixedHeight(24)
@@ -266,11 +271,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新控件可见性
         show_wb = not self._is_grayscale_mode(mode)
         show_angle = mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]
+        show_pol = mode == ProcessingMode.POLARIZATION
         
         self._logger.debug(f"显示模式改变: {mode}, 显示白平衡: {show_wb}, 显示角度: {show_angle}")
         
         self.camera_control.set_wb_controls_visible(show_wb)
         self.camera_control.set_angle_controls_visible(show_angle)
+        self.camera_control.set_pol_controls_visible(show_pol)
         
         # 处理当前帧
         if self.current_frame is not None:
@@ -389,6 +396,26 @@ class MainWindow(QtWidgets.QMainWindow):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(self.camera.set_balance_white_once)
             future.add_done_callback(on_complete)
+
+    def _handle_pol_color_mode_changed(self, is_color: bool):
+        """处理偏振分析模式下的颜色模式改变"""
+        self.processor.set_parameter('pol_color_mode', is_color)
+        if self.current_frame is not None:
+            self.processor.process_frame(self.current_frame, priority=5)
+
+    def _handle_pol_wb_auto_changed(self, auto: bool):
+        """处理偏振分析模式下的自动白平衡改变"""
+        self.processor.set_parameter('pol_wb_auto', auto)
+        if self.current_frame is not None:
+            self.processor.process_frame(self.current_frame, priority=5)
+
+    def _handle_pol_wb_once(self):
+        """处理偏振分析模式下的单次白平衡"""
+        if self.current_frame is not None:
+            # 临时启用自动白平衡进行一次处理
+            self.processor.set_parameter('pol_wb_auto', True)
+            self.processor.process_frame(self.current_frame, priority=5)
+            self.processor.set_parameter('pol_wb_auto', False)
 
     @QtCore.Slot()
     def _update_exposure_controls(self):

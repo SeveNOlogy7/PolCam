@@ -22,6 +22,7 @@ class CameraControl(QtWidgets.QWidget):
     wb_auto_changed = QtCore.Signal(bool)
     wb_once_clicked = QtCore.Signal()
     angle_changed = QtCore.Signal(int)
+    color_mode_changed = QtCore.Signal(bool)  # True为彩色，False为灰度
     
     def __init__(self):
         super().__init__()
@@ -137,6 +138,34 @@ class CameraControl(QtWidgets.QWidget):
         wb_layout.addWidget(self.wb_once)
         param_layout.addWidget(self.wb_group)
         
+        # 添加偏振分析模式的颜色设置组
+        self.pol_color_group = QtWidgets.QGroupBox("合成图像设置")
+        Styles.apply_group_title_style(self.pol_color_group)
+        pol_color_layout = QtWidgets.QVBoxLayout(self.pol_color_group)
+        
+        # 添加彩色/灰度选择
+        self.color_mode_combo = QtWidgets.QComboBox()
+        self.color_mode_combo.addItems(["灰度图像", "彩色图像"])
+        self.color_mode_combo.setFont(QtGui.QFont("", 11))
+        self.color_mode_combo.setMinimumHeight(30)
+        Styles.apply_combobox_style(self.color_mode_combo)
+        pol_color_layout.addWidget(self.color_mode_combo)
+        
+        # 添加白平衡控制（初始隐藏）
+        self.pol_wb_auto = QtWidgets.QCheckBox("自动白平衡")
+        self.pol_wb_once = QtWidgets.QPushButton("单次白平衡")
+        self.pol_wb_auto.setFont(QtGui.QFont("", 11))
+        self.pol_wb_once.setFont(QtGui.QFont("", 11))
+        self.pol_wb_once.setMinimumHeight(30)
+        
+        wb_layout = QtWidgets.QHBoxLayout()
+        wb_layout.addWidget(self.pol_wb_auto)
+        wb_layout.addWidget(self.pol_wb_once)
+        pol_color_layout.addLayout(wb_layout)
+        
+        param_layout.addWidget(self.pol_color_group)
+        self.pol_color_group.setVisible(False)  # 初始隐藏
+        
         layout.addWidget(param_group)
         layout.addStretch()
         
@@ -204,6 +233,11 @@ class CameraControl(QtWidgets.QWidget):
             lambda idx: self.angle_changed.emit(idx * 45)  # 转换为实际角度值
         )
         
+        # 添加颜色模式切换信号
+        self.color_mode_combo.currentIndexChanged.connect(
+            lambda idx: self._handle_color_mode_changed(idx == 1)
+        )
+
     def _handle_exposure_auto(self, checked: bool):
         """处理曝光自动模式切换"""
         self.exposure_spin.setReadOnly(checked)  # 只读而不是禁用
@@ -216,6 +250,12 @@ class CameraControl(QtWidgets.QWidget):
         self.gain_spin.setEnabled(True)          # 保持启用状态以显示数值
         self.gain_auto_changed.emit(checked)
         
+    def _handle_color_mode_changed(self, is_color: bool):
+        """处理颜色模式改变"""
+        self.pol_wb_auto.setVisible(is_color)
+        self.pol_wb_once.setVisible(is_color)
+        self.color_mode_changed.emit(is_color)
+
     def update_exposure_value(self, value: float):
         """更新曝光值（不触发信号）"""
         self.exposure_spin.blockSignals(True)
@@ -275,9 +315,21 @@ class CameraControl(QtWidgets.QWidget):
             self.updateGeometry()
             self.parentWidget().updateGeometry()
             
+    def set_pol_controls_visible(self, visible: bool):
+        """设置偏振分析相关控件的可见性"""
+        if self.pol_color_group.isVisible() != visible:
+            self.pol_color_group.setVisible(visible)
+            self.updateGeometry()
+            if self.parentWidget():
+                self.parentWidget().adjustSize()
+
     def get_selected_angle(self) -> int:
         """获取当前选择的角度值"""
         return self.angle_combo.currentIndex() * 45
+
+    def is_pol_color_mode(self) -> bool:
+        """返回当前是否为彩色模式"""
+        return self.color_mode_combo.currentIndex() == 1
 
     def _update_current_values(self):
         """更新当前显示的参数值"""

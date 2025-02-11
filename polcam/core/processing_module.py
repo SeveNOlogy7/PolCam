@@ -94,6 +94,8 @@ class ProcessingModule(BaseModule):
             'sharpness': 0.0,          # 锐化强度
             'denoise': 0.0,            # 降噪强度
             'selected_angle': 0,        # 选择的角度 (0, 45, 90, 135)
+            'pol_color_mode': False,    # 偏振分析模式下合成图像是否为彩色
+            'pol_wb_auto': False        # 偏振分析模式下彩色图像的白平衡开关
         }
         
         # 缓存管理
@@ -259,7 +261,11 @@ class ProcessingModule(BaseModule):
                 # 解码获取单角度图像
                 decoded = self._processor.demosaic_polarization(task.frame)
                 angle_index = task.params.get('selected_angle', 0) // 45
-                images = [decoded[angle_index]]  # 使用选择的角度
+                selected_image = decoded[angle_index]
+                # 对单个角度图像进行白平衡处理
+                if task.mode == ProcessingMode.SINGLE_COLOR and task.params.get('wb_auto', False):
+                    selected_image = self._processor.auto_white_balance(selected_image)
+                images = [selected_image]
                 if task.mode == ProcessingMode.SINGLE_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
                 metadata = {'angle': task.params.get('selected_angle', 0)}
@@ -268,6 +274,9 @@ class ProcessingModule(BaseModule):
                 # 解码并合成图像
                 decoded = self._processor.demosaic_polarization(task.frame)
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
+                # 对合成后的图像进行白平衡
+                if task.mode == ProcessingMode.MERGED_COLOR and task.params.get('wb_auto', False):
+                    merged = self._processor.auto_white_balance(merged)
                 images = [merged]
                 if task.mode == ProcessingMode.MERGED_GRAY:
                     images = [self._processor.to_grayscale(merged)]
@@ -277,6 +286,9 @@ class ProcessingModule(BaseModule):
                 # 解码获取四角度图像
                 decoded = self._processor.demosaic_polarization(task.frame)
                 images = decoded
+                if task.mode == ProcessingMode.QUAD_COLOR and task.params.get('wb_auto', False):
+                    # 对每个角度图像独立进行白平衡，并保持原始亮度
+                    images = [self._apply_wb_preserve_brightness(img) for img in images]
                 if task.mode == ProcessingMode.QUAD_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
                 metadata = {'angles': [0, 45, 90, 135]}
@@ -285,10 +297,19 @@ class ProcessingModule(BaseModule):
                 # 偏振分析
                 decoded = self._processor.demosaic_polarization(task.frame)
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
+                
+                # 根据设置决定合成图像是彩色还是灰度
+                if not task.params.get('pol_color_mode', False):
+                    merged = self._processor.to_grayscale(merged)
+                elif task.params.get('pol_wb_auto', False):
+                    # 对彩色图像进行白平衡
+                    merged = self._processor.auto_white_balance(merged)
+                
                 dolp, aolp, docp = self._processor.calculate_polarization_parameters(decoded)
                 images = [merged, dolp, aolp, docp]
                 metadata = {
-                    'type': ['merged', 'dolp', 'aolp', 'docp']
+                    'type': ['merged', 'dolp', 'aolp', 'docp'],
+                    'is_color': task.params.get('pol_color_mode', False)
                 }
                 
             else:
@@ -311,26 +332,38 @@ class ProcessingModule(BaseModule):
             self._logger.error(f"处理任务失败: {str(e)}")
             raise
 
+    def _apply_wb_preserve_brightness(self, image: np.ndarray) -> np.ndarray:
+        """应用白平衡并保持原始亮度"""
+        if len(image.shape) != 3:
+            return image
+            
+        # 计算原始亮度
+        original_brightness = np.mean(image)
+        
+        # 应用白平衡
+        balanced = self._processor.auto_white_balance(image)
+        
+        # 计算白平衡后的亮度
+        new_brightness = np.mean(balanced)
+        
+        # 计算亮度调整系数
+        brightness_factor = original_brightness / new_brightness if new_brightness > 0 else 1.0
+        
+        # 调整亮度但保持颜色平衡
+        adjusted = cv2.convertScaleAbs(balanced, alpha=brightness_factor, beta=0)
+        
+        return adjusted
+
     def _enhance_images(self, images: List[np.ndarray], 
-                       params: Dict[str, Any]) -> List[np.ndarray]:
+                      params: Dict[str, Any]) -> List[np.ndarray]:
         """应用图像增强"""
         try:
             enhanced = []
-            wb_applied = False  # 跟踪白平衡是否已应用
-            
             for img in images:
                 # 跳过非图像数据（如偏振参数图）
                 if len(img.shape) < 2:
                     enhanced.append(img)
                     continue
-                    
-                # 应用白平衡（仅对彩色图像）
-                if len(img.shape) == 3 and params.get('wb_auto', False):
-                    if not wb_applied:  # 仅对第一个图像执行自动白平衡
-                        img = self._processor.auto_white_balance(img)
-                        wb_applied = True
-                    else:
-                        img = self._processor.apply_white_balance(img)
                 
                 # 应用亮度和对比度调节
                 if params['brightness'] != 1.0 or params['contrast'] != 1.0:
@@ -342,32 +375,22 @@ class ProcessingModule(BaseModule):
                 
                 # 应用锐化
                 if params['sharpness'] > 0:
-                    kernel = np.array([
-                        [-1,-1,-1],
-                        [-1,9,-1],
-                        [-1,-1,-1]
-                    ]) * params['sharpness']
+                    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]]) * params['sharpness']
                     img = cv2.filter2D(img, -1, kernel)
                 
                 # 应用降噪
                 if params['denoise'] > 0:
                     if len(img.shape) == 3:
                         img = cv2.fastNlMeansDenoisingColored(
-                            img,
-                            None,
+                            img, None,
                             params['denoise'] * 10,
                             params['denoise'] * 10,
-                            7,
-                            21
-                        )
+                            7, 21)
                     else:
                         img = cv2.fastNlMeansDenoising(
-                            img,
-                            None,
+                            img, None,
                             params['denoise'] * 10,
-                            7,
-                            21
-                        )
+                            7, 21)
                 
                 enhanced.append(img)
                 
