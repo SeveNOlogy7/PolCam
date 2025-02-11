@@ -10,28 +10,38 @@ class StatusIndicator(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._status = False
-        self.setEnabled(False)  # 初始状态为禁用
-        self.setFixedSize(16, 16)  # 设置固定大小
+        self._processing = False
+        self.setMinimumSize(16, 16)
+        self.setMaximumSize(16, 16)
         
     def setStatus(self, status: bool):
-        self._status = status
-        self.update()
-        
-    def isStatus(self) -> bool:
-        """获取当前状态"""
-        return self._status
-        
+        """设置连接状态"""
+        if self._status != status:
+            self._status = status
+            self.update()
+            
+    def setProcessing(self, processing: bool):
+        """设置处理状态"""
+        if self._processing != processing:
+            self._processing = processing
+            self.update()
+            
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         
-        # 定义颜色
-        if self._status:
-            color = QtGui.QColor(0, 255, 0)  # 绿色
+        # 简单的颜色选择
+        if not self.isEnabled():
+            color = QtGui.QColor(128, 128, 128)  # 灰色表示禁用
+        elif self._processing:
+            color = QtGui.QColor(255, 165, 0)    # 橙色表示处理中
+        elif self._status:
+            color = QtGui.QColor(0, 255, 0)      # 绿色表示已连接
         else:
-            color = QtGui.QColor(128, 128, 128)  # 灰色
+            color = QtGui.QColor(255, 0, 0)      # 红色表示未连接
             
-        # 绘制圆形指示灯
+        # 简单绘制一个填充圆
+        rect = self.rect().adjusted(2, 2, -2, -2)
         painter.setBrush(color)
-        painter.setPen(QtGui.QPen(color.darker(150), 1))
-        painter.drawEllipse(2, 2, 12, 12)
+        painter.setPen(QtGui.QPen(color.darker(), 1))
+        painter.drawEllipse(rect)

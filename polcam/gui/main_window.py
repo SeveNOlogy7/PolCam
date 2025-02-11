@@ -6,17 +6,15 @@ See LICENSE file for full license details.
 
 from qtpy import QtWidgets, QtCore, QtGui
 import time
-import numpy as np
 import concurrent.futures
-from typing import List, Tuple
 from ..core.camera_module import CameraModule
-from ..core.image_processor import ImageProcessor
-from ..core.events import EventType
+from ..core.events import EventType, Event
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
 from .status_indicator import StatusIndicator
 from .styles import Styles
 import logging
+from ..core.processing_module import ProcessingModule, ProcessingMode
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -34,10 +32,22 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.camera = CameraModule()
         self.camera.initialize()  # 初始化相机模块
-        self.image_processor = ImageProcessor()
         self.setup_connections()
         self.setup_statusbar()
         self.current_frame = None      # 原始帧缓存
+        
+        # 初始化处理模块
+        self.processor = ProcessingModule()
+        self.processor.initialize()
+        
+        # 订阅处理模块事件
+        self.processor.subscribe_event(EventType.FRAME_PROCESSED, self._on_frame_processed)
+        self.processor.subscribe_event(EventType.ERROR_OCCURRED, self._on_error)
+        self.processor.subscribe_event(EventType.PROCESSING_STARTED, self._on_processing_started)
+        self.processor.subscribe_event(EventType.PROCESSING_COMPLETED, self._on_processing_completed)
+        
+        # 更新显示模式改变的连接
+        self.image_display.display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
         
         # 设置关闭事件处理标志
         self.close_flag = False
@@ -48,6 +58,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera.subscribe_event(EventType.FRAME_CAPTURED, self._on_frame_captured)
         self.camera.subscribe_event(EventType.ERROR_OCCURRED, self._on_error)
         self.camera.subscribe_event(EventType.PARAMETER_CHANGED, self._on_parameter_changed)
+
+        self._last_capture_time = 0.0  # 添加采集时间缓存
+        self._last_process_time = 0.0  # 添加处理时间缓存
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -87,12 +100,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.exposure_auto_changed.connect(self.camera.set_exposure_auto)
         self.camera_control.gain_changed.connect(self.camera.set_gain)
         self.camera_control.gain_auto_changed.connect(self.camera.set_gain_auto)
-        self.camera_control.wb_auto_changed.connect(self.camera.set_white_balance_auto)
+        self.camera_control.wb_auto_changed.connect(self._handle_wb_auto_changed)
         
         # 添加显示模式变化和白平衡状态变化的信号处理
-        self.image_display.display_mode.currentIndexChanged.connect(
-            lambda: self.process_and_display_frame(self.current_frame, reprocess=True)
-        )
+        self.image_display.display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
         
         # 修改单次按钮连接
         self.camera_control.exposure_once.clicked.connect(self.camera.set_exposure_once)
@@ -169,17 +180,20 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         self._set_capture_buttons_enabled(False)
+        self.status_indicator.setProcessing(True)
         
         try:
             frame = self.camera.get_frame()
             if frame is not None:
-                t_capture, t_proc = self._handle_frame_processing(frame)
+                self.current_frame = frame
+                self.processor.process_frame(frame)
                 self._update_auto_parameters()
-                self._update_timing_display(t_capture, t_proc)
             else:
                 QtWidgets.QMessageBox.warning(self, "错误", "获取图像失败")
+                self.status_indicator.setProcessing(False)
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {str(e)}")
+            self.status_indicator.setProcessing(False) 
         finally:
             self._set_capture_buttons_enabled(True)
 
@@ -188,13 +202,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.capture_btn.setEnabled(enabled)
         self.camera_control.stream_btn.setEnabled(enabled)
 
-    def _update_timing_display(self, t_capture: float, t_proc: float):
-        """更新时间显示"""
+    def _update_timing_display(self):
+        """更新时间显示
+        使用缓存的采集和处理时间更新显示
+        """
         self.time_label.setText(
-            f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
+            f"采集: {self._last_capture_time*1000:.1f}ms | 处理: {self._last_process_time*1000:.1f}ms"
         )
 
+    def _update_capture_time(self, t_capture: float):
+        """更新采集时间"""
+        self._last_capture_time = t_capture
+        self._update_timing_display()
+
+    def _update_process_time(self, t_proc: float):
+        """更新处理时间"""
+        self._last_process_time = t_proc
+        self._update_timing_display()
+
     def handle_stream(self, start: bool):
+        """处理连续采集开关"""
         # 如果程序正在关闭，不允许开始新的采集
         if self.close_flag and start:
             return
@@ -211,125 +238,84 @@ class MainWindow(QtWidgets.QMainWindow):
             self.timer.stop()
             self.camera_control.capture_btn.setEnabled(True)
             self.camera_control.stream_btn.setText("连续采集")  # 恢复按钮文字
+            
+            # 取消所有待处理任务
+            self.processor.cancel_all_tasks()
+            # 重置处理状态
+            self.status_indicator.setProcessing(False)
+            self.status_label.setText("就绪")
 
     def update_frame(self):
-        t_start = time.perf_counter()
+        """更新帧显示（用于连续采集）"""
         try:
             frame = self.camera.get_frame()
             if frame is not None:
-                
-                t_capture = time.perf_counter() - t_start
-                t_proc_start = time.perf_counter()
-                self.process_and_display_frame(frame)
-                t_proc = time.perf_counter() - t_proc_start
-                
-                self._update_auto_parameters()  # 更新自动参数值
-                
-                # 更新状态栏时间信息
-                self.time_label.setText(
-                    f"采集: {t_capture*1000:.1f}ms | 处理: {t_proc*1000:.1f}ms"
-                )
+                self.current_frame = frame
+                if not self.processor.is_processing():
+                    self.processor.process_frame(frame)
+                self._update_auto_parameters()
         except Exception as e:
-            # 流模式下的错误不显示弹窗，只更新状态栏
             self.status_label.setText(f"采集错误: {str(e)}")
 
-    def _process_image_by_mode(self, mode: int, color_images: List[np.ndarray], color_image: np.ndarray) -> None:
-        """根据显示模式处理并显示图像
-        
-        Args:
-            mode: 显示模式索引
-            color_images: 四个角度的彩色图像列表
-            color_image: 合成的彩色图像
-        """
-        if mode == 1:  # 单角度彩色
-            self.image_display.show_image(color_images[0])
-        elif mode == 2:  # 单角度灰度
-            gray_image = self.image_processor.to_grayscale(color_images[0])
-            self.image_display.show_image(gray_image)
-        elif mode == 3:  # 彩色图像
-            self.image_display.show_image(color_image)
-        elif mode == 4:  # 灰度图像
-            gray_image = self.image_processor.to_grayscale(color_image)
-            self.image_display.show_image(gray_image)
-        elif mode == 5:  # 四角度彩色
-            self.image_display.show_quad_view(color_images, gray=False)
-        elif mode == 6:  # 四角度灰度
-            gray_images = [self.image_processor.to_grayscale(img) for img in color_images]
-            self.image_display.show_quad_view(gray_images, gray=True)
-        elif mode == 7:  # 偏振分析
-            dolp, aolp, docp = self.image_processor.calculate_polarization_parameters(color_images)
-            self.image_display.show_polarization_quad_view(color_image, dolp, aolp, docp)
+    def _on_display_mode_changed(self, index: int):
+        """处理显示模式改变"""
+        mode = ProcessingModule.index_to_mode(index)
+        self.processor.set_mode(mode)
+        # 重新处理当前帧
+        if self.current_frame is not None:
+            self.processor.process_frame(self.current_frame, priority=5)
 
-    def _apply_white_balance(self, color_images: List[np.ndarray]) -> List[np.ndarray]:
-        """应用白平衡处理
-        
-        Args:
-            color_images: 原始彩色图像列表
-            
-        Returns:
-            处理后的彩色图像列表
-        """
-        if self.camera.is_wb_auto() and self.camera.is_using_software_wb():
-            # 对第一个角度图像执行自动白平衡以获取增益系数
-            color_images[0] = self.image_processor.auto_white_balance(color_images[0])
-            # 对其他角度图像应用相同的白平衡系数
-            for i in range(1, 4):
-                color_images[i] = self.image_processor.apply_white_balance(color_images[i])
-        return color_images
+    def _on_frame_processed(self, event: Event):
+        """处理帧处理完成事件"""
+        result = event.data.get('result')
+        proc_time = event.data.get('processing_time', 0)
+        if result:
+            self._update_display(result)
+            self._update_process_time(proc_time)  # 只更新处理时间
 
-    def _handle_frame_processing(self, frame: np.ndarray) -> Tuple[float, float]:
-        """处理单帧图像并返回处理时间
-        
-        Args:
-            frame: 输入图像帧
-            
-        Returns:
-            (采集时间, 处理时间) 的元组
-        """
-        t_start = time.perf_counter()
-        t_capture = time.perf_counter() - t_start
-        
-        t_proc_start = time.perf_counter()
-        self.process_and_display_frame(frame)
-        t_proc = time.perf_counter() - t_proc_start
-        
-        return t_capture, t_proc
+    def _on_processing_started(self, event: Event):
+        """处理开始时的处理"""
+        self.status_indicator.setProcessing(True)
+        self.status_label.setText("正在处理...")
 
-    def process_and_display_frame(self, frame, reprocess=False):
-        if frame is None:
+    def _on_processing_completed(self, event: Event):
+        """处理完成时的处理"""
+        self.status_indicator.setProcessing(False)
+        self.status_label.setText("就绪")
+
+    def _update_display(self, result):
+        """更新图像显示"""
+        if not result or not result.images:
             return
             
-        try:
-            self.current_frame = frame
-            mode = self.image_display.display_mode.currentIndex()
-            
-            if mode == 0:  # 原始图像
-                self.image_display.show_image(frame)
-                return
-                
-            # 解码彩色图像
-            color_images = self.image_processor.demosaic_polarization(frame)
-            
-            # 应用白平衡处理
-            color_images = self._apply_white_balance(color_images)
-            
-            # 计算合成彩色图像
-            color_image = np.mean(color_images, axis=0).astype(np.uint8)
-            
-            # 根据显示模式处理
-            self._process_image_by_mode(mode, color_images, color_image)
-                    
-        except Exception as e:
-            raise Exception(f"图像处理失败: {e}")
+        mode = result.mode
+        images = result.images
+        
+        if mode == ProcessingMode.RAW:
+            self.image_display.show_image(images[0])
+        elif mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]:
+            self.image_display.show_image(images[0])
+        elif mode in [ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY]:
+            self.image_display.show_image(images[0])
+        elif mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
+            self.image_display.show_quad_view(
+                images, 
+                gray=(mode == ProcessingMode.QUAD_GRAY)
+            )
+        elif mode == ProcessingMode.POLARIZATION:
+            self.image_display.show_polarization_quad_view(*images)
 
     def _handle_wb_auto_changed(self, auto: bool):
         """处理白平衡状态改变"""
         # 设置相机白平衡状态
-        self.camera.set_balance_white_auto(auto)
+        self.camera.set_white_balance_auto(auto)
+        
+        # 更新处理模块的白平衡状态
+        self.processor.set_parameter('wb_auto', auto)
         
         # 只在非连续采集模式下触发重新处理
         if not self.timer.isActive() and self.current_frame is not None:
-            self.process_and_display_frame(self.current_frame, reprocess=True)
+            self.processor.process_frame(self.current_frame, priority=5)
 
     def _handle_exposure_once(self):
         """处理单次自动曝光"""
@@ -410,6 +396,10 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.timer.isActive():
                 self.handle_stream(False)
                 self.camera_control.stream_btn.setChecked(False)
+
+            # 停止并销毁处理模块
+            self.processor.stop()
+            self.processor.destroy()
             
             # 如果相机已连接，断开连接
             if self.camera.is_running():
@@ -444,8 +434,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
         frame = event.data.get("frame")
+        capture_time = event.data.get("capture_time", 0)
         if frame is not None:
-            self.process_and_display_frame(frame)
+            self.current_frame = frame
+            self._update_capture_time(capture_time)  # 只更新采集时间
 
     def _on_error(self, event):
         """处理错误事件"""

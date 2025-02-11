@@ -284,6 +284,7 @@ class CameraModule(BaseModule):
     def get_frame(self) -> Optional[np.ndarray]:
         """获取最新图像帧"""
         try:
+            t_start = time.perf_counter()
             if not self._is_streaming:
                 # 单帧采集时，临时开启数据流
                 self._camera.stream_on()
@@ -293,6 +294,13 @@ class CameraModule(BaseModule):
                     raw_image = self._camera.data_stream[0].get_image()
                     if raw_image:
                         frame = raw_image.get_numpy_array()
+                        t_capture = time.perf_counter() - t_start
+                        # 添加时间信息
+                        self.publish_event(EventType.FRAME_CAPTURED, {
+                            "frame": frame,
+                            "capture_time": t_capture,
+                            "timestamp": time.time()
+                        })
                         return frame
                 finally:
                     # 确保数据流被关闭
@@ -301,7 +309,15 @@ class CameraModule(BaseModule):
             else:
                 # 连续采集模式下增加等待时间
                 try:
-                    return self._frame_queue.get(timeout=0.1)  # 等待最多100ms
+                    frame = self._frame_queue.get(timeout=0.1)
+                    t_capture = time.perf_counter() - t_start
+                    # 添加时间信息
+                    self.publish_event(EventType.FRAME_CAPTURED, {
+                        "frame": frame,
+                        "capture_time": t_capture,
+                        "timestamp": time.time()
+                    })
+                    return frame
                 except queue.Empty:
                     self._logger.error("图像队列为空")
                     return None
