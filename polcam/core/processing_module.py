@@ -17,6 +17,7 @@ from enum import Enum, auto
 from .base_module import BaseModule
 from .events import EventType, Event
 from .image_processor import ImageProcessor
+from .caching import WhiteBalanceCache
 
 class ProcessingMode(Enum):
     """图像处理模式"""
@@ -102,6 +103,9 @@ class ProcessingModule(BaseModule):
         self._last_result: Optional[ProcessingResult] = None
         self._frame_cache = {}          # 缓存最近处理过的帧
         self._max_cache_size = 10
+
+        # 替换原有的白平衡缓存
+        self._wb_cache = WhiteBalanceCache(valid_duration=2.0)
         
     def _do_initialize(self) -> bool:
         """初始化处理模块"""
@@ -264,7 +268,14 @@ class ProcessingModule(BaseModule):
                 selected_image = decoded[angle_index]
                 # 对单个角度图像进行白平衡处理
                 if task.mode == ProcessingMode.SINGLE_COLOR and task.params.get('wb_auto', False):
-                    selected_image = self._processor.auto_white_balance(selected_image)
+                    angle = task.params.get('selected_angle', 0)
+                    gains = self._wb_cache.get_single(angle)
+                    if gains is None:
+                        wb_image, gains = self._processor.auto_white_balance(selected_image, return_gains=True)
+                        self._wb_cache.set_single(angle, gains)
+                    else:
+                        wb_image = self._apply_wb_gains(selected_image, gains)
+                    selected_image = wb_image
                 images = [selected_image]
                 if task.mode == ProcessingMode.SINGLE_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
@@ -276,7 +287,13 @@ class ProcessingModule(BaseModule):
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
                 # 对合成后的图像进行白平衡
                 if task.mode == ProcessingMode.MERGED_COLOR and task.params.get('wb_auto', False):
-                    merged = self._processor.auto_white_balance(merged)
+                    gains = self._wb_cache.get_merged()
+                    if gains is None:
+                        wb_image, gains = self._processor.auto_white_balance(merged, return_gains=True)
+                        self._wb_cache.set_merged(gains)
+                    else:
+                        wb_image = self._apply_wb_gains(merged, gains)
+                    merged = wb_image
                 images = [merged]
                 if task.mode == ProcessingMode.MERGED_GRAY:
                     images = [self._processor.to_grayscale(merged)]
@@ -287,8 +304,17 @@ class ProcessingModule(BaseModule):
                 decoded = self._processor.demosaic_polarization(task.frame)
                 images = decoded
                 if task.mode == ProcessingMode.QUAD_COLOR and task.params.get('wb_auto', False):
-                    # 对每个角度图像独立进行白平衡，并保持原始亮度
-                    images = [self._apply_wb_preserve_brightness(img) for img in images]
+                    processed_images = []
+                    for i, img in enumerate(images):
+                        angle = i * 45
+                        gains = self._wb_cache.get_quad(angle)
+                        if gains is None:
+                            wb_image, gains = self._processor.auto_white_balance(img, return_gains=True)
+                            self._wb_cache.set_quad(angle, gains)
+                        else:
+                            wb_image = self._apply_wb_gains(img, gains)
+                        processed_images.append(wb_image)
+                    images = processed_images
                 if task.mode == ProcessingMode.QUAD_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
                 metadata = {'angles': [0, 45, 90, 135]}
@@ -302,8 +328,13 @@ class ProcessingModule(BaseModule):
                 if not task.params.get('pol_color_mode', False):
                     merged = self._processor.to_grayscale(merged)
                 elif task.params.get('pol_wb_auto', False):
-                    # 对彩色图像进行白平衡
-                    merged = self._processor.auto_white_balance(merged)
+                    gains = self._wb_cache.get_pol()
+                    if gains is None:
+                        wb_image, gains = self._processor.auto_white_balance(merged, return_gains=True)
+                        self._wb_cache.set_pol(gains)
+                    else:
+                        wb_image = self._apply_wb_gains(merged, gains)
+                    merged = wb_image
                 
                 dolp, aolp, docp = self._processor.calculate_polarization_parameters(decoded)
                 images = [merged, dolp, aolp, docp]
@@ -332,27 +363,15 @@ class ProcessingModule(BaseModule):
             self._logger.error(f"处理任务失败: {str(e)}")
             raise
 
-    def _apply_wb_preserve_brightness(self, image: np.ndarray) -> np.ndarray:
-        """应用白平衡并保持原始亮度"""
+    def _apply_wb_gains(self, image: np.ndarray, gains: np.ndarray) -> np.ndarray:
+        """应用白平衡增益值"""
         if len(image.shape) != 3:
             return image
             
-        # 计算原始亮度
-        original_brightness = np.mean(image)
-        
-        # 应用白平衡
-        balanced = self._processor.auto_white_balance(image)
-        
-        # 计算白平衡后的亮度
-        new_brightness = np.mean(balanced)
-        
-        # 计算亮度调整系数
-        brightness_factor = original_brightness / new_brightness if new_brightness > 0 else 1.0
-        
-        # 调整亮度但保持颜色平衡
-        adjusted = cv2.convertScaleAbs(balanced, alpha=brightness_factor, beta=0)
-        
-        return adjusted
+        result = image.copy()
+        for i in range(3):  # BGR
+            result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
+        return result
 
     def _enhance_images(self, images: List[np.ndarray], 
                       params: Dict[str, Any]) -> List[np.ndarray]:
@@ -529,3 +548,17 @@ class ProcessingModule(BaseModule):
         while len(self._frame_cache) > size:
             oldest_key = next(iter(self._frame_cache))
             del self._frame_cache[oldest_key]
+
+    def clear_wb_cache(self):
+        """清空白平衡缓存"""
+        self._wb_cache.clear_all()
+
+    def set_wb_cache_duration(self, duration: float):
+        """设置白平衡缓存的有效期
+        
+        Args:
+            duration: 缓存有效期（秒）
+        """
+        if duration < 0:
+            raise ValueError("缓存有效期不能为负数")
+        self._wb_cache.set_valid_duration(duration)

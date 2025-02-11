@@ -7,12 +7,11 @@ See LICENSE file for full license details.
 import numpy as np
 import polanalyser as pa
 import cv2
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 class ImageProcessor:
     def __init__(self):
-        self._wb_gains = np.ones(3)  # RGB通道增益初始值
-        self._brightness_factor = 1.0  # 亮度调节因子
+        pass
 
     @staticmethod
     def demosaic_polarization(raw_image: np.ndarray) -> List[np.ndarray]:
@@ -107,69 +106,40 @@ class ImageProcessor:
         
         return dolp, aolp, docp
 
-    def auto_white_balance(self, image: np.ndarray) -> np.ndarray:
-        """改进的自动白平衡算法"""
-        # 输入验证
-        if not isinstance(image, np.ndarray):
-            raise TypeError("输入必须是numpy数组类型")
+    def auto_white_balance(self, image: np.ndarray, return_gains: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """自动白平衡处理
+        
+        Args:
+            image: 输入图像 (BGR格式)
+            return_gains: 是否返回白平衡增益值
             
+        Returns:
+            如果return_gains为False，返回处理后的图像
+            如果return_gains为True，返回元组(处理后的图像, 白平衡增益值)
+        """
         if len(image.shape) != 3:
-            return image
+            return (image, np.ones(3)) if return_gains else image
             
-        # 分离BGR通道
-        b, g, r = cv2.split(image.astype(np.float32))
+        # 计算每个通道的平均值
+        b, g, r = cv2.split(image)
+        b_avg = np.mean(b)
+        g_avg = np.mean(g)
+        r_avg = np.mean(r)
         
-        # 计算每个通道的均值（排除最亮和最暗的像素）
-        def get_avg(channel):
-            # 排除最亮和最暗的5%像素
-            flat = channel.flatten()
-            sorted_idx = np.argsort(flat)
-            exclude_n = int(len(flat) * 0.05)
-            valid_idx = sorted_idx[exclude_n:-exclude_n]
-            return np.mean(flat[valid_idx])
+        # 计算增益值，以绿色通道为基准
+        if g_avg == 0:
+            gains = np.ones(3)
+        else:
+            b_gain = g_avg / b_avg if b_avg > 0 else 1.0
+            r_gain = g_avg / r_avg if r_avg > 0 else 1.0
+            gains = np.array([b_gain, 1.0, r_gain])
             
-        b_avg = get_avg(b)
-        g_avg = get_avg(g)
-        r_avg = get_avg(r)
+        # 限制增益范围
+        gains = np.clip(gains, 0.1, 3.0)
         
-        # 使用RGB平均值作为参考（而不是单独使用绿色通道）
-        avg_rgb = (b_avg + g_avg + r_avg) / 3
-        
-        # 计算白平衡增益
-        self._wb_gains = np.array([
-            avg_rgb / b_avg,  # 蓝色通道增益
-            avg_rgb / g_avg,  # 绿色通道增益
-            avg_rgb / r_avg   # 红色通道增益
-        ])
-        
-        # 计算亮度调节因子（目标亮度设为128）
-        target_brightness = 128.0
-        current_brightness = np.mean([b_avg, g_avg, r_avg])
-        self._brightness_factor = min(target_brightness / current_brightness, 2.0)  # 限制最大增益
-        
-        # 应用白平衡和亮度调节
-        balanced = cv2.merge([
-            np.clip(b * self._wb_gains[0] * self._brightness_factor, 0, 255),
-            np.clip(g * self._wb_gains[1] * self._brightness_factor, 0, 255),
-            np.clip(r * self._wb_gains[2] * self._brightness_factor, 0, 255)
-        ]).astype(np.uint8)
-        
-        return balanced
-
-    def apply_white_balance(self, image: np.ndarray) -> np.ndarray:
-        """应用已有的白平衡和亮度参数"""
-        # 输入验证
-        if not isinstance(image, np.ndarray):
-            raise TypeError("输入必须是numpy数组类型")
+        # 保存现有的处理结果
+        result = image.copy()
+        for i in range(3):  # BGR
+            result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
             
-        if len(image.shape) != 3:
-            return image
-            
-        b, g, r = cv2.split(image.astype(np.float32))
-        balanced = cv2.merge([
-            np.clip(b * self._wb_gains[0] * self._brightness_factor, 0, 255),
-            np.clip(g * self._wb_gains[1] * self._brightness_factor, 0, 255),
-            np.clip(r * self._wb_gains[2] * self._brightness_factor, 0, 255)
-        ]).astype(np.uint8)
-        
-        return balanced
+        return (result, gains) if return_gains else result
