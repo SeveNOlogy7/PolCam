@@ -100,31 +100,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.stream_clicked.connect(self.handle_stream)
         
         # 添加参数控制连接
-        self.camera_control.exposure_changed.connect(self.camera.set_exposure_time)
-        self.camera_control.exposure_auto_changed.connect(self.camera.set_exposure_auto)
-        self.camera_control.gain_changed.connect(self.camera.set_gain)
-        self.camera_control.gain_auto_changed.connect(self.camera.set_gain_auto)
-        self.camera_control.wb_auto_changed.connect(self._handle_wb_auto_changed)
-        
-        # 添加显示模式变化和白平衡状态变化的信号处理
-        self.image_display.display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
+        self.camera_control.exposure_control.value_changed.connect(self.camera.set_exposure_time)
+        self.camera_control.exposure_control.auto_changed.connect(self.camera.set_exposure_auto)
+        self.camera_control.gain_control.value_changed.connect(self.camera.set_gain)
+        self.camera_control.gain_control.auto_changed.connect(self.camera.set_gain_auto)
+        self.camera_control.wb_control.auto_changed.connect(self._handle_wb_auto_changed)
         
         # 修改单次按钮连接
-        self.camera_control.exposure_once.clicked.connect(self.camera.set_exposure_once)
-        self.camera_control.gain_once.clicked.connect(self.camera.set_gain_once)
-        self.camera_control.wb_once.clicked.connect(self.camera.set_balance_white_once)
-
-        # 设置初始白平衡控件可见性
-        show_wb = not self._is_grayscale_mode(ProcessingMode.RAW)
-        self.camera_control.set_wb_controls_visible(show_wb)
+        self.camera_control.exposure_control.once_clicked.connect(self.camera.set_exposure_once)
+        self.camera_control.gain_control.once_clicked.connect(self.camera.set_gain_once)
+        self.camera_control.wb_control.once_clicked.connect(self.camera.set_balance_white_once)
 
         # 添加角度选择信号处理
-        self.camera_control.angle_changed.connect(self._handle_angle_changed)
-
-        # 添加偏振分析模式颜色控制连接
-        self.camera_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
-        self.camera_control.pol_wb_auto.toggled.connect(self._handle_pol_wb_auto_changed)
-        self.camera_control.pol_wb_once.clicked.connect(self._handle_pol_wb_once)
+        self.camera_control.angle_selector.angle_changed.connect(self._handle_angle_changed)
+        
+        # 添加偏振分析颜色控制连接
+        self.camera_control.pol_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
+        self.camera_control.pol_control.wb_auto_changed.connect(self._handle_pol_wb_auto_changed)
+        self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -180,14 +173,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_auto_parameters(self):
         """更新自动参数的显示值"""
-        if self.camera_control.exposure_auto.isChecked():
+        if self.camera_control.exposure_control.auto_check.isChecked():
             current_exposure = self.camera.get_exposure_time()
-            if current_exposure != self.camera_control.exposure_spin.value():
+            if current_exposure != self.camera_control.exposure_control.value_spin.value():
                 self.camera_control.update_exposure_value(current_exposure)
             
-        if self.camera_control.gain_auto.isChecked():
+        if self.camera_control.gain_control.auto_check.isChecked():
             current_gain = self.camera.get_gain()
-            if current_gain != self.camera_control.gain_spin.value():
+            if current_gain != self.camera_control.gain_control.value_spin.value():
                 self.camera_control.update_gain_value(current_gain)
 
     def handle_capture(self):
