@@ -1,4 +1,8 @@
 """
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+
 相机模块实现
 提供相机控制和图像采集功能
 """
@@ -179,8 +183,8 @@ class CameraModule(BaseModule):
             return
             
         try:
-            # 先发送处理开始事件
-            self.publish_event(EventType.PROCESSING_STARTED)
+            # 发送串流开始事件
+            self.publish_event(EventType.STREAMING_STARTED)
             # 确保事件被处理
             time.sleep(0.1)
             
@@ -225,8 +229,8 @@ class CameraModule(BaseModule):
                     
             self._is_streaming = False
             
-            # 确保在最后发送处理完成事件
-            self.publish_event(EventType.PROCESSING_COMPLETED)
+            # 发送串流停止事件
+            self.publish_event(EventType.STREAMING_STOPPED)
             
         except Exception as e:
             self._logger.error(f"停止图像采集失败: {str(e)}")
@@ -239,11 +243,17 @@ class CameraModule(BaseModule):
         """图像采集线程任务"""
         while not self._stop_flag:
             try:
+                # 开始计时
+                t_start = time.perf_counter()
+                
                 # 获取图像
                 raw_image = self._camera.data_stream[0].get_image()
                 if raw_image:
                     frame = raw_image.get_numpy_array()
                     if frame is not None:
+                        # 计算采集时间
+                        t_capture = time.perf_counter() - t_start
+                        
                         # 当队列满时，移除最旧的帧
                         try:
                             if self._frame_queue.full():
@@ -254,9 +264,10 @@ class CameraModule(BaseModule):
                         # 将新帧放入队列
                         self._frame_queue.put(frame)
                         
-                        # 发布帧捕获事件
+                        # 发布帧捕获事件，包含采集时间
                         self.publish_event(EventType.FRAME_CAPTURED, {
                             "frame": frame,
+                            "capture_time": t_capture,
                             "timestamp": time.time()
                         })
                 else:

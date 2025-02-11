@@ -5,7 +5,6 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore, QtGui
-import time
 import concurrent.futures
 from ..core.camera_module import CameraModule
 from ..core.events import EventType, Event
@@ -61,6 +60,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._last_capture_time = 0.0  # 添加采集时间缓存
         self._last_process_time = 0.0  # 添加处理时间缓存
+        self._continuous_mode = False  # 添加连续采集模式标志
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -90,10 +90,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.connect_clicked.connect(self.handle_connect)
         self.camera_control.capture_clicked.connect(self.handle_capture)
         self.camera_control.stream_clicked.connect(self.handle_stream)
-        
-        # 设置更新定时器
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.update_frame)
         
         # 添加参数控制连接
         self.camera_control.exposure_changed.connect(self.camera.set_exposure_time)
@@ -154,7 +150,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status_indicator.setStatus(False)
         else:
             # 断开前先停止连续采集
-            if self.timer.isActive():
+            if self._continuous_mode:
                 self.handle_stream(False)  # 停止连续采集
                 self.camera_control.stream_btn.setChecked(False)  # 更新按钮状态
             self.camera.stop()  # 使用CameraModule的stop方法
@@ -230,32 +226,22 @@ class MainWindow(QtWidgets.QMainWindow):
             # 开始连续采集时禁用单帧采集
             self.camera_control.capture_btn.setEnabled(False)
             self.camera.start_streaming()
-            self.timer.start(33)  # ~30 FPS
-            self.camera_control.stream_btn.setText("停止采集")  # 更新按钮文字
+            self.camera_control.stream_btn.setText("停止采集")
+            # 设置连续模式标志并更新状态
+            self._continuous_mode = True
+            self.status_indicator.setProcessing(True)
+            self.status_label.setText("连续采集中...")
         else:
             # 停止连续采集时启用单帧采集
             self.camera.stop_streaming()
-            self.timer.stop()
             self.camera_control.capture_btn.setEnabled(True)
-            self.camera_control.stream_btn.setText("连续采集")  # 恢复按钮文字
+            self.camera_control.stream_btn.setText("连续采集")
             
-            # 取消所有待处理任务
+            # 取消所有待处理任务并重置状态
             self.processor.cancel_all_tasks()
-            # 重置处理状态
+            self._continuous_mode = False
             self.status_indicator.setProcessing(False)
             self.status_label.setText("就绪")
-
-    def update_frame(self):
-        """更新帧显示（用于连续采集）"""
-        try:
-            frame = self.camera.get_frame()
-            if frame is not None:
-                self.current_frame = frame
-                if not self.processor.is_processing():
-                    self.processor.process_frame(frame)
-                self._update_auto_parameters()
-        except Exception as e:
-            self.status_label.setText(f"采集错误: {str(e)}")
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
@@ -275,13 +261,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_processing_started(self, event: Event):
         """处理开始时的处理"""
-        self.status_indicator.setProcessing(True)
-        self.status_label.setText("正在处理...")
+        if not self._continuous_mode:  # 仅在非连续模式下更新状态
+            self.status_indicator.setProcessing(True)
+            self.status_label.setText("正在处理...")
 
     def _on_processing_completed(self, event: Event):
         """处理完成时的处理"""
-        self.status_indicator.setProcessing(False)
-        self.status_label.setText("就绪")
+        if not self._continuous_mode:  # 仅在非连续模式下更新状态
+            self.status_indicator.setProcessing(False)
+            self.status_label.setText("就绪")
 
     def _update_display(self, result):
         """更新图像显示"""
@@ -314,7 +302,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.processor.set_parameter('wb_auto', auto)
         
         # 只在非连续采集模式下触发重新处理
-        if not self.timer.isActive() and self.current_frame is not None:
+        if not self._continuous_mode and self.current_frame is not None:
             self.processor.process_frame(self.current_frame, priority=5)
 
     def _handle_exposure_once(self):
@@ -393,7 +381,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         try:
             # 如果正在连续采集，先停止采集
-            if self.timer.isActive():
+            if self._continuous_mode:  # 修改判断条件
                 self.handle_stream(False)
                 self.camera_control.stream_btn.setChecked(False)
 
@@ -438,6 +426,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if frame is not None:
             self.current_frame = frame
             self._update_capture_time(capture_time)  # 只更新采集时间
+            # 在连续模式下,只有处理器空闲时才处理新帧
+            if self._continuous_mode and not self.processor.is_processing():
+                self.processor.process_frame(frame)
+                self._update_auto_parameters()
 
     def _on_error(self, event):
         """处理错误事件"""

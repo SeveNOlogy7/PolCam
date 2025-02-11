@@ -1,11 +1,14 @@
 """
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+
 事件系统核心实现
 提供事件的发布、订阅和异步处理功能
 """
 
 from typing import Any, Callable, Dict, List, Set
 from concurrent.futures import ThreadPoolExecutor
-import asyncio
 import threading
 import logging
 from enum import Enum, auto
@@ -24,6 +27,8 @@ class EventType(Enum):
     DISPLAY_MODE_CHANGED = auto()
     PROCESSING_STARTED = auto()
     PROCESSING_COMPLETED = auto()
+    STREAMING_STARTED = auto()
+    STREAMING_STOPPED = auto()
 
 class Event:
     """事件对象"""
