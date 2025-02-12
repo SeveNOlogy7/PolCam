@@ -267,6 +267,7 @@ class ProcessingModule(BaseModule):
                 angle_index = task.params.get('selected_angle', 0) // 45
                 selected_image = decoded[angle_index]
                 # 对单个角度图像进行白平衡处理
+                wb_applied = False
                 if task.mode == ProcessingMode.SINGLE_COLOR and task.params.get('wb_auto', False):
                     angle = task.params.get('selected_angle', 0)
                     gains = self._wb_cache.get_single(angle)
@@ -276,16 +277,21 @@ class ProcessingModule(BaseModule):
                     else:
                         wb_image = self._processor.apply_wb_gains(selected_image, gains)
                     selected_image = wb_image
+                    wb_applied = True
                 images = [selected_image]
                 if task.mode == ProcessingMode.SINGLE_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
-                metadata = {'angle': task.params.get('selected_angle', 0)}
+                metadata = {
+                    'angle': task.params.get('selected_angle', 0),
+                    'wb_enabled': wb_applied
+                }
                 
             elif task.mode in [ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY]:
                 # 解码并合成图像
                 decoded = self._processor.demosaic_polarization(task.frame)
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
                 # 对合成后的图像进行白平衡
+                wb_applied = False
                 if task.mode == ProcessingMode.MERGED_COLOR and task.params.get('wb_auto', False):
                     gains = self._wb_cache.get_merged()
                     if gains is None:
@@ -294,15 +300,17 @@ class ProcessingModule(BaseModule):
                     else:
                         wb_image = self._processor.apply_wb_gains(merged, gains)
                     merged = wb_image
+                    wb_applied = True
                 images = [merged]
                 if task.mode == ProcessingMode.MERGED_GRAY:
                     images = [self._processor.to_grayscale(merged)]
-                metadata = {}
+                metadata = {'wb_enabled': wb_applied}
                 
             elif task.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
                 # 解码获取四角度图像
                 decoded = self._processor.demosaic_polarization(task.frame)
                 images = decoded
+                wb_applied = False
                 if task.mode == ProcessingMode.QUAD_COLOR and task.params.get('wb_auto', False):
                     processed_images = []
                     for i, img in enumerate(images):
@@ -315,9 +323,13 @@ class ProcessingModule(BaseModule):
                             wb_image = self._processor.apply_wb_gains(img, gains)
                         processed_images.append(wb_image)
                     images = processed_images
+                    wb_applied = True
                 if task.mode == ProcessingMode.QUAD_GRAY:
                     images = [self._processor.to_grayscale(img) for img in images]
-                metadata = {'angles': [0, 45, 90, 135]}
+                metadata = {
+                    'angles': [0, 45, 90, 135],
+                    'wb_enabled': wb_applied
+                }
                 
             elif task.mode == ProcessingMode.POLARIZATION:
                 # 偏振分析
@@ -325,9 +337,11 @@ class ProcessingModule(BaseModule):
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
                 
                 # 根据设置决定合成图像是彩色还是灰度
-                if not task.params.get('pol_color_mode', False):
+                is_color = task.params.get('pol_color_mode', False)
+                wb_enabled = task.params.get('pol_wb_auto', False) and is_color
+                if not is_color:
                     merged = self._processor.to_grayscale(merged)
-                elif task.params.get('pol_wb_auto', False):
+                elif wb_enabled:
                     gains = self._wb_cache.get_pol()
                     if gains is None:
                         wb_image, gains = self._processor.auto_white_balance(merged, return_gains=True)
@@ -335,12 +349,13 @@ class ProcessingModule(BaseModule):
                     else:
                         wb_image = self._processor.apply_wb_gains(merged, gains)
                     merged = wb_image
-                
+
                 dolp, aolp, docp = self._processor.calculate_polarization_parameters(decoded)
                 images = [merged, dolp, aolp, docp]
                 metadata = {
                     'type': ['merged', 'dolp', 'aolp', 'docp'],
-                    'is_color': task.params.get('pol_color_mode', False)
+                    'is_color': is_color,
+                    'pol_wb_enabled': wb_enabled
                 }
                 
             else:

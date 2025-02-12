@@ -1,4 +1,5 @@
 from qtpy.QtGui import QFont, QFontDatabase
+from qtpy.QtCore import QSize
 
 class Styles:
     """统一管理GUI样式的类"""
@@ -15,6 +16,10 @@ class Styles:
     HEIGHT_LARGE = 32  # 大号高度
     HEIGHT_MEDIUM = 30 # 中号高度
     HEIGHT_SMALL = 26  # 小号高度
+
+    # 工具栏样式定义
+    TOOLBAR_ICON_SIZE = QSize(32, 32)  # 工具栏图标尺寸
+    TOOLBAR_HEIGHT = 48                 # 工具栏高度
     
     @classmethod
     def get_font(cls, size: int) -> QFont:
@@ -58,3 +63,18 @@ class Styles:
         """应用下拉框样式"""
         combobox.setFont(cls.get_font(cls.FONT_MEDIUM))
         combobox.setMinimumHeight(cls.HEIGHT_MEDIUM)
+
+    @classmethod
+    def apply_toolbar_style(cls, toolbar):
+        """应用工具栏样式"""
+        toolbar.setIconSize(cls.TOOLBAR_ICON_SIZE)
+        toolbar.setMinimumHeight(cls.TOOLBAR_HEIGHT)
+        toolbar.setStyleSheet("""
+            QToolBar {
+                spacing: 8px;
+                padding: 4px;
+            }
+            QToolButton {
+                padding: 6px;
+            }
+        """)

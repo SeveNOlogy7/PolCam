@@ -198,55 +198,68 @@ class ImageDisplay(QtWidgets.QWidget):
             
         self.show_image(canvas)
         
-    def show_default_image(self):
-        """显示默认的黑色图像，并添加引导文字"""
-        # 使用更高的分辨率创建PIL图像 (1920x1080)
+    def get_default_image(self) -> np.ndarray:
+        """获取默认的帮助图像
+        
+        Returns:
+            np.ndarray: 帮助图像
+        """
+        # 创建PIL图像 (1920x1080)
         pil_image = Image.new('RGB', (1920, 1080), color='black')
         draw = ImageDraw.Draw(pil_image)
         
-        # 加载中文字体并使用更大的字号
+        # 加载中文字体
         try:
             font_path = "C:/Windows/Fonts/msyh.ttc"  # 微软雅黑
             if not os.path.exists(font_path):
                 font_path = "C:/Windows/Fonts/simhei.ttf"  # 备选：黑体
-            title_font = ImageFont.truetype(font_path, 48)  # 更大的标题字号
-            text_font = ImageFont.truetype(font_path, 36)   # 更大的正文字号
+            title_font = ImageFont.truetype(font_path, 48)
+            text_font = ImageFont.truetype(font_path, 36)
         except Exception as e:
-            self.logger.error(f"加载字体失败: {e}")
-            return
+            self._logger.error(f"加载字体失败: {e}")
+            return None
         
-        # 添加引导文字
+        # 帮助文字内容
         guide_text = [
-            "欢迎使用偏振相机控制系统",
-            "请按以下步骤操作：",
-            "1. 点击左侧'连接相机'按钮",
-            "2. 通过曝光和增益控制调节图像亮度",
-            "3. 使用'单帧采集'或'连续采集'获取图像",
-            "4. 选择不同的显示模式查看图像"
+            "偏振相机控制系统使用说明",
+            "",
+            "基本操作：",
+            "1. 连接相机：点击左侧'连接相机'按钮",
+            "2. 调节图像：使用曝光和增益控制",
+            "3. 采集图像：可选择'单帧采集'或'连续采集'",
+            "4. 显示模式：在顶部下拉框选择不同显示方式",
+            "",
+            "高级功能：",
+            "- 白平衡：彩色模式下可开启自动白平衡",
+            "- 偏振分析：可查看DOLP、AOLP等偏振信息",
+            "- 图像保存：工具栏中的保存按钮可保存原始图像和处理结果"
         ]
         
-        # 计算文字位置 - 根据新的分辨率调整
-        text_height = 70  # 增加行高
-        start_y = (1080 - len(guide_text) * text_height) // 2  # 基于新高度计算垂直居中
+        # 计算文字位置
+        text_height = 70
+        start_y = (1080 - len(guide_text) * text_height) // 2
         
         # 绘制每行文字
         for i, text in enumerate(guide_text):
-            # 获取文字大小以居中显示
-            if i == 0:
+            if i == 0:  # 标题
                 font = title_font
-                text_width = title_font.getlength(text)
-                color = (100, 200, 255)  # 标题使用蓝色
-            else:
+                color = (100, 200, 255)
+            else:  # 正文
                 font = text_font
-                text_width = text_font.getlength(text)
-                color = (200, 200, 200)  # 正文使用灰色
+                color = (200, 200, 200)
             
-            x = (1920 - text_width) // 2  # 基于新宽度计算水平居中
+            text_width = font.getlength(text)
+            x = (1920 - text_width) // 2
             y = start_y + i * text_height
             
-            # 绘制文字
             draw.text((x, y), text, font=font, fill=color)
         
-        # 转换回OpenCV格式并显示
+        # 转换为OpenCV格式
         cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-        self.show_image(cv_image)
+        return cv_image
+
+    def show_default_image(self):
+        """显示默认的帮助图像"""
+        default_image = self.get_default_image()
+        if default_image is not None:
+            self.show_image(default_image)

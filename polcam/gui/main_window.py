@@ -14,6 +14,8 @@ from .styles import Styles
 import logging
 from ..core.processing_module import ProcessingModule, ProcessingMode
 import os
+from ..core.toolbar_controller import ToolbarController
+from .widgets.tool_bar import ToolBar
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -26,6 +28,7 @@ class MainWindow(QtWidgets.QMainWindow):
         app = QtWidgets.QApplication.instance()
         Styles.setup_application_font(app)
         
+        # 设置窗口标题和图标
         self.setWindowTitle("PolCam")
 
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon", "icon.svg")
@@ -39,6 +42,15 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self._logger.error("无法加载图标")
         
+        # 首先创建toolbar
+        self.toolbar = ToolBar(self)
+        self.addToolBar(self.toolbar)
+        
+        # 然后创建并初始化工具栏控制器
+        self.toolbar_controller = ToolbarController(self)
+        self.toolbar_controller.initialize()
+        
+        # 创建其他UI组件
         self.setup_ui()
         
         self.camera = CameraModule()
@@ -73,6 +85,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_capture_time = 0.0  # 添加采集时间缓存
         self._last_process_time = 0.0  # 添加处理时间缓存
         self._continuous_mode = False  # 添加连续采集模式标志
+        self._current_frame_timestamp = None  # 添加时间戳属性
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -94,14 +107,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # 设置布局的边距和控件之间的间距
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
-        
-        # 在创建完 ImageDisplay 后立即设置白平衡控件的初始可见性
-        mode = ProcessingMode.RAW  # 初始模式
-        show_wb = not self._is_grayscale_mode(mode)
-        show_angle = mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]
-        
-        self.camera_control.set_wb_controls_visible(show_wb)
-        self.camera_control.set_angle_controls_visible(show_angle)
         
         self.resize(1200, 800)
 
@@ -201,13 +206,20 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         self._set_capture_buttons_enabled(False)
-        self.status_indicator.setProcessing(True)
         
         try:
             frame = self.camera.get_frame()
             if frame is not None:
                 self.current_frame = frame
-                self.processor.process_frame(frame)
+                current_mode = ProcessingMode.index_to_mode(self.image_display.display_mode.currentIndex())
+                if current_mode == ProcessingMode.RAW:
+                    # 原始图像模式直接显示，不经过处理模块
+                    self.image_display.show_image(frame)
+                    self.toolbar_controller.enable_save_raw(not self._continuous_mode)
+                else:
+                    # 其他模式需要通过处理模块
+                    self.status_indicator.setProcessing(True)
+                    self.processor.process_frame(frame)
                 self._update_auto_parameters()
             else:
                 QtWidgets.QMessageBox.warning(self, "错误", "获取图像失败")
@@ -248,8 +260,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
             
         if start:
-            # 开始连续采集时禁用单帧采集
+            # 开始连续采集时禁用单帧采集和保存按钮
             self.camera_control.capture_btn.setEnabled(False)
+            self.toolbar_controller.enable_save_raw(False)
+            self.toolbar_controller.enable_save_result(False)
             self.camera.start_streaming()
             self.camera_control.stream_btn.setText("停止采集")
             # 设置连续模式标志并更新状态
@@ -257,7 +271,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.status_indicator.setProcessing(True)
             self.status_label.setText("连续采集中...")
         else:
-            # 停止连续采集时启用单帧采集
+            # 停止连续采集
             self.camera.stop_streaming()
             self.camera_control.capture_btn.setEnabled(True)
             self.camera_control.stream_btn.setText("连续采集")
@@ -267,6 +281,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._continuous_mode = False
             self.status_indicator.setProcessing(False)
             self.status_label.setText("就绪")
+            
+            # 停止连续采集时，检查是否有可用数据并启用保存原始图像按钮
+            if self.current_frame is not None:
+                self.toolbar_controller.enable_save_raw(True)
+            # 不启用保存当前结果按钮，手动切换显示模式后会自动启用
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
@@ -284,8 +303,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.set_angle_controls_visible(show_angle)
         self.camera_control.set_pol_controls_visible(show_pol)
         
-        # 重新处理当前帧
-        self._reprocessing_from_current_frame()
+        # 禁用 RAW 模式下的保存结果按钮
+        if mode == ProcessingMode.RAW:
+            self.toolbar_controller.enable_save_result(False)
+        else:        
+            # 重新处理当前帧
+            self._reprocessing_from_current_frame()
 
     def _is_grayscale_mode(self, mode: ProcessingMode) -> bool:
         """判断是否是需要隐藏白平衡的显示模式"""
@@ -303,8 +326,12 @@ class MainWindow(QtWidgets.QMainWindow):
         result = event.data.get('result')
         proc_time = event.data.get('processing_time', 0)
         if result:
+            # 更新工具栏控制器中的处理结果和时间戳
+            self.toolbar_controller.update_last_result(result, self._current_frame_timestamp)
             self._update_display(result)
-            self._update_process_time(proc_time)  # 只更新处理时间
+            self._update_process_time(proc_time)
+            # 只在非连续采集模式下启用保存处理结果按钮
+            self.toolbar_controller.enable_save_result(not self._continuous_mode)
 
     def _on_processing_started(self, event: Event):
         """处理开始时的处理"""
@@ -415,18 +442,35 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理相机断开事件"""
         self.status_label.setText("相机已断开")
         self.camera_info.clear()
+        # 禁用保存按钮
+        self.toolbar_controller.enable_save_raw(False)
+        self.toolbar_controller.enable_save_result(False)
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
         frame = event.data.get("frame")
         capture_time = event.data.get("capture_time", 0)
+        timestamp = event.data.get("timestamp")  # 获取时间戳
+        
         if frame is not None:
             self.current_frame = frame
-            self._update_capture_time(capture_time)  # 只更新采集时间
-            # 在连续模式下,只有处理器空闲时才处理新帧
-            if self._continuous_mode and not self.processor.is_processing():
-                self.processor.process_frame(frame)
+            self._current_frame_timestamp = timestamp  # 保存时间戳
+            # 更新工具栏控制器中的当前帧和时间戳
+            self.toolbar_controller.update_current_frame(frame, timestamp)
+            self._update_capture_time(capture_time)
+            
+            # 判断是否为原始图像模式
+            current_mode = ProcessingMode.index_to_mode(self.image_display.display_mode.currentIndex())
+            if current_mode == ProcessingMode.RAW:
+                # 原始图像模式直接显示，不经过处理模块
+                self.image_display.show_image(frame)
+                self.toolbar_controller.enable_save_raw(not self._continuous_mode)
+            else:
+                # 其他模式需要通过处理模块
+                if self._continuous_mode and not self.processor.is_processing():
+                    self.processor.process_frame(frame)
                 self._update_auto_parameters()
+                self.toolbar_controller.enable_save_raw(not self._continuous_mode)
 
     def _on_error(self, event):
         """处理错误事件"""
