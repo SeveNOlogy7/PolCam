@@ -274,7 +274,7 @@ class ProcessingModule(BaseModule):
                         wb_image, gains = self._processor.auto_white_balance(selected_image, return_gains=True)
                         self._wb_cache.set_single(angle, gains)
                     else:
-                        wb_image = self._apply_wb_gains(selected_image, gains)
+                        wb_image = self._processor.apply_wb_gains(selected_image, gains)
                     selected_image = wb_image
                 images = [selected_image]
                 if task.mode == ProcessingMode.SINGLE_GRAY:
@@ -292,7 +292,7 @@ class ProcessingModule(BaseModule):
                         wb_image, gains = self._processor.auto_white_balance(merged, return_gains=True)
                         self._wb_cache.set_merged(gains)
                     else:
-                        wb_image = self._apply_wb_gains(merged, gains)
+                        wb_image = self._processor.apply_wb_gains(merged, gains)
                     merged = wb_image
                 images = [merged]
                 if task.mode == ProcessingMode.MERGED_GRAY:
@@ -312,7 +312,7 @@ class ProcessingModule(BaseModule):
                             wb_image, gains = self._processor.auto_white_balance(img, return_gains=True)
                             self._wb_cache.set_quad(angle, gains)
                         else:
-                            wb_image = self._apply_wb_gains(img, gains)
+                            wb_image = self._processor.apply_wb_gains(img, gains)
                         processed_images.append(wb_image)
                     images = processed_images
                 if task.mode == ProcessingMode.QUAD_GRAY:
@@ -333,7 +333,7 @@ class ProcessingModule(BaseModule):
                         wb_image, gains = self._processor.auto_white_balance(merged, return_gains=True)
                         self._wb_cache.set_pol(gains)
                     else:
-                        wb_image = self._apply_wb_gains(merged, gains)
+                        wb_image = self._processor.apply_wb_gains(merged, gains)
                     merged = wb_image
                 
                 dolp, aolp, docp = self._processor.calculate_polarization_parameters(decoded)
@@ -346,7 +346,7 @@ class ProcessingModule(BaseModule):
             else:
                 raise ValueError(f"未知的处理模式: {task.mode}")
                 
-            # 应用图像增强
+            # 应用图像增强，对所有可增强的图像进行处理
             images = self._enhance_images(images, task.params)
                 
             # 创建结果对象
@@ -363,6 +363,28 @@ class ProcessingModule(BaseModule):
             self._logger.error(f"处理任务失败: {str(e)}")
             raise
 
+    def _enhance_images(self, images: List[np.ndarray], 
+                       params: Dict[str, Any]) -> List[np.ndarray]:
+        """对图像列表应用增强处理"""
+        enhanced = []
+        for img in images:
+            # 跳过非图像数据（如偏振参数图）
+            if len(img.shape) < 2:
+                enhanced.append(img)
+                continue
+                
+            # 应用图像增强
+            enhanced_img = self._processor.enhance_image(
+                img,
+                brightness=params['brightness'],
+                contrast=params['contrast'],
+                sharpness=params['sharpness'],
+                denoise=params['denoise']
+            )
+            enhanced.append(enhanced_img)
+                
+        return enhanced
+
     def _apply_wb_gains(self, image: np.ndarray, gains: np.ndarray) -> np.ndarray:
         """应用白平衡增益值"""
         if len(image.shape) != 3:
@@ -372,52 +394,6 @@ class ProcessingModule(BaseModule):
         for i in range(3):  # BGR
             result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
         return result
-
-    def _enhance_images(self, images: List[np.ndarray], 
-                      params: Dict[str, Any]) -> List[np.ndarray]:
-        """应用图像增强"""
-        try:
-            enhanced = []
-            for img in images:
-                # 跳过非图像数据（如偏振参数图）
-                if len(img.shape) < 2:
-                    enhanced.append(img)
-                    continue
-                
-                # 应用亮度和对比度调节
-                if params['brightness'] != 1.0 or params['contrast'] != 1.0:
-                    img = cv2.convertScaleAbs(
-                        img, 
-                        alpha=params['contrast'],
-                        beta=params['brightness'] * 255
-                    )
-                
-                # 应用锐化
-                if params['sharpness'] > 0:
-                    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]]) * params['sharpness']
-                    img = cv2.filter2D(img, -1, kernel)
-                
-                # 应用降噪
-                if params['denoise'] > 0:
-                    if len(img.shape) == 3:
-                        img = cv2.fastNlMeansDenoisingColored(
-                            img, None,
-                            params['denoise'] * 10,
-                            params['denoise'] * 10,
-                            7, 21)
-                    else:
-                        img = cv2.fastNlMeansDenoising(
-                            img, None,
-                            params['denoise'] * 10,
-                            7, 21)
-                
-                enhanced.append(img)
-                
-            return enhanced
-            
-        except Exception as e:
-            self._logger.error(f"图像增强失败: {str(e)}")
-            return images
 
     def _get_cache_key(self, task: ProcessingTask) -> str:
         """生成缓存键"""

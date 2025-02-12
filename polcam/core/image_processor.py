@@ -143,3 +143,74 @@ class ImageProcessor:
             result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
             
         return (result, gains) if return_gains else result
+
+    def enhance_image(self, image: np.ndarray, 
+                     brightness: float = 1.0,
+                     contrast: float = 1.0,
+                     sharpness: float = 0.0,
+                     denoise: float = 0.0) -> np.ndarray:
+        """应用图像增强
+        
+        Args:
+            image: 输入图像
+            brightness: 亮度调节因子 (0.0-2.0)
+            contrast: 对比度调节因子 (0.0-2.0)
+            sharpness: 锐化强度 (0.0-1.0)
+            denoise: 降噪强度 (0.0-1.0)
+            
+        Returns:
+            np.ndarray: 增强后的图像
+        """
+        try:
+            result = image.copy()
+            
+            # 亮度和对比度调节
+            if brightness != 1.0 or contrast != 1.0:
+                result = cv2.convertScaleAbs(
+                    result, 
+                    alpha=contrast,
+                    beta=brightness * 255
+                )
+            
+            # 锐化处理
+            if sharpness > 0:
+                kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]]) * sharpness
+                result = cv2.filter2D(result, -1, kernel)
+            
+            # 降噪处理
+            if denoise > 0:
+                if len(result.shape) == 3:
+                    result = cv2.fastNlMeansDenoisingColored(
+                        result, None,
+                        denoise * 10,
+                        denoise * 10,
+                        7, 21)
+                else:
+                    result = cv2.fastNlMeansDenoising(
+                        result, None,
+                        denoise * 10,
+                        7, 21)
+            
+            return result
+            
+        except Exception as e:
+            self._logger.error(f"图像增强失败: {str(e)}")
+            return image
+
+    def apply_wb_gains(self, image: np.ndarray, gains: np.ndarray) -> np.ndarray:
+        """应用白平衡增益值
+        
+        Args:
+            image: BGR格式的输入图像
+            gains: BGR通道的增益值数组
+            
+        Returns:
+            np.ndarray: 白平衡后的图像
+        """
+        if len(image.shape) != 3:
+            return image
+            
+        result = image.copy()
+        for i in range(3):  # BGR
+            result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
+        return result
