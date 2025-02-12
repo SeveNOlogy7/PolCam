@@ -248,11 +248,24 @@ class ToolbarController(BaseModule):
             if self._last_result.mode == ProcessingMode.POLARIZATION:
                 # 获取原始图像和参数
                 merged = self._last_result.images[0]
-                dolp = self._last_result.images[1]
-                aolp = self._last_result.images[2]
-                docp = self._last_result.images[3]
+                dolp = self._last_result.images[1]    # 原始偏振度数据
+                aolp = self._last_result.images[2]    # 原始偏振角数据
+                docp = self._last_result.images[3]    # 原始圆偏振度数据
                 
-                # 对偏振参数进行颜色映射，获取BGR格式图像
+                # 保存原始偏振数据（.npy格式）
+                pol_data = {
+                    'dolp': dolp,
+                    'aolp': aolp,
+                    'docp': docp
+                }
+                npy_filename = os.path.join(save_dir, f"{base_name}_POL.npy")
+                try:
+                    np.save(npy_filename, pol_data)
+                    self._logger.info(f"偏振数据已保存: {npy_filename}")
+                except Exception as e:
+                    self._logger.error(f"保存偏振数据失败: {str(e)}")
+                
+                # 对偏振参数进行颜色映射用于可视化保存
                 dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
                     dolp, aolp, docp
                 )
@@ -268,12 +281,12 @@ class ToolbarController(BaseModule):
                 else:
                     merged_name = f"{base_name}_MERGED_GRAY"
                 
-                # 保存带颜色映射的图像
+                # 保存图像
                 files_to_save = [
-                    (cv2.cvtColor(merged, cv2.COLOR_BGR2RGB), merged_name),  # 彩色图需要转换
-                    (dolp_colored, f"{base_name}_DOLP"),     # 已经是正确的BGR格式
-                    (aolp_colored, f"{base_name}_AOLP"),     # 已经是正确的BGR格式
-                    (docp_colored, f"{base_name}_DOCP")      # 已经是正确的BGR格式
+                    (merged, merged_name),
+                    (dolp_colored, f"{base_name}_DOLP"),
+                    (aolp_colored, f"{base_name}_AOLP"),
+                    (docp_colored, f"{base_name}_DOCP")
                 ]
                 
                 success = True
