@@ -156,13 +156,18 @@ class ImageDisplay(QtWidgets.QWidget):
         
         # 直接复制BGR图像到画布
         positions = [(0, 0), (0, w), (h, 0), (h, w)]
-        titles = ['0°', '45°', '90°', '135°']
+        titles = ['0 deg', '45 deg', '90 deg', '135 deg']
         
         for img, (y, x), title in zip(images, positions, titles):
             canvas[y:y+h, x:x+w] = img  # 保持BGR格式
-            # 添加标题
-            cv2.putText(canvas, title, (x+10, y+30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+            # 使用统一的样式设置
+            cv2.putText(canvas, title, 
+                       (x + Styles.IMAGE_TITLE_X_OFFSET, 
+                        y + Styles.IMAGE_TITLE_Y_OFFSET),
+                       cv2.FONT_HERSHEY_SIMPLEX, 
+                       Styles.IMAGE_TITLE_FONT_SCALE, 
+                       Styles.IMAGE_TITLE_COLOR, 
+                       Styles.IMAGE_TITLE_THICKNESS)
         
         # show_image 会处理BGR到RGB的转换
         self.show_image(canvas)
@@ -182,7 +187,7 @@ class ImageDisplay(QtWidgets.QWidget):
         # 所有图像都是BGR格式
         images = [color_image, dolp_colored, aolp_colored, docp_colored]
         positions = [(0, 0), (0, w), (h, 0), (h, w)]
-        titles = ['彩色图像', '线偏振度', '偏振角', '圆偏振度']
+        titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
         
         for img, (y, x), title in zip(images, positions, titles):
             # 确保都是三通道BGR格式
@@ -190,8 +195,14 @@ class ImageDisplay(QtWidgets.QWidget):
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             canvas[y:y+h, x:x+w] = img
             
-            cv2.putText(canvas, title, (x+10, y+30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+            # 使用统一的样式设置
+            cv2.putText(canvas, title, 
+                       (x + Styles.IMAGE_TITLE_X_OFFSET, 
+                        y + Styles.IMAGE_TITLE_Y_OFFSET),
+                       cv2.FONT_HERSHEY_SIMPLEX, 
+                       Styles.IMAGE_TITLE_FONT_SCALE, 
+                       Styles.IMAGE_TITLE_COLOR, 
+                       Styles.IMAGE_TITLE_THICKNESS)
             
         # show_image 会处理BGR到RGB的转换
         self.show_image(canvas)
