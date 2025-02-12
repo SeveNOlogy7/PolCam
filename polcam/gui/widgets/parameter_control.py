@@ -10,19 +10,21 @@ class ParameterControl(ControlGroup):
     auto_changed = QtCore.Signal(bool)
     once_clicked = QtCore.Signal()
     
-    def __init__(self, title: str, param_name: str, parent=None):
+    def __init__(self, title: str, param_name: str, unit: str = "", parent=None):
         super().__init__(title, parent)
         self.param_name = param_name
+        self.unit = unit
         self._setup_parameter_ui()
         self._setup_connections()
         
     def _setup_parameter_ui(self):
         # 参数值控制
         value_layout = QtWidgets.QHBoxLayout()
-        value_layout.addWidget(QtWidgets.QLabel(f"{self.param_name}:"))
+        value_layout.addWidget(QtWidgets.QLabel(f"{self.param_name} ({self.unit}):" if self.unit else f"{self.param_name}:"))
         
         self.value_spin = QtWidgets.QDoubleSpinBox()
         self.value_spin.setDecimals(1)
+        self.value_spin.setRange(0.0, 1000000.0)
         Styles.apply_spinbox_style(self.value_spin)
         value_layout.addWidget(self.value_spin)
         

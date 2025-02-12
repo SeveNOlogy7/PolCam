@@ -48,8 +48,8 @@ class CameraControl(QtWidgets.QWidget):
         layout.addWidget(self.stream_btn)
         
         # 添加参数控制组
-        self.exposure_control = ParameterControl("曝光控制", "曝光时间")
-        self.gain_control = ParameterControl("增益控制", "增益")
+        self.exposure_control = ParameterControl("曝光控制", "曝光时间", "us")
+        self.gain_control = ParameterControl("增益控制", "增益", "dB")
         layout.addWidget(self.exposure_control)
         layout.addWidget(self.gain_control)
         
@@ -80,7 +80,7 @@ class CameraControl(QtWidgets.QWidget):
             
     def setup_connections(self):
         # 设置参数范围
-        self.exposure_control.set_range(1.0, 1000000.0)  # 1us - 1s
+        self.exposure_control.set_range(20.0, 1000000.0)  # 20us - 1s
         self.exposure_control.set_value(10000.0)         # 默认10ms
         self.gain_control.set_range(0.0, 24.0)          # 0-24dB
         self.gain_control.set_value(0.0)                # 默认0dB
