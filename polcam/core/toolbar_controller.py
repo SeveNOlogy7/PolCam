@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
-import logging
 from typing import Optional, Tuple, Union, List
+from polcam.core.image_processor import ImageProcessor
 from .base_module import BaseModule
 from ..core.processing_module import ProcessingMode
 
@@ -243,27 +243,37 @@ class ToolbarController(BaseModule):
 
         try:
             save_dir = os.path.dirname(filepath)
-            base_name = os.path.basename(filepath)  # 只使用文件名部分
+            base_name = os.path.basename(filepath)
 
             if self._last_result.mode == ProcessingMode.POLARIZATION:
-                # 偏振分析模式保存全部四张图
+                # 获取原始图像和参数
+                merged = self._last_result.images[0]
+                dolp = self._last_result.images[1]
+                aolp = self._last_result.images[2]
+                docp = self._last_result.images[3]
+                
+                # 对偏振参数进行颜色映射，获取BGR格式图像
+                dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
+                    dolp, aolp, docp
+                )
+                
+                # 准备文件名
                 metadata = self._last_result.metadata
                 is_color = metadata.get('is_color', False)
                 wb_enabled = metadata.get('pol_wb_enabled', False)
                 
-                # 基础文件名只在这里准备，后面的偏振参数图使用原始基础文件名
                 merged_name = base_name
-                if (is_color):
+                if is_color:
                     merged_name = f"{base_name}_MERGED_COLOR{'_WB' if wb_enabled else ''}"
                 else:
                     merged_name = f"{base_name}_MERGED_GRAY"
                 
-                # 使用不同的基础名：合成图和偏振参数图分开处理
+                # 保存带颜色映射的图像
                 files_to_save = [
-                    (self._last_result.images[0], merged_name),  # 合成图使用带颜色信息的名称
-                    (self._last_result.images[1], f"{base_name}_DOLP"),
-                    (self._last_result.images[2], f"{base_name}_AOLP"),
-                    (self._last_result.images[3], f"{base_name}_DOCP")
+                    (cv2.cvtColor(merged, cv2.COLOR_BGR2RGB), merged_name),  # 彩色图需要转换
+                    (dolp_colored, f"{base_name}_DOLP"),     # 已经是正确的BGR格式
+                    (aolp_colored, f"{base_name}_AOLP"),     # 已经是正确的BGR格式
+                    (docp_colored, f"{base_name}_DOCP")      # 已经是正确的BGR格式
                 ]
                 
                 success = True

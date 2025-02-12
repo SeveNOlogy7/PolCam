@@ -350,7 +350,10 @@ class ProcessingModule(BaseModule):
                         wb_image = self._processor.apply_wb_gains(merged, gains)
                     merged = wb_image
 
+                # 计算偏振参数
                 dolp, aolp, docp = self._processor.calculate_polarization_parameters(decoded)
+                
+                # 保存处理结果
                 images = [merged, dolp, aolp, docp]
                 metadata = {
                     'type': ['merged', 'dolp', 'aolp', 'docp'],

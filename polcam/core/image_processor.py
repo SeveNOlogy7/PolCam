@@ -61,7 +61,10 @@ class ImageProcessor:
 
     @staticmethod
     def calculate_polarization_parameters(color_images: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """计算偏振参数：线偏振度(DoLP)、偏振角(AoLP)和圆偏振度(DoCP)"""
+        """计算偏振参数：线偏振度(DoLP)、偏振角(AoLP)和圆偏振度(DoCP)
+        
+        根据四个偏振态图像计算偏振参数
+        """
         # 验证输入
         if not isinstance(color_images, list):
             raise TypeError("输入必须是图像列表")
@@ -85,10 +88,11 @@ class ImageProcessor:
         
         I_000, I_045, I_090, I_135 = gray_images
         
-        # 计算Stokes参数
-        S0 = (I_000 + I_090 + I_045 + I_135) / 2
-        S1 = I_000 - I_090
-        S2 = I_045 - I_135
+        # 计算改进的Stokes参数
+        S0 = (I_000 + I_090 + I_045 + I_135) / 2  # 总强度
+        S1 = I_000 - I_090                         # 水平/垂直差异
+        S2 = I_045 - I_135                         # 45度差异
+        S3 = (I_045 + I_135) - (I_000 + I_090)    # 圆偏振分量
         
         # 避免除零并处理NaN
         S0 = np.where(S0 == 0, 1e-6, S0)
@@ -101,10 +105,58 @@ class ImageProcessor:
         # 转换到0-180度
         aolp = np.rad2deg(aolp) + 90
         
-        # 模拟圆偏振度 (实际需要四分之一波片才能测量)
-        docp = np.zeros_like(dolp)
+        # 计算圆偏振度 (DoCP)（需要四分之一波片）
+        # 注意：S3的符号决定了圆偏振的旋向（正值为右旋，负值为左旋）
+        docp = np.clip(np.abs(S3) / (2 * S0), 0, 1)
         
         return dolp, aolp, docp
+
+    @staticmethod
+    def colormap_polarization(dolp: np.ndarray, aolp: np.ndarray, docp: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """对偏振参数进行颜色映射
+        
+        Args:
+            dolp: 线偏振度 (0-1)
+            aolp: 偏振角 (0-180)
+            docp: 圆偏振度 (-1到1，负值表示左旋，正值表示右旋)
+            
+        Returns:
+            (dolp_colored, aolp_colored, docp_colored): 颜色映射后的图像
+        """
+        # DoLP: 使用JET颜色映射
+        dolp_colored = cv2.applyColorMap((dolp * 255).astype(np.uint8), cv2.COLORMAP_JET)
+        
+        # AoLP: 使用HSV颜色空间，角度直接映射到色调
+        aolp_normalized = (aolp / 180 * 255).astype(np.uint8)
+        aolp_colored = cv2.applyColorMap(aolp_normalized, cv2.COLORMAP_HSV)
+        
+        # DoCP: 使用改进的颜色映射，区分左旋和右旋
+        # 将-1到1的范围映射到0-255
+        # 负值（左旋）映射为蓝色系
+        # 正值（右旋）映射为红色系
+        # 0值为白色
+        docp_abs = np.abs(docp)
+        docp_colored = np.full((*docp.shape, 3), 255, dtype=np.uint8)
+        
+        # 处理左旋（负值）
+        left_mask = docp < 0
+        intensity_left = (1 - docp_abs[left_mask]) * 255
+        docp_colored[left_mask] = np.stack([
+            np.full_like(intensity_left, 255),     # B
+            intensity_left,                        # G
+            intensity_left                         # R
+        ], axis=-1)
+        
+        # 处理右旋（正值）
+        right_mask = docp > 0
+        intensity_right = (1 - docp_abs[right_mask]) * 255
+        docp_colored[right_mask] = np.stack([
+            intensity_right,                       # B
+            intensity_right,                       # G
+            np.full_like(intensity_right, 255)    # R
+        ], axis=-1)
+        
+        return dolp_colored, aolp_colored, docp_colored
 
     def auto_white_balance(self, image: np.ndarray, return_gains: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """自动白平衡处理

@@ -10,6 +10,7 @@ import cv2
 from typing import List
 from PIL import Image, ImageDraw, ImageFont
 import os
+from polcam.core.image_processor import ImageProcessor
 from .styles import Styles
 
 class ImageDisplay(QtWidgets.QWidget):
@@ -62,7 +63,7 @@ class ImageDisplay(QtWidgets.QWidget):
         """窗口大小变化时重新显示图像"""
         super().resizeEvent(event)
         # 如果有当前图像，则重新显示
-        if self.current_image is not None:
+        if (self.current_image is not None):
             self.show_image(self.current_image)
         
     def update_display(self):
@@ -74,12 +75,14 @@ class ImageDisplay(QtWidgets.QWidget):
         self.parent().process_and_display_frame(self.raw, reprocess=True)
 
     def show_image(self, image: np.ndarray):
-        """统一的图像显示接口，自动调整图像大小以适应显示区域"""
+        """统一的图像显示接口，自动调整图像大小以适应显示区域
+        注意：输入图像应该是BGR格式，函数内部会转换为RGB用于显示
+        """
         try:
             if image is None:
                 return
                 
-            # 保存当前图像的副本以便窗口大小改变时重新显示
+            # 保存当前图像的副本（保持BGR格式）
             self.current_image = image.copy() if isinstance(image, np.ndarray) else None
 
             # 转换为QImage
@@ -89,10 +92,11 @@ class ImageDisplay(QtWidgets.QWidget):
                 qt_image = QtGui.QImage(image.data, w, h, 
                                       bytes_per_line, QtGui.QImage.Format_Grayscale8)
             else:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                h, w = image.shape[:2]
+                # 只在这里转换为RGB用于显示
+                display_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                h, w = display_image.shape[:2]
                 bytes_per_line = 3 * w
-                qt_image = QtGui.QImage(image.data.tobytes(), w, h, 
+                qt_image = QtGui.QImage(display_image.data.tobytes(), w, h, 
                                       bytes_per_line, QtGui.QImage.Format_RGB888)
             
             # 获取显示区域大小
@@ -139,63 +143,57 @@ class ImageDisplay(QtWidgets.QWidget):
         Args:
             images: 四个角度的图像列表
             gray: 是否显示灰度图像
+        注意：输入图像应为BGR格式，显示时会自动转换为RGB
         """
         if gray:
             # 使用内部的灰度转换方法
             images = [self.to_grayscale(img) for img in images]
-            # 转换单通道灰度图为三通道图像以便添加文字
+            # 转换单通道灰度图为三通道BGR图像
             images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
-        else:
-            images = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in images]
             
         h, w = images[0].shape[:2]
         canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
         
-        # 排列四张图像
+        # 直接复制BGR图像到画布
         positions = [(0, 0), (0, w), (h, 0), (h, w)]
         titles = ['0°', '45°', '90°', '135°']
         
         for img, (y, x), title in zip(images, positions, titles):
-            canvas[y:y+h, x:x+w] = img
-            
+            canvas[y:y+h, x:x+w] = img  # 保持BGR格式
             # 添加标题
             cv2.putText(canvas, title, (x+10, y+30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
         
+        # show_image 会处理BGR到RGB的转换
         self.show_image(canvas)
 
     def show_polarization_quad_view(self, color_image: np.ndarray, 
                                   dolp: np.ndarray, aolp: np.ndarray, 
                                   docp: np.ndarray):
-        """显示偏振分析的四视图"""
+        """显示偏振分析的四视图
+        注意：所有输入的彩色图像应为BGR格式，显示时会自动转换为RGB
+        """
         h, w = color_image.shape[:2]
         canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
         
-        # 准备四个显示图像
-        # 1. 彩色图像直接使用
-        # 2. DoLP图像：转为热力图
-        dolp_colored = cv2.applyColorMap((dolp * 255).astype(np.uint8), 
-                                       cv2.COLORMAP_JET)
-        # 3. AoLP图像：使用HSV颜色空间
-        aolp_normalized = (aolp / 180 * 255).astype(np.uint8)
-        aolp_colored = cv2.applyColorMap(aolp_normalized, cv2.COLORMAP_HSV)
-        # 4. DoCP图像：转为热力图
-        docp_colored = cv2.applyColorMap((docp * 255).astype(np.uint8), 
-                                        cv2.COLORMAP_JET)
+        # colormap_polarization 已经生成BGR格式的图像
+        dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(dolp, aolp, docp)
         
-        # 排列四张图像
+        # 所有图像都是BGR格式
         images = [color_image, dolp_colored, aolp_colored, docp_colored]
         positions = [(0, 0), (0, w), (h, 0), (h, w)]
         titles = ['彩色图像', '线偏振度', '偏振角', '圆偏振度']
         
         for img, (y, x), title in zip(images, positions, titles):
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            canvas[y:y+h, x:x+w] = img_rgb
+            # 确保都是三通道BGR格式
+            if len(img.shape) == 2:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            canvas[y:y+h, x:x+w] = img
             
-            # 添加标题
             cv2.putText(canvas, title, (x+10, y+30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
             
+        # show_image 会处理BGR到RGB的转换
         self.show_image(canvas)
         
     def get_default_image(self) -> np.ndarray:
