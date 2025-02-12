@@ -5,7 +5,6 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore
-from qtpy import QtGui
 from .styles import Styles
 from .widgets.parameter_control import ParameterControl
 from .widgets.angle_selector import AngleSelector
@@ -110,18 +109,6 @@ class CameraControl(QtWidgets.QWidget):
         # 偏振分析颜色模式信号
         self.pol_control.color_mode_changed.connect(self._handle_color_mode_changed)
 
-    def _handle_exposure_auto(self, checked: bool):
-        """处理曝光自动模式切换"""
-        self.exposure_control.spinbox.setReadOnly(checked)  # 只读而不是禁用
-        self.exposure_control.spinbox.setEnabled(True)      # 保持启用状态以显示数值
-        self.exposure_auto_changed.emit(checked)
-        
-    def _handle_gain_auto(self, checked: bool):
-        """处理增益自动模式切换"""
-        self.gain_control.spinbox.setReadOnly(checked)      # 只读而不是禁用
-        self.gain_control.spinbox.setEnabled(True)          # 保持启用状态以显示数值
-        self.gain_auto_changed.emit(checked)
-        
     def _handle_color_mode_changed(self, is_color: bool):
         """处理颜色模式改变"""
         # 修正：使用 wb_control 而不是直接访问 checkbox 和 button
@@ -137,11 +124,11 @@ class CameraControl(QtWidgets.QWidget):
         self.gain_control.set_value(value)
         
     def set_connected(self, connected: bool):
+        """设置连接状态时的控件启用状态"""
         self.capture_btn.setEnabled(connected)
         self.stream_btn.setEnabled(connected)
         self.exposure_control.set_enabled(connected)
         self.gain_control.set_enabled(connected)
-        self.wb_control.set_enabled(connected)
         self.connect_btn.setText("断开相机" if connected else "连接相机")
 
     def enable_exposure_controls(self, enabled: bool):
@@ -153,8 +140,9 @@ class CameraControl(QtWidgets.QWidget):
         self.gain_control.set_enabled(enabled)
         
     def enable_wb_controls(self, enabled: bool):
-        """设置白平衡相关控件的启用状态"""
-        self.wb_control.set_enabled(enabled)
+        """设置白平衡相关控件的启用状态
+        注：只影响单次白平衡按钮，不影响自动模式开关"""
+        self.wb_control.once_btn.setEnabled(enabled)
 
     def set_wb_controls_visible(self, visible: bool):
         """设置白平衡控制组的可见性"""
@@ -187,15 +175,6 @@ class CameraControl(QtWidgets.QWidget):
     def is_pol_color_mode(self) -> bool:
         """返回当前是否为彩色模式"""
         return self.pol_control.combo.currentIndex() == 1
-
-    def _update_current_values(self):
-        """更新当前显示的参数值"""
-        if hasattr(self.parent(), 'camera') and self.parent().camera:
-            camera = self.parent().camera
-            # 更新曝光值显示
-            self.update_exposure_value(camera.get_exposure_time())
-            # 更新增益值显示
-            self.update_gain_value(camera.get_gain())
 
     def handle_one_shot_auto(self, control_type: str):
         """处理单次自动调整

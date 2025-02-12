@@ -5,7 +5,6 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore, QtGui
-import concurrent.futures
 from ..core.camera_module import CameraModule
 from ..core.events import EventType, Event
 from .camera_control import CameraControl
@@ -122,7 +121,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 修改单次按钮连接
         self.camera_control.exposure_control.once_clicked.connect(self.camera.set_exposure_once)
         self.camera_control.gain_control.once_clicked.connect(self.camera.set_gain_once)
-        # self.camera_control.wb_control.once_clicked.connect(self.camera.set_balance_white_once)
+        self.camera_control.wb_control.once_clicked.connect(self._handle_wb_once)
 
         # 添加角度选择信号处理
         self.camera_control.angle_selector.angle_changed.connect(self._handle_angle_changed)
@@ -130,7 +129,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 添加偏振分析颜色控制连接
         self.camera_control.pol_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
         self.camera_control.pol_control.wb_auto_changed.connect(self._handle_pol_wb_auto_changed)
-        # self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
+        self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -355,6 +354,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._logger.info(f"使用软件白平衡，自动模式: {auto}")
         self._reprocessing_from_current_frame()
 
+    def _handle_wb_once(self):
+        """处理白平衡一次性调整"""
+        pass
+
     def _handle_pol_color_mode_changed(self, is_color: bool):
         """处理偏振分析模式下的颜色模式改变"""
         self.processor.set_parameter('pol_color_mode', is_color)
@@ -367,32 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_pol_wb_once(self):
         """处理偏振分析模式下的单次白平衡"""
-        if self.current_frame is not None:
-            # 临时启用自动白平衡进行一次处理
-            self.processor.set_parameter('pol_wb_auto', True)
-            self.processor.process_frame(self.current_frame)
-            self.processor.set_parameter('pol_wb_auto', False)
-
-    @QtCore.Slot()
-    def _update_exposure_controls(self):
-        """更新曝光控件状态"""
-        self.camera_control.enable_exposure_controls(True)
-        # 更新显示值
-        current_exposure = self.camera.get_exposure_time()
-        self.camera_control.update_exposure_value(current_exposure)
-
-    @QtCore.Slot()
-    def _update_gain_controls(self):
-        """更新增益控件状态"""
-        self.camera_control.enable_gain_controls(True)
-        current_gain = self.camera.get_gain()
-        self.camera_control.update_gain_value(current_gain)
-
-    @QtCore.Slot()
-    def _update_wb_controls(self):
-        """更新白平衡控件状态"""
-        self.camera_control.enable_wb_controls(True)
-        self.camera_control.wb_once.setChecked(False)
+        pass
 
     def closeEvent(self, event: QtGui.QCloseEvent):
         """处理窗口关闭事件"""
