@@ -180,7 +180,18 @@ class ToolbarController(BaseModule):
 
     def _save_image_set(self, images: List[np.ndarray], base_name: str, suffixes: List[str], 
                        save_dir: str, extension: str) -> bool:
-        """保存一组图像"""
+        """保存一组图像
+        
+        Args:
+            images: 要保存的图像列表
+            base_name: 基础文件名
+            suffixes: 每个图像对应的后缀名列表
+            save_dir: 保存目录
+            extension: 图像文件扩展名
+        
+        Returns:
+            bool: 是否全部保存成功
+        """
         success = True
         for img, suffix in zip(images, suffixes):
             filename = os.path.join(save_dir, f"{base_name}_{suffix}{extension}")
@@ -193,6 +204,34 @@ class ToolbarController(BaseModule):
                 self._logger.error(f"保存图像失败 {suffix}: {str(e)}")
                 success = False
         return success
+
+    def _save_polarization_data(self, dolp: np.ndarray, aolp: np.ndarray, docp: np.ndarray, 
+                               save_dir: str, base_name: str) -> bool:
+        """保存原始偏振数据
+        
+        Args:
+            dolp: 线偏振度数据
+            aolp: 偏振角数据
+            docp: 圆偏振度数据
+            save_dir: 保存目录
+            base_name: 基础文件名
+            
+        Returns:
+            bool: 是否保存成功
+        """
+        try:
+            pol_data = {
+                'dolp': dolp,  # 原始偏振度数据
+                'aolp': aolp,  # 原始偏振角数据
+                'docp': docp   # 原始圆偏振度数据
+            }
+            npy_filename = os.path.join(save_dir, f"{base_name}_POL.npy")
+            np.save(npy_filename, pol_data)
+            self._logger.info(f"偏振数据已保存: {npy_filename}")
+            return True
+        except Exception as e:
+            self._logger.error(f"保存偏振数据失败: {str(e)}")
+            return False
 
     def _handle_save_raw(self):
         """处理保存原始图像事件"""
@@ -252,18 +291,11 @@ class ToolbarController(BaseModule):
                 aolp = self._last_result.images[2]    # 原始偏振角数据
                 docp = self._last_result.images[3]    # 原始圆偏振度数据
                 
-                # 保存原始偏振数据（.npy格式）
-                pol_data = {
-                    'dolp': dolp,
-                    'aolp': aolp,
-                    'docp': docp
-                }
-                npy_filename = os.path.join(save_dir, f"{base_name}_POL.npy")
-                try:
-                    np.save(npy_filename, pol_data)
-                    self._logger.info(f"偏振数据已保存: {npy_filename}")
-                except Exception as e:
-                    self._logger.error(f"保存偏振数据失败: {str(e)}")
+                # 保存原始偏振数据
+                save_npy_success = self._save_polarization_data(
+                    dolp, aolp, docp,
+                    save_dir, base_name
+                )
                 
                 # 对偏振参数进行颜色映射用于可视化保存
                 dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
@@ -274,32 +306,19 @@ class ToolbarController(BaseModule):
                 metadata = self._last_result.metadata
                 is_color = metadata.get('is_color', False)
                 wb_enabled = metadata.get('pol_wb_enabled', False)
+                merged_name = f"_MERGED_{'COLOR' if is_color else 'GRAY'}{'_WB' if wb_enabled else ''}"
                 
-                merged_name = base_name
-                if is_color:
-                    merged_name = f"{base_name}_MERGED_COLOR{'_WB' if wb_enabled else ''}"
-                else:
-                    merged_name = f"{base_name}_MERGED_GRAY"
+                # 保存彩色映射图像
+                success = self._save_image_set(
+                    images=[merged, dolp_colored, aolp_colored, docp_colored],
+                    base_name=base_name,
+                    suffixes=[merged_name, 'DOLP', 'AOLP', 'DOCP'],
+                    save_dir=save_dir,
+                    extension=ext
+                )
                 
-                # 保存图像
-                files_to_save = [
-                    (merged, merged_name),
-                    (dolp_colored, f"{base_name}_DOLP"),
-                    (aolp_colored, f"{base_name}_AOLP"),
-                    (docp_colored, f"{base_name}_DOCP")
-                ]
-                
-                success = True
-                for img, img_base_name in files_to_save:
-                    filename = os.path.join(save_dir, f"{img_base_name}{ext}")
-                    try:
-                        cv2.imwrite(filename, img)
-                        self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
-                        self._logger.info(f"图像已保存: {filename}")
-                    except Exception as e:
-                        self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
-                        self._logger.error(f"保存图像失败: {str(e)}")
-                        success = False
+                # 更新总体保存状态
+                success = success and save_npy_success
 
             elif self._last_result.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
                 # 基础文件名添加模式信息
@@ -308,12 +327,11 @@ class ToolbarController(BaseModule):
                     mode_str += "_WB"
                 base_name = f"{base_name}_{mode_str}"
                 
-                # 只使用角度作为后缀
-                angles = ['0', '45', '90', '135']
+                # 使用统一的保存方法
                 success = self._save_image_set(
                     self._last_result.images,
                     base_name,
-                    angles,
+                    ['0', '45', '90', '135'],
                     save_dir,
                     ext
                 )
