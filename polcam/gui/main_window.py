@@ -122,7 +122,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 修改单次按钮连接
         self.camera_control.exposure_control.once_clicked.connect(self.camera.set_exposure_once)
         self.camera_control.gain_control.once_clicked.connect(self.camera.set_gain_once)
-        self.camera_control.wb_control.once_clicked.connect(self.camera.set_balance_white_once)
+        # self.camera_control.wb_control.once_clicked.connect(self.camera.set_balance_white_once)
 
         # 添加角度选择信号处理
         self.camera_control.angle_selector.angle_changed.connect(self._handle_angle_changed)
@@ -130,7 +130,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 添加偏振分析颜色控制连接
         self.camera_control.pol_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
         self.camera_control.pol_control.wb_auto_changed.connect(self._handle_pol_wb_auto_changed)
-        self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
+        # self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -285,9 +285,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.set_angle_controls_visible(show_angle)
         self.camera_control.set_pol_controls_visible(show_pol)
         
-        # 处理当前帧
-        if self.current_frame is not None:
-            self.processor.process_frame(self.current_frame, priority=5)
+        # 重新处理当前帧
+        self._reprocessing_from_current_frame()
 
     def _is_grayscale_mode(self, mode: ProcessingMode) -> bool:
         """判断是否是需要隐藏白平衡的显示模式"""
@@ -342,35 +341,36 @@ class MainWindow(QtWidgets.QMainWindow):
         elif mode == ProcessingMode.POLARIZATION:
             self.image_display.show_polarization_quad_view(*images)
 
+    def _reprocessing_from_current_frame(self):
+        """重新处理当前帧
+        清空所有待处理任务，在非连续采集模式下，如果存在当前帧则重新进行处理
+        """
+        self.processor.cancel_all_tasks()  # 清空所有待处理任务
+        if not self._continuous_mode and self.current_frame is not None:
+            self.processor.process_frame(self.current_frame)
+
     def _handle_wb_auto_changed(self, auto: bool):
         """处理白平衡状态改变"""
-        # 更新处理模块的白平衡状态
         self.processor.set_parameter('wb_auto', auto)
-        
         self._logger.info(f"使用软件白平衡，自动模式: {auto}")
-        
-        # 只在非连续采集模式下触发重新处理
-        if not self._continuous_mode and self.current_frame is not None:
-            self.processor.process_frame(self.current_frame, priority=5)
+        self._reprocessing_from_current_frame()
 
     def _handle_pol_color_mode_changed(self, is_color: bool):
         """处理偏振分析模式下的颜色模式改变"""
         self.processor.set_parameter('pol_color_mode', is_color)
-        if self.current_frame is not None:
-            self.processor.process_frame(self.current_frame, priority=5)
+        self._reprocessing_from_current_frame()
 
     def _handle_pol_wb_auto_changed(self, auto: bool):
         """处理偏振分析模式下的自动白平衡改变"""
         self.processor.set_parameter('pol_wb_auto', auto)
-        if self.current_frame is not None:
-            self.processor.process_frame(self.current_frame, priority=5)
+        self._reprocessing_from_current_frame()
 
     def _handle_pol_wb_once(self):
         """处理偏振分析模式下的单次白平衡"""
         if self.current_frame is not None:
             # 临时启用自动白平衡进行一次处理
             self.processor.set_parameter('pol_wb_auto', True)
-            self.processor.process_frame(self.current_frame, priority=5)
+            self.processor.process_frame(self.current_frame)
             self.processor.set_parameter('pol_wb_auto', False)
 
     @QtCore.Slot()
@@ -471,9 +471,5 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_angle_changed(self, angle: int):
         """处理角度选择改变"""
-        # 更新处理模块的角度参数
         self.processor.set_parameter('selected_angle', angle)
-        
-        # 重新处理当前帧
-        if self.current_frame is not None and not self._continuous_mode:
-            self.processor.process_frame(self.current_frame, priority=5)
+        self._reprocessing_from_current_frame()

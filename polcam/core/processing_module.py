@@ -548,17 +548,3 @@ class ProcessingModule(BaseModule):
         while len(self._frame_cache) > size:
             oldest_key = next(iter(self._frame_cache))
             del self._frame_cache[oldest_key]
-
-    def clear_wb_cache(self):
-        """清空白平衡缓存"""
-        self._wb_cache.clear_all()
-
-    def set_wb_cache_duration(self, duration: float):
-        """设置白平衡缓存的有效期
-        
-        Args:
-            duration: 缓存有效期（秒）
-        """
-        if duration < 0:
-            raise ValueError("缓存有效期不能为负数")
-        self._wb_cache.set_valid_duration(duration)
