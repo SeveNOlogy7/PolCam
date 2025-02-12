@@ -1,4 +1,4 @@
-from qtpy import QtWidgets
+from qtpy import QtWidgets, QtCore
 import cv2
 import numpy as np
 import os
@@ -29,6 +29,7 @@ class ToolbarController(BaseModule):
             self._toolbar.settings_action.triggered.connect(self._handle_settings)
             self._toolbar.about_action.triggered.connect(self._handle_about)
             self._toolbar.help_action.triggered.connect(self._handle_help)
+            self._toolbar.open_raw_action.triggered.connect(self._handle_open_raw)
             return True
         except Exception as e:
             self._logger.error(f"工具栏控制器初始化失败: {str(e)}")
@@ -177,6 +178,34 @@ class ToolbarController(BaseModule):
                     
             return base_name, ext, True
         return "", "", False
+
+    def _get_load_filename(self, title: str) -> Tuple[str, bool]:
+        """获取要加载的文件名
+        
+        复用保存对话框的过滤器设置，保持一致的用户体验
+        """
+        dialog = QtWidgets.QFileDialog(self._main_window)
+        dialog.setWindowTitle(title)
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptOpen)
+        dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png);;Raw files (*.raw *.bin);;All Files (*)")
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            return dialog.selectedFiles()[0], True
+        return "", False
+
+    def _verify_image_size(self, data: np.ndarray) -> bool:
+        """验证图像尺寸是否为8x8马赛克的整数倍
+        
+        Args:
+            data: 要验证的图像数据
+            
+        Returns:
+            bool: 是否符合要求
+        """
+        if len(data.shape) != 2:
+            return False
+        shape = data.shape
+        return shape[0] % 8 == 0 and shape[1] % 8 == 0
 
     def _save_image_set(self, images: List[np.ndarray], base_name: str, suffixes: List[str], 
                        save_dir: str, extension: str) -> bool:
@@ -371,6 +400,55 @@ class ToolbarController(BaseModule):
                 self._main_window,
                 "保存失败",
                 f"保存处理结果失败: {str(e)}"
+            )
+
+    def _handle_open_raw(self):
+        """处理打开原始图像"""
+        file_path, success = self._get_load_filename("打开原始图像")
+        
+        if not success:
+            return
+            
+        try:
+            # 读取原始图像文件
+            raw_data = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+            if raw_data is None:
+                raise ValueError("无法读取图像文件")
+            
+            # 验证图像尺寸
+            if not self._verify_image_size(raw_data):
+                raise ValueError("图像尺寸必须是8x8马赛克的整数倍")
+            
+            
+            frame = raw_data
+            timestamp = QtCore.QDateTime.currentDateTime()
+            
+            # 更新主窗口的状态
+            self._main_window.current_frame = frame
+            self._main_window._current_frame_timestamp = timestamp
+            
+            # 更新当前帧
+            self.update_current_frame(frame, timestamp)
+            self.enable_save_raw(True)
+            
+            # 获取当前显示模式并更新显示
+            current_mode = ProcessingMode.index_to_mode(
+                self._main_window.image_display.display_mode.currentIndex()
+            )
+            
+            if current_mode == ProcessingMode.RAW:
+                self._main_window.image_display.show_image(frame)
+            else:
+                self._main_window.processor.process_frame(frame)
+            
+            self._main_window.status_label.setText(f"已加载图像: {file_path}")
+                
+        except Exception as e:
+            self._logger.error(f"打开原始图像失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self._main_window,
+                "错误",
+                f"无法读取图像文件: {str(e)}"
             )
 
     def _handle_settings(self):

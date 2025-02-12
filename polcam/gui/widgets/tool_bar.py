@@ -21,6 +21,10 @@ class ToolBar(QtWidgets.QToolBar):
         self.save_result_action.setEnabled(False)
         self.addAction(self.save_result_action)
 
+        # 添加打开原始图像按钮
+        self.open_raw_action = QtWidgets.QAction(self._load_icon("open_raw.svg"), "打开原始图像", self)
+        self.addAction(self.open_raw_action)
+
         self.addSeparator()
 
         self.settings_action = QtWidgets.QAction(self._load_icon("settings.svg"), "设置", self)
