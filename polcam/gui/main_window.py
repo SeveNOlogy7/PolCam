@@ -458,19 +458,19 @@ class MainWindow(QtWidgets.QMainWindow):
             # 更新工具栏控制器中的当前帧和时间戳
             self.toolbar_controller.update_current_frame(frame, timestamp)
             self._update_capture_time(capture_time)
-            
+            # 更新自动参数显示
+            self._update_auto_parameters()
+            # 更新保存按钮状态
+            self.toolbar_controller.enable_save_raw(not self._continuous_mode)
             # 判断是否为原始图像模式
             current_mode = ProcessingMode.index_to_mode(self.image_display.display_mode.currentIndex())
             if current_mode == ProcessingMode.RAW:
                 # 原始图像模式直接显示，不经过处理模块
                 self.image_display.show_image(frame)
-                self.toolbar_controller.enable_save_raw(not self._continuous_mode)
             else:
                 # 其他模式需要通过处理模块
                 if self._continuous_mode and not self.processor.is_processing():
                     self.processor.process_frame(frame)
-                self._update_auto_parameters()
-                self.toolbar_controller.enable_save_raw(not self._continuous_mode)
 
     def _on_error(self, event):
         """处理错误事件"""
