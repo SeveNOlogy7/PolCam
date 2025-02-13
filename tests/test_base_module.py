@@ -1,5 +1,7 @@
 """
-BaseModule测试代码
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
 """
 
 import pytest

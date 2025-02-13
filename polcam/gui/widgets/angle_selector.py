@@ -1,4 +1,10 @@
-"""角度选择控制组组件"""
+"""
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+
+角度选择控制组组件
+"""
 
 from qtpy import QtWidgets, QtCore, QtGui
 from .control_group import ControlGroup

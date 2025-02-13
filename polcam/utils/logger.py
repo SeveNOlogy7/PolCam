@@ -1,4 +1,8 @@
 """
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+
 日志系统配置
 提供统一的日志格式和输出设置
 """

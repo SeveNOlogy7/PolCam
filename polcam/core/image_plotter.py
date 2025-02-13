@@ -1,4 +1,10 @@
-"""用于图像绘制的工具类"""
+"""
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+
+用于图像绘制的工具类
+"""
 
 import cv2
 import numpy as np

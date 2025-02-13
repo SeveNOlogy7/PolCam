@@ -1,4 +1,8 @@
 """
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+
 模块系统基类
 提供基础的模块生命周期管理和事件处理功能
 """

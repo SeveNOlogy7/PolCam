@@ -1,3 +1,9 @@
+"""
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+"""
+
 from qtpy import QtWidgets, QtCore
 import cv2
 import numpy as np
