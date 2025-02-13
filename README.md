@@ -48,7 +48,7 @@ python main.py
 ### 项目结构
 ```
 PolCam/
-├── polcam/              # 主要源代码
+├── polcam/             # 主要源代码
 │   ├── core/           # 核心功能模块
 │   ├── gui/            # 图形界面模块
 │   └── utils/          # 工具函数
@@ -113,7 +113,7 @@ python main.py
 ### Project Structure
 ```
 PolCam/
-├── polcam/              # Main source code
+├── polcam/             # Main source code
 │   ├── core/           # Core functionality
 │   ├── gui/            # GUI modules
 │   └── utils/          # Utility functions

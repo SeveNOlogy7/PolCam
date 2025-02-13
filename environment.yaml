@@ -11,6 +11,8 @@ dependencies:
   - matplotlib
   - pytest
   - pytest-qt
+  - pytest-cov
+  - tifffile
   - pip
   - pip:
     - polanalyser
