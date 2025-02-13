@@ -342,7 +342,7 @@ class ToolbarController(BaseModule):
                 metadata = self._last_result.metadata
                 is_color = metadata.get('is_color', False)
                 wb_enabled = metadata.get('pol_wb_enabled', False)
-                merged_name = f"_MERGED_{'COLOR' if is_color else 'GRAY'}{'_WB' if wb_enabled else ''}"
+                merged_name = f"MERGED_{'COLOR' if is_color else 'GRAY'}{'_WB' if wb_enabled else ''}"
                 
                 # 保存彩色映射图像
                 success = self._save_image_set(
@@ -427,7 +427,7 @@ class ToolbarController(BaseModule):
                 raise ValueError("图像尺寸必须是8x8马赛克的整数倍")
             
             # 更新当前帧
-            timestamp = QtCore.QDateTime.currentDateTime()
+            timestamp = datetime.now()
             self.update_current_frame(raw_data, timestamp)
             self.enable_save_raw(True)
             
