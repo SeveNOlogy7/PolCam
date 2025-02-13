@@ -8,10 +8,10 @@ from qtpy import QtWidgets, QtCore, QtGui
 import numpy as np
 import cv2
 from typing import List
-from PIL import Image, ImageDraw, ImageFont
-import os
 from polcam.core.image_processor import ImageProcessor
-from .styles import Styles
+from polcam.gui.styles import Styles
+from ..core.processing_module import ProcessingMode
+from ..core.image_plotter import ImagePlotter
 
 class ImageDisplay(QtWidgets.QWidget):
     # 添加鼠标位置信号
@@ -20,7 +20,8 @@ class ImageDisplay(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         # 先初始化基本属性
-        self.current_image = None
+        self.current_images = []      # 原始图像缓存列表
+        self._current_canvas = None   # 当前显示画布缓存
         self.image_rect = None        # 图像在标签中的实际显示区域
         self.scale_factor = 1.0       # 图像缩放因子
         self.image_mode = None        # 当前显示模式
@@ -29,6 +30,8 @@ class ImageDisplay(QtWidgets.QWidget):
         self.cursor_info = None       # 游标信息
 
         self.setup_ui()
+        # 初始化时禁用控件
+        self.enable_display_controls(False)
         self.show_default_image()
         
     def setup_ui(self):
@@ -80,10 +83,7 @@ class ImageDisplay(QtWidgets.QWidget):
             self.image_toolbar,
             self,
         )
-        
-        # 连接信号
-        self.display_mode.currentIndexChanged.connect(self.update_display)
-        
+
         # 尺寸策略
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
@@ -93,32 +93,40 @@ class ImageDisplay(QtWidgets.QWidget):
         # 初始化工具栏控制器（移到最后）
         self.toolbar_controller.initialize()
         
+    def enable_display_controls(self, enabled: bool):
+        """启用或禁用显示控件
+        
+        Args:
+            enabled (bool): True表示启用，False表示禁用
+        """
+        self.display_mode.setEnabled(enabled)
+        self.image_toolbar.setEnabled(enabled)
+        
+    def is_display_controls_enabled(self) -> bool:
+        """检查显示控件是否已启用
+        
+        Returns:
+            bool: 显示控件是否已启用
+        """
+        return self.display_mode.isEnabled()
+        
     def resizeEvent(self, event: QtGui.QResizeEvent):
         """窗口大小变化时重新显示图像"""
         super().resizeEvent(event)
         # 如果有当前图像，则重新显示
-        if (self.current_image is not None):
-            self.show_image(self.current_image)
-        
-    def update_display(self):
-        """显示模式改变时的处理"""
-        if not hasattr(self, 'raw') or self.raw is None:
-            return
-            
-        # 触发主窗口重新处理当前帧
-        self.parent().process_and_display_frame(self.raw, reprocess=True)
+        self.refresh_current_image()
 
-    def show_image(self, image: np.ndarray):
-        """统一的图像显示接口，自动调整图像大小以适应显示区域
+    def _show_canvas(self, image: np.ndarray):
+        """底层显示接口，处理图像缩放和实际显示
         注意：输入图像应该是BGR格式，函数内部会转换为RGB用于显示
+        
+        Args:
+            image: BGR格式的图像数据
         """
         try:
             if image is None:
                 return
                 
-            # 保存当前图像的副本（保持BGR格式）
-            self.current_image = image.copy() if isinstance(image, np.ndarray) else None
-
             # 转换为QImage
             if len(image.shape) == 2:
                 h, w = image.shape
@@ -164,7 +172,24 @@ class ImageDisplay(QtWidgets.QWidget):
             
         except Exception as e:
             print(f"图像显示错误: {e}")
+
+    def show_image(self, image: np.ndarray):
+        """外部图像显示接口
         
+        Args:
+            image: BGR格式的图像数据
+        """
+        if image is None:
+            return
+            
+        # 保存原始图像的副本
+        self.current_images = [image.copy()] if isinstance(image, np.ndarray) else []
+        # 保存当前画布
+        self._current_canvas = image.copy()
+        
+        # 显示图像
+        self._show_canvas(self._current_canvas)
+
     def to_grayscale(self, image: np.ndarray) -> np.ndarray:
         """将彩色图像转换为灰度图像"""
         if len(image.shape) == 2:
@@ -172,138 +197,47 @@ class ImageDisplay(QtWidgets.QWidget):
         return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     def show_quad_view(self, images: List[np.ndarray], gray: bool = False):
-        """四角度视图显示接口
+        """四角度视图显示接口"""
+        # 保存原始图像列表的副本
+        self.current_images = [img.copy() for img in images if img is not None]
         
-        Args:
-            images: 四个角度的图像列表
-            gray: 是否显示灰度图像
-        注意：输入图像应为BGR格式，显示时会自动转换为RGB
-        """
         if gray:
-            # 使用内部的灰度转换方法
             images = [self.to_grayscale(img) for img in images]
-            # 转换单通道灰度图为三通道BGR图像
             images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
-            
-        h, w = images[0].shape[:2]
-        canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
-        
-        # 直接复制BGR图像到画布
-        positions = [(0, 0), (0, w), (h, 0), (h, w)]
+                
         titles = ['0 deg', '45 deg', '90 deg', '135 deg']
+        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, titles)
         
-        for img, (y, x), title in zip(images, positions, titles):
-            canvas[y:y+h, x:x+w] = img  # 保持BGR格式
-            # 使用统一的样式设置
-            cv2.putText(canvas, title, 
-                       (x + Styles.IMAGE_TITLE_X_OFFSET, 
-                        y + Styles.IMAGE_TITLE_Y_OFFSET),
-                       cv2.FONT_HERSHEY_SIMPLEX, 
-                       Styles.IMAGE_TITLE_FONT_SCALE, 
-                       Styles.IMAGE_TITLE_COLOR, 
-                       Styles.IMAGE_TITLE_THICKNESS)
+        # 更新画布缓存
+        self._current_canvas = canvas.copy()
         
-        # show_image 会处理BGR到RGB的转换
-        self.show_image(canvas)
+        # 显示画布
+        self._show_canvas(self._current_canvas)
 
-    def show_polarization_quad_view(self, color_image: np.ndarray, 
+    def show_polarization_quad_view(self, image: np.ndarray, 
                                   dolp: np.ndarray, aolp: np.ndarray, 
                                   docp: np.ndarray):
-        """显示偏振分析的四视图
-        注意：所有输入的彩色图像应为BGR格式，显示时会自动转换为RGB
-        """
-        h, w = color_image.shape[:2]
-        canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
+        """显示偏振分析的四视图"""
+        # 保存原始图像列表的副本
+        self.current_images = [img.copy() for img in [image, dolp, aolp, docp] if img is not None]
         
-        # colormap_polarization 已经生成BGR格式的图像
-        dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(dolp, aolp, docp)
+        dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
+            dolp, aolp, docp)
+            
+        images = [image, dolp_colored, aolp_colored, docp_colored]
         
-        # 所有图像都是BGR格式
-        images = [color_image, dolp_colored, aolp_colored, docp_colored]
-        positions = [(0, 0), (0, w), (h, 0), (h, w)]
         titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
+        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, titles)
         
-        for img, (y, x), title in zip(images, positions, titles):
-            # 确保都是三通道BGR格式
-            if len(img.shape) == 2:
-                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            canvas[y:y+h, x:x+w] = img
-            
-            # 使用统一的样式设置
-            cv2.putText(canvas, title, 
-                       (x + Styles.IMAGE_TITLE_X_OFFSET, 
-                        y + Styles.IMAGE_TITLE_Y_OFFSET),
-                       cv2.FONT_HERSHEY_SIMPLEX, 
-                       Styles.IMAGE_TITLE_FONT_SCALE, 
-                       Styles.IMAGE_TITLE_COLOR, 
-                       Styles.IMAGE_TITLE_THICKNESS)
-            
-        # show_image 会处理BGR到RGB的转换
-        self.show_image(canvas)
+        # 更新画布缓存
+        self._current_canvas = canvas.copy()
         
-    def get_default_image(self) -> np.ndarray:
-        """获取默认的帮助图像
-        
-        Returns:
-            np.ndarray: 帮助图像
-        """
-        # 创建PIL图像 (1920x1080)
-        pil_image = Image.new('RGB', (1920, 1080), color='black')
-        draw = ImageDraw.Draw(pil_image)
-        
-        # 加载中文字体
-        try:
-            font_path = "C:/Windows/Fonts/msyh.ttc"  # 微软雅黑
-            if not os.path.exists(font_path):
-                font_path = "C:/Windows/Fonts/simhei.ttf"  # 备选：黑体
-            title_font = ImageFont.truetype(font_path, 48)
-            text_font = ImageFont.truetype(font_path, 36)
-        except Exception as e:
-            self._logger.error(f"加载字体失败: {e}")
-            return None
-        
-        # 帮助文字内容
-        guide_text = [
-            "偏振相机控制系统使用说明",
-            "",
-            "基本操作：",
-            "1. 连接相机：点击左侧'连接相机'按钮",
-            "2. 调节图像：使用曝光和增益控制",
-            "3. 采集图像：可选择'单帧采集'或'连续采集'",
-            "4. 显示模式：在顶部下拉框选择不同显示方式",
-            "",
-            "高级功能：",
-            "- 白平衡：彩色模式下可开启自动白平衡",
-            "- 偏振分析：可查看DOLP、AOLP等偏振信息",
-            "- 图像保存：工具栏中的保存按钮可保存原始图像和处理结果"
-        ]
-        
-        # 计算文字位置
-        text_height = 70
-        start_y = (1080 - len(guide_text) * text_height) // 2
-        
-        # 绘制每行文字
-        for i, text in enumerate(guide_text):
-            if i == 0:  # 标题
-                font = title_font
-                color = (100, 200, 255)
-            else:  # 正文
-                font = text_font
-                color = (200, 200, 200)
-            
-            text_width = font.getlength(text)
-            x = (1920 - text_width) // 2
-            y = start_y + i * text_height
-            
-            draw.text((x, y), text, font=font, fill=color)
-        
-        # 转换为OpenCV格式
-        cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-        return cv_image
+        # 显示画布
+        self._show_canvas(self._current_canvas)
 
     def show_default_image(self):
         """显示默认的帮助图像"""
-        default_image = self.get_default_image()
+        default_image = ImagePlotter.get_default_image()
         if default_image is not None:
             self.show_image(default_image)
             
@@ -312,20 +246,17 @@ class ImageDisplay(QtWidgets.QWidget):
         self.cursor_enabled = enabled
         if enabled:
             self.image_label.setCursor(QtCore.Qt.CrossCursor)
-            # 开启鼠标追踪
             self.image_label.setMouseTracking(True)
             self.image_label.mouseMoveEvent = self._on_mouse_move
         else:
             self.image_label.setCursor(QtCore.Qt.ArrowCursor)
             self.image_label.setMouseTracking(False)
             self.image_label.mouseMoveEvent = None
-            # 清除状态并触发信号以清除状态栏
             self.cursor_info = None
-            self.cursorPositionChanged.emit({'cleared': True})
             
     def _on_mouse_move(self, event: QtGui.QMouseEvent):
         """处理鼠标移动事件"""
-        if not self.cursor_enabled or self.current_image is None:
+        if not self.cursor_enabled or not self.current_images:  # 修改判断条件
             return
             
         # 获取图像实际显示区域
@@ -360,46 +291,124 @@ class ImageDisplay(QtWidgets.QWidget):
             return
             
         # 转换为原始图像坐标
-        img_x = int(mouse_x * self.current_image.shape[1] / display_width)
-        img_y = int(mouse_y * self.current_image.shape[0] / display_height)
+        img_x = int(mouse_x * self._current_canvas.shape[1] / display_width)
+        img_y = int(mouse_y * self._current_canvas.shape[0] / display_height)
         
         # 确保坐标在图像范围内
-        img_x = max(0, min(img_x, self.current_image.shape[1] - 1))
-        img_y = max(0, min(img_y, self.current_image.shape[0] - 1))
+        img_x = max(0, min(img_x, self._current_canvas.shape[1] - 1))
+        img_y = max(0, min(img_y, self._current_canvas.shape[0] - 1))
         
         # 获取像素值
-        if len(self.current_image.shape) == 3:
-            # BGR格式
-            b, g, r = self.current_image[img_y, img_x]
-            pixel_info = {'rgb': (r, g, b)}
-        else:
-            # 灰度图
-            gray = self.current_image[img_y, img_x]
-            pixel_info = {'gray': gray}
-            
-        # 判断是否在四分图中
-        quad_index = None
-        if self.quad_positions:  # 如果有四分图位置信息
-            h, w = self.current_image.shape[:2]
-            h2, w2 = h//2, w//2
-            if img_y < h2:
-                if img_x < w2:
-                    quad_index = 0  # 左上
-                else:
-                    quad_index = 1  # 右上
+        if self.is_quad_view_mode():
+            # 四分图模式处理
+            quad_index = self.get_quad_index(img_x, img_y)
+            if quad_index is not None and quad_index < len(self.current_images):
+                # 获取当前区域的图像
+                current_image = self.current_images[quad_index]
+                
+                # 计算在四分区中的相对位置
+                quad_y, quad_x = self.quad_positions[quad_index]
+                cursor_quad_position = (img_x - quad_x, img_y - quad_y)
+                
+                # 获取所有区域相同位置的像素值
+                pixel_values = []
+                rel_x, rel_y = cursor_quad_position
+                for img in self.current_images:
+                    if len(img.shape) == 3:
+                        b, g, r = img[rel_y, rel_x]
+                        pixel_values.append((r, g, b))
+                    else:
+                        gray = img[rel_y, rel_x]
+                        pixel_values.append(gray)
+                
+                # 构建像素信息
+                pixel_info = {
+                    'quad_rgb_values' if len(current_image.shape) == 3 else 'quad_gray_values': pixel_values
+                }
+                
+                # 游标信息
+                self.cursor_info = {
+                    'position': (img_x, img_y),
+                    'mode': 'quad',
+                    'quad_index': quad_index,
+                    'cursor_quad_position': cursor_quad_position,
+                    **pixel_info
+                }
             else:
-                if img_x < w2:
-                    quad_index = 2  # 左下
-                else:
-                    quad_index = 3  # 右下
-                    
-        # 更新游标信息
-        self.cursor_info = {
-            'position': (img_x, img_y),
-            'mode': 'quad' if quad_index is not None else 'single',
-            'quad_index': quad_index,
-            **pixel_info
-        }
+                return
+                
+        else:
+            # 单图模式处理
+            current_image = self.current_images[0]
+            if len(current_image.shape) == 3:
+                b, g, r = current_image[img_y, img_x]
+                pixel_info = {'rgb': (r, g, b)}
+            else:
+                gray = current_image[img_y, img_x]
+                pixel_info = {'gray': gray}
+                
+            # 游标信息
+            self.cursor_info = {
+                'position': (img_x, img_y),
+                'mode': 'single',
+                'quad_index': None,
+                'cursor_quad_position': None,
+                **pixel_info
+            }
+        
+        # 四分图模式下绘制游标
+        if self.is_quad_view_mode():
+            if self._current_canvas is not None:
+                canvas = self._current_canvas.copy()
+                display_size = (self.image_label.width(), self.image_label.height())
+                canvas = ImagePlotter.draw_quad_cursors(
+                    canvas, self.cursor_info, self.quad_positions, 
+                    self.quad_size, display_size
+                )
+                self._show_canvas(canvas)  # 使用_show_canvas替代show_image
         
         # 发送信号
         self.cursorPositionChanged.emit(self.cursor_info)
+
+
+    def is_quad_view_mode(self):
+        """检查当前是否为四分图显示模式
+        Returns:
+            bool: 是否为四分图模式
+        """
+        current_index = ProcessingMode.index_to_mode(self.display_mode.currentIndex())
+        return current_index in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY, ProcessingMode.POLARIZATION]
+    
+    def get_quad_index(self, img_x: int, img_y: int) -> int:
+        """获取四分图区域索引
+        
+        Args:
+            img_x: 图像中的x坐标
+            img_y: 图像中的y坐标
+            
+        Returns:
+            int: 四分图区域索引(0-3)，如果不在任何区域内则返回None
+        """
+        if not self.quad_positions or not self.quad_size:
+            return None
+            
+        quad_height, quad_width = self.quad_size
+        
+        # quad_positions = [(0, 0), (0, w), (h, 0), (h, w)]
+        # [0, 1 , 2 , 3]
+        for i, (pos_y, pos_x) in enumerate(self.quad_positions):
+            # 检查点是否在当前四分图区域内
+            if (pos_x <= img_x < pos_x + quad_width and 
+                pos_y <= img_y < pos_y + quad_height):
+                return i
+                
+        return None
+
+    def refresh_current_image(self):
+        """刷新当前显示"""
+        if self._current_canvas is not None:
+            # 优先使用当前画布进行刷新
+            self._show_canvas(self._current_canvas)
+        elif self.current_images:  # 修改判断条件
+            # 如果没有画布缓存，使用第一张原始图像
+            self.show_image(self.current_images[0])

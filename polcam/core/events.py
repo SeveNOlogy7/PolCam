@@ -29,6 +29,7 @@ class EventType(Enum):
     PROCESSING_COMPLETED = auto()
     STREAMING_STARTED = auto()
     STREAMING_STOPPED = auto()
+    RAW_FILE_LOADED = auto()
 
 class Event:
     """事件对象"""

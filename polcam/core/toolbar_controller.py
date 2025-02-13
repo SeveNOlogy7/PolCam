@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Union, List
 from polcam.core.image_processor import ImageProcessor
 from .base_module import BaseModule
 from ..core.processing_module import ProcessingMode
+from ..core.events import Event, EventType
 
 class ToolbarController(BaseModule):
     def __init__(self, main_window):
@@ -419,30 +420,21 @@ class ToolbarController(BaseModule):
             if not self._verify_image_size(raw_data):
                 raise ValueError("图像尺寸必须是8x8马赛克的整数倍")
             
-            
-            frame = raw_data
-            timestamp = QtCore.QDateTime.currentDateTime()
-            
-            # 更新主窗口的状态
-            self._main_window.current_frame = frame
-            self._main_window._current_frame_timestamp = timestamp
-            
             # 更新当前帧
-            self.update_current_frame(frame, timestamp)
+            timestamp = QtCore.QDateTime.currentDateTime()
+            self.update_current_frame(raw_data, timestamp)
             self.enable_save_raw(True)
             
-            # 获取当前显示模式并更新显示
-            current_mode = ProcessingMode.index_to_mode(
-                self._main_window.image_display.display_mode.currentIndex()
-            )
+            # 创建事件数据
+            event_data = {
+                'frame': raw_data,
+                'timestamp': timestamp,
+                'filepath': file_path
+            }
             
-            if current_mode == ProcessingMode.RAW:
-                self._main_window.image_display.show_image(frame)
-            else:
-                self._main_window.processor.process_frame(frame)
+            # 发布文件加载事件
+            self._event_manager.publish(Event(EventType.RAW_FILE_LOADED, event_data))
             
-            self._main_window.status_label.setText(f"已加载图像: {file_path}")
-                
         except Exception as e:
             self._logger.error(f"打开原始图像失败: {str(e)}")
             QtWidgets.QMessageBox.warning(

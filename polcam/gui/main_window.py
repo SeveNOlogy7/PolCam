@@ -4,11 +4,10 @@ Copyright (c) 2024 Junhao Cai
 See LICENSE file for full license details.
 """
 
+import numpy as np
 from qtpy import QtWidgets, QtCore, QtGui
-
-from polcam.core.image_toolbar_controller import ImageToolbarController
 from ..core.camera_module import CameraModule
-from ..core.events import EventType, Event
+from ..core.events import EventType, Event, EventManager  # 添加 EventManager 导入
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
 from .status_indicator import StatusIndicator
@@ -88,6 +87,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_process_time = 0.0  # 添加处理时间缓存
         self._continuous_mode = False  # 添加连续采集模式标志
         self._current_frame_timestamp = None  # 添加时间戳属性
+
+        # 订阅RAW_FILE_LOADED事件
+        self.toolbar_controller.subscribe_event(EventType.RAW_FILE_LOADED, self._on_raw_file_loaded)
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -308,7 +310,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 禁用 RAW 模式下的保存结果按钮
         if mode == ProcessingMode.RAW:
             self.toolbar_controller.enable_save_result(False)
-        else:        
+            # 原始图像模式直接显示，不经过处理模块
+            self.image_display.show_image(self.current_frame)       
+        else:
             # 重新处理当前帧
             self._reprocessing_from_current_frame()
 
@@ -444,19 +448,45 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理相机断开事件"""
         self.status_label.setText("相机已断开")
         self.camera_info.clear()
+        
         # 禁用保存按钮
         self.toolbar_controller.enable_save_raw(False)
         self.toolbar_controller.enable_save_result(False)
+
+    def _update_frame_and_display(self, frame: np.ndarray, timestamp=None):
+        """更新帧数据并显示
+        
+        Args:
+            frame: 图像数据
+            timestamp: 时间戳（可选）
+        """
+        if frame is not None:
+            # 如果显示控件未启用，则启用
+            if not self.image_display.is_display_controls_enabled():
+                self.image_display.enable_display_controls(True)
+                
+            # 更新当前帧和时间戳
+            self.current_frame = frame
+            self._current_frame_timestamp = timestamp
+
+            # 获取当前显示模式
+            current_mode = ProcessingMode.index_to_mode(
+                self.image_display.display_mode.currentIndex()
+            )
+            
+            # 根据模式更新显示或后处理图像
+            if current_mode == ProcessingMode.RAW:
+                self.image_display.show_image(frame)
+            else:
+                self.processor.process_frame(frame)
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
         frame = event.data.get("frame")
         capture_time = event.data.get("capture_time", 0)
-        timestamp = event.data.get("timestamp")  # 获取时间戳
+        timestamp = event.data.get("timestamp")
         
         if frame is not None:
-            self.current_frame = frame
-            self._current_frame_timestamp = timestamp  # 保存时间戳
             # 更新工具栏控制器中的当前帧和时间戳
             self.toolbar_controller.update_current_frame(frame, timestamp)
             self._update_capture_time(capture_time)
@@ -464,15 +494,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_auto_parameters()
             # 更新保存按钮状态
             self.toolbar_controller.enable_save_raw(not self._continuous_mode)
-            # 判断是否为原始图像模式
-            current_mode = ProcessingMode.index_to_mode(self.image_display.display_mode.currentIndex())
-            if current_mode == ProcessingMode.RAW:
-                # 原始图像模式直接显示，不经过处理模块
-                self.image_display.show_image(frame)
-            else:
-                # 其他模式需要通过处理模块
-                if self._continuous_mode and not self.processor.is_processing():
-                    self.processor.process_frame(frame)
+            # 更新帧和显示
+            self._update_frame_and_display(frame, timestamp)
 
     def _on_error(self, event):
         """处理错误事件"""
@@ -497,3 +520,20 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理角度选择改变"""
         self.processor.set_parameter('selected_angle', angle)
         self._reprocessing_from_current_frame()
+
+    def _on_raw_file_loaded(self, event: Event):
+        """处理原始文件加载事件"""
+        try:
+            frame = event.data.get('frame')
+            timestamp = event.data.get('timestamp')
+            filepath = event.data.get('filepath')
+            
+            # 更新帧和显示
+            self._update_frame_and_display(frame, timestamp)
+            
+            # 更新状态栏显示文件路径
+            self.status_label.setText(f"已加载图像: {filepath}")
+                
+        except Exception as e:
+            self._logger.error(f"处理原始文件加载事件失败: {str(e)}")
+            self.status_label.setText("加载图像失败")
