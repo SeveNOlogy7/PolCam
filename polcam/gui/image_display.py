@@ -17,7 +17,12 @@ class ImageDisplay(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.setup_ui()
-        self.current_image = None  # 添加当前图像缓存
+        self.current_image = None
+        self.image_rect = None        # 图像在标签中的实际显示区域
+        self.scale_factor = 1.0       # 图像缩放因子
+        self.image_mode = None        # 当前显示模式
+        self.quad_positions = []      # 四分图的四个区域位置
+        self.cursor_enabled = False   # 游标模式启用状态
         self.show_default_image()
         
     def setup_ui(self):
@@ -39,7 +44,24 @@ class ImageDisplay(QtWidgets.QWidget):
             "四角度灰度",   # 四个角度的灰度图像
             "偏振度图像"
         ])
-        layout.addWidget(self.display_mode)
+        
+        # 创建工具栏和控制器
+        from .widgets.image_toolbar import ImageToolbar
+        self.image_toolbar = ImageToolbar()
+        
+        # 添加到顶部布局
+        top_layout = QtWidgets.QHBoxLayout()
+        top_layout.addWidget(self.display_mode)
+        top_layout.addWidget(self.image_toolbar)
+        layout.addLayout(top_layout)
+        
+        # 初始化工具栏控制器
+        from ..core.image_toolbar_controller import ImageToolbarController
+        self.toolbar_controller = ImageToolbarController(
+            self.image_toolbar,
+            self,
+        )
+        self.toolbar_controller.initialize()
         
         # 图像显示区域
         self.image_label = QtWidgets.QLabel()
@@ -249,7 +271,7 @@ class ImageDisplay(QtWidgets.QWidget):
         start_y = (1080 - len(guide_text) * text_height) // 2
         
         # 绘制每行文字
-        for i, text in enumerate(guide_text):
+        for i, text in enumerate(ide_text):
             if i == 0:  # 标题
                 font = title_font
                 color = (100, 200, 255)

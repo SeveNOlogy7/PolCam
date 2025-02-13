@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" 
+     viewBox="0 0 32 32"
+     width="32" 
+     height="32"
+     style="enable-background:new 0 0 32 32">
+    
+    <!-- 水平线 -->
+    <path d="M6 16h20" 
+          style="fill:none;
+                 stroke:#000;
+                 stroke-width:1;
+                 stroke-linecap:round"/>
+    
+    <!-- 垂直线 -->
+    <path d="M16 6v20" 
+          style="fill:none;
+                 stroke:#000;
+                 stroke-width:1;
+                 stroke-linecap:round"/>
+    
+    <!-- 中心定位点 -->
+    <circle cx="16" 
+            cy="16" 
+            r="2" 
+            style="fill:#ff0000;
+                   stroke:none"/>
+    
+    <!-- 刻度线（四个方向） -->
+    <g style="stroke:#000; stroke-width:1">
+        <path d="M16 9v3M16 22v3"/> <!-- 上下 -->
+        <path d="M9 16h3M22 16h3"/> <!-- 左右 -->
+    </g>
+</svg>

@@ -5,6 +5,8 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore, QtGui
+
+from polcam.core.image_toolbar_controller import ImageToolbarController
 from ..core.camera_module import CameraModule
 from ..core.events import EventType, Event
 from .camera_control import CameraControl
