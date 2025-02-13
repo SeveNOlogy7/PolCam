@@ -321,10 +321,17 @@ class ImageDisplay(QtWidgets.QWidget):
                         gray = img[rel_y, rel_x]
                         pixel_values.append(gray)
                 
+                # 根据显示模式决定像素信息键名
+                mode = ProcessingMode.index_to_mode(self.display_mode.currentIndex())
+                if mode == ProcessingMode.POLARIZATION:
+                    info_key = 'quad_pol_values'
+                elif mode == ProcessingMode.QUAD_COLOR:
+                    info_key = 'quad_rgb_values'
+                else:
+                    info_key = 'quad_gray_values'
+                    
                 # 构建像素信息
-                pixel_info = {
-                    'quad_rgb_values' if len(current_image.shape) == 3 else 'quad_gray_values': pixel_values
-                }
+                pixel_info = {info_key: pixel_values}
                 
                 # 游标信息
                 self.cursor_info = {

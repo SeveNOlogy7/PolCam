@@ -89,23 +89,29 @@ class ImageToolbarController(BaseModule):
                     # 确保quad_index在有效范围内
                     if 0 <= quad_index < len(quad_titles):
                         position_text = f"({rel_x}, {rel_y})"
-                        
                         # 获取所有区域的像素值/数值
+                        values_text = []
+                        pixel_text = ""
                         if 'quad_rgb_values' in info:
-                            values_text = []
                             for i, (r, g, b) in enumerate(info['quad_rgb_values']):
                                 if i < len(quad_titles):
                                     values_text.append(f"{quad_titles[i]}:RGB({r},{g},{b})")
-                            pixel_text = " | ".join(values_text)
                         elif 'quad_gray_values' in info:
-                            values_text = []
                             for i, gray in enumerate(info['quad_gray_values']):
                                 if i < len(quad_titles):
-                                    # 复用了四分量灰度与偏振度的处理逻辑
-                                    values_text.append(f"{quad_titles[i]}:{int(gray) if gray.is_integer() else f'{gray:.3f}'}")
-                            pixel_text = " | ".join(values_text)
-                        else:
-                            pixel_text = ""
+                                    values_text.append(f"{quad_titles[i]}:{gray}")
+                        elif 'quad_pol_values' in info:
+                            for i, value in enumerate(info['quad_pol_values']):
+                                if i < len(quad_titles):
+                                    if i == 0:
+                                        if isinstance(value, tuple):
+                                            r, g, b = value
+                                            values_text.append(f"{quad_titles[i]}:RGB({r},{g},{b})")
+                                        else:
+                                            values_text.append(f"{quad_titles[i]}:{int(value)}")
+                                    else:
+                                        values_text.append(f"{quad_titles[i]}:{value:.3f}")
+                        pixel_text = " | ".join(values_text)
                         
                         status_text = f"{position_text} || {pixel_text}"
                         self._show_status_message(status_text)
