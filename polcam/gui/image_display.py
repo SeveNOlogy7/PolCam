@@ -14,34 +14,50 @@ from polcam.core.image_processor import ImageProcessor
 from .styles import Styles
 
 class ImageDisplay(QtWidgets.QWidget):
+    # 添加鼠标位置信号
+    cursorPositionChanged = QtCore.Signal(dict)
+    
     def __init__(self):
         super().__init__()
-        self.setup_ui()
+        # 先初始化基本属性
         self.current_image = None
         self.image_rect = None        # 图像在标签中的实际显示区域
         self.scale_factor = 1.0       # 图像缩放因子
         self.image_mode = None        # 当前显示模式
         self.quad_positions = []      # 四分图的四个区域位置
         self.cursor_enabled = False   # 游标模式启用状态
+        self.cursor_info = None       # 游标信息
+
+        self.setup_ui()
         self.show_default_image()
         
     def setup_ui(self):
+        # 创建主布局
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)  # 设置内边距
+        
+        # 先创建图像显示区域（确保image_label最先创建）
+        self.image_label = QtWidgets.QLabel()
+        self.image_label.setMinimumSize(640, 480)
+        self.image_label.setAlignment(QtCore.Qt.AlignCenter)  # 居中对齐
+        self.image_label.setSizePolicy(                       # 设置大小策略
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding
+        )
         
         # 显示模式选择
         self.display_mode = QtWidgets.QComboBox()
         Styles.apply_combobox_style(self.display_mode)
-        self.display_mode.setFont(QtGui.QFont("", 11))  # 设置下拉框字体
-        self.display_mode.setMinimumHeight(30)  # 增加高度
+        self.display_mode.setFont(QtGui.QFont("", 11))
+        self.display_mode.setMinimumHeight(30)
         self.display_mode.addItems([
             "原始图像",
-            "单角度彩色",   # 单偏振角度分量的彩色图像
-            "单角度灰度",   # 单偏振角度分量的灰度图像
-            "彩色图像",     # 全偏振分量合成的彩色图像
-            "灰度图像",     # 全偏振分量合成的灰度图像
-            "四角度彩色",   # 四个角度的彩色图像
-            "四角度灰度",   # 四个角度的灰度图像
+            "单角度彩色",
+            "单角度灰度",
+            "彩色图像",
+            "灰度图像",
+            "四角度彩色",
+            "四角度灰度",
             "偏振度图像"
         ])
         
@@ -53,7 +69,10 @@ class ImageDisplay(QtWidgets.QWidget):
         top_layout = QtWidgets.QHBoxLayout()
         top_layout.addWidget(self.display_mode)
         top_layout.addWidget(self.image_toolbar)
+        
+        # 按顺序添加到主布局
         layout.addLayout(top_layout)
+        layout.addWidget(self.image_label)
         
         # 初始化工具栏控制器
         from ..core.image_toolbar_controller import ImageToolbarController
@@ -61,25 +80,18 @@ class ImageDisplay(QtWidgets.QWidget):
             self.image_toolbar,
             self,
         )
-        self.toolbar_controller.initialize()
         
-        # 图像显示区域
-        self.image_label = QtWidgets.QLabel()
-        self.image_label.setMinimumSize(640, 480)
-        self.image_label.setAlignment(QtCore.Qt.AlignCenter)  # 居中对齐
-        self.image_label.setSizePolicy(                       # 设置大小策略
-            QtWidgets.QSizePolicy.Expanding,
-            QtWidgets.QSizePolicy.Expanding
-        )
-        layout.addWidget(self.image_label)
-        
+        # 连接信号
         self.display_mode.currentIndexChanged.connect(self.update_display)
         
-        # 设置尺寸策略为扩展
+        # 尺寸策略
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding
         )
+        
+        # 初始化工具栏控制器（移到最后）
+        self.toolbar_controller.initialize()
         
     def resizeEvent(self, event: QtGui.QResizeEvent):
         """窗口大小变化时重新显示图像"""
@@ -271,7 +283,7 @@ class ImageDisplay(QtWidgets.QWidget):
         start_y = (1080 - len(guide_text) * text_height) // 2
         
         # 绘制每行文字
-        for i, text in enumerate(ide_text):
+        for i, text in enumerate(guide_text):
             if i == 0:  # 标题
                 font = title_font
                 color = (100, 200, 255)
@@ -294,3 +306,100 @@ class ImageDisplay(QtWidgets.QWidget):
         default_image = self.get_default_image()
         if default_image is not None:
             self.show_image(default_image)
+            
+    def set_cursor_mode(self, enabled: bool):
+        """设置游标模式"""
+        self.cursor_enabled = enabled
+        if enabled:
+            self.image_label.setCursor(QtCore.Qt.CrossCursor)
+            # 开启鼠标追踪
+            self.image_label.setMouseTracking(True)
+            self.image_label.mouseMoveEvent = self._on_mouse_move
+        else:
+            self.image_label.setCursor(QtCore.Qt.ArrowCursor)
+            self.image_label.setMouseTracking(False)
+            self.image_label.mouseMoveEvent = None
+            # 清除状态并触发信号以清除状态栏
+            self.cursor_info = None
+            self.cursorPositionChanged.emit({'cleared': True})
+            
+    def _on_mouse_move(self, event: QtGui.QMouseEvent):
+        """处理鼠标移动事件"""
+        if not self.cursor_enabled or self.current_image is None:
+            return
+            
+        # 获取图像实际显示区域
+        pixmap = self.image_label.pixmap()
+        if not pixmap:
+            return
+            
+        # 计算图像显示区域
+        label_size = self.image_label.size()
+        pixmap_size = pixmap.size()
+        
+        # 计算图像在标签中的实际位置和大小
+        if label_size.width() / label_size.height() > pixmap_size.width() / pixmap_size.height():
+            # 高度适配
+            display_height = label_size.height()
+            display_width = pixmap_size.width() * display_height / pixmap_size.height()
+            x_offset = (label_size.width() - display_width) / 2
+            y_offset = 0
+        else:
+            # 宽度适配
+            display_width = label_size.width()
+            display_height = pixmap_size.height() * display_width / pixmap_size.width()
+            x_offset = 0
+            y_offset = (label_size.height() - display_height) / 2
+            
+        # 计算鼠标在图像上的实际位置
+        mouse_x = event.x() - x_offset
+        mouse_y = event.y() - y_offset
+        
+        if (mouse_x < 0 or mouse_x >= display_width or 
+            mouse_y < 0 or mouse_y >= display_height):
+            return
+            
+        # 转换为原始图像坐标
+        img_x = int(mouse_x * self.current_image.shape[1] / display_width)
+        img_y = int(mouse_y * self.current_image.shape[0] / display_height)
+        
+        # 确保坐标在图像范围内
+        img_x = max(0, min(img_x, self.current_image.shape[1] - 1))
+        img_y = max(0, min(img_y, self.current_image.shape[0] - 1))
+        
+        # 获取像素值
+        if len(self.current_image.shape) == 3:
+            # BGR格式
+            b, g, r = self.current_image[img_y, img_x]
+            pixel_info = {'rgb': (r, g, b)}
+        else:
+            # 灰度图
+            gray = self.current_image[img_y, img_x]
+            pixel_info = {'gray': gray}
+            
+        # 判断是否在四分图中
+        quad_index = None
+        if self.quad_positions:  # 如果有四分图位置信息
+            h, w = self.current_image.shape[:2]
+            h2, w2 = h//2, w//2
+            if img_y < h2:
+                if img_x < w2:
+                    quad_index = 0  # 左上
+                else:
+                    quad_index = 1  # 右上
+            else:
+                if img_x < w2:
+                    quad_index = 2  # 左下
+                else:
+                    quad_index = 3  # 右下
+                    
+        # 更新游标信息
+        self.cursor_info = {
+            'position': (img_x, img_y),
+            'mode': 'quad' if quad_index is not None else 'single',
+            'quad_index': quad_index,
+            **pixel_info
+        }
+        
+        # 发送信号
+        self.cursorPositionChanged.emit(self.cursor_info)

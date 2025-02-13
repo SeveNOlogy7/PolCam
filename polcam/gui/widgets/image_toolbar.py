@@ -44,13 +44,15 @@ class ImageToolbar(QtWidgets.QWidget):
         
         # 创建按钮组，实现互斥选择
         self.button_group = QtWidgets.QButtonGroup(self)
+        self.button_group.setExclusive(False)
         self.button_group.addButton(self.cursor_btn)
         self.button_group.addButton(self.zoom_in_btn)
         self.button_group.addButton(self.zoom_out_btn)
         self.button_group.addButton(self.zoom_area_btn)
         
-        # 默认选中cursor_btn
+        # 默认选中cursor_btn并触发信号
         self.cursor_btn.setChecked(True)
+        self._on_cursor_clicked() 
         
         # 添加按钮到布局
         layout.addWidget(self.cursor_btn)
@@ -99,12 +101,9 @@ class ImageToolbar(QtWidgets.QWidget):
         
     def _on_cursor_clicked(self):
         """处理游标按钮点击"""
-        self.zoom_area_btn.setChecked(False)
         self.cursorModeActivated.emit()
         
     def _on_zoom_area_clicked(self):
         """处理区域放大按钮点击"""
-        self.cursor_btn.setChecked(False)
         self.zoomAreaActivated.emit()
-        
-   
+
