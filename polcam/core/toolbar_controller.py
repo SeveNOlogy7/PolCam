@@ -455,6 +455,7 @@ class ToolbarController(BaseModule):
         <p>版本: 1.0.0</p>
         <p>偏振相机采集和处理软件</p>
         <p>作者: Junhao Cai</p>
+        <p>项目主页: <a href="https://github.com/SeveNOlogy7/PolCam">Github</a></p>
         <p>Copyright © 2024</p>
         """
         QtWidgets.QMessageBox.about(self._main_window, "关于", about_text)
