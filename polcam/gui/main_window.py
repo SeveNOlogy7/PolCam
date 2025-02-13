@@ -7,7 +7,7 @@ See LICENSE file for full license details.
 import numpy as np
 from qtpy import QtWidgets, QtCore, QtGui
 from ..core.camera_module import CameraModule
-from ..core.events import EventType, Event, EventManager  # 添加 EventManager 导入
+from ..core.events import EventType, Event, EventManager
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
 from .widgets.status_indicator import StatusIndicator
@@ -64,11 +64,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.processor = ProcessingModule()
         self.processor.initialize()
         
+        event_manager = EventManager()
         # 订阅处理模块事件
-        self.processor.subscribe_event(EventType.FRAME_PROCESSED, self._on_frame_processed)
-        self.processor.subscribe_event(EventType.ERROR_OCCURRED, self._on_error)
-        self.processor.subscribe_event(EventType.PROCESSING_STARTED, self._on_processing_started)
-        self.processor.subscribe_event(EventType.PROCESSING_COMPLETED, self._on_processing_completed)
+        event_manager.subscribe(EventType.FRAME_PROCESSED, self._on_frame_processed)
+        event_manager.subscribe(EventType.ERROR_OCCURRED, self._on_error)
+        event_manager.subscribe(EventType.PROCESSING_STARTED, self._on_processing_started)
+        event_manager.subscribe(EventType.PROCESSING_COMPLETED, self._on_processing_completed)
         
         # 更新显示模式改变的连接
         self.image_display.display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
@@ -77,11 +78,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.close_flag = False
 
         # 订阅相机事件
-        self.camera.subscribe_event(EventType.CAMERA_CONNECTED, self._on_camera_connected)
-        self.camera.subscribe_event(EventType.CAMERA_DISCONNECTED, self._on_camera_disconnected)
-        self.camera.subscribe_event(EventType.FRAME_CAPTURED, self._on_frame_captured)
-        self.camera.subscribe_event(EventType.ERROR_OCCURRED, self._on_error)
-        self.camera.subscribe_event(EventType.PARAMETER_CHANGED, self._on_parameter_changed)
+        event_manager.subscribe(EventType.CAMERA_CONNECTED, self._on_camera_connected)
+        event_manager.subscribe(EventType.CAMERA_DISCONNECTED, self._on_camera_disconnected)
+        event_manager.subscribe(EventType.FRAME_CAPTURED, self._on_frame_captured)
+        event_manager.subscribe(EventType.ERROR_OCCURRED, self._on_error)
+        event_manager.subscribe(EventType.PARAMETER_CHANGED, self._on_parameter_changed)
 
         self._last_capture_time = 0.0  # 添加采集时间缓存
         self._last_process_time = 0.0  # 添加处理时间缓存
@@ -89,7 +90,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_frame_timestamp = None  # 添加时间戳属性
 
         # 订阅RAW_FILE_LOADED事件
-        self.toolbar_controller.subscribe_event(EventType.RAW_FILE_LOADED, self._on_raw_file_loaded)
+        event_manager.subscribe(EventType.RAW_FILE_LOADED, self._on_raw_file_loaded)
+
+        # 订阅状态栏消息事件
+        event_manager.subscribe(EventType.STATUS_MESSAGE_UPDATE, self._on_status_message_update)
+        event_manager.subscribe(EventType.STATUS_MESSAGE_CLEAR, self._on_status_message_clear)
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -389,7 +394,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_wb_once(self):
         """处理白平衡一次性调整"""
-        pass
+        self.status_label.setText("单次白平衡未实现")
 
     def _handle_pol_color_mode_changed(self, is_color: bool):
         """处理偏振分析模式下的颜色模式改变"""
@@ -403,7 +408,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_pol_wb_once(self):
         """处理偏振分析模式下的单次白平衡"""
-        pass
+        self.status_label.setText("单次白平衡未实现")
 
     def closeEvent(self, event: QtGui.QCloseEvent):
         """处理窗口关闭事件"""
@@ -537,3 +542,12 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             self._logger.error(f"处理原始文件加载事件失败: {str(e)}")
             self.status_label.setText("加载图像失败")
+
+    def _on_status_message_update(self, event: Event):
+        """处理状态栏消息更新事件"""
+        message = event.data.get('message', '')
+        self.status_label.setText(message)
+        
+    def _on_status_message_clear(self, event: Event):
+        """处理状态栏消息清除事件"""
+        self.status_label.setText("就绪")

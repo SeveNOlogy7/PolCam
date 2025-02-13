@@ -18,18 +18,20 @@ import time
 
 class EventType(Enum):
     """定义系统中的事件类型"""
-    CAMERA_CONNECTED = auto()
-    CAMERA_DISCONNECTED = auto()
-    FRAME_CAPTURED = auto()
-    FRAME_PROCESSED = auto()
-    PARAMETER_CHANGED = auto()
-    ERROR_OCCURRED = auto()
-    DISPLAY_MODE_CHANGED = auto()
-    PROCESSING_STARTED = auto()
-    PROCESSING_COMPLETED = auto()
-    STREAMING_STARTED = auto()
-    STREAMING_STOPPED = auto()
-    RAW_FILE_LOADED = auto()
+    CAMERA_CONNECTED = auto()      # 相机连接成功事件
+    CAMERA_DISCONNECTED = auto()   # 相机断开连接事件
+    FRAME_CAPTURED = auto()        # 帧采集完成事件
+    FRAME_PROCESSED = auto()       # 帧处理完成事件
+    PARAMETER_CHANGED = auto()     # 相机参数改变事件
+    ERROR_OCCURRED = auto()        # 错误发生事件
+    DISPLAY_MODE_CHANGED = auto()  # 显示模式改变事件
+    PROCESSING_STARTED = auto()    # 处理开始事件
+    PROCESSING_COMPLETED = auto()  # 处理完成事件
+    STREAMING_STARTED = auto()     # 流采集开始事件
+    STREAMING_STOPPED = auto()     # 流采集停止事件
+    RAW_FILE_LOADED = auto()       # RAW文件加载完成事件
+    STATUS_MESSAGE_UPDATE = auto() # 状态栏消息更新事件
+    STATUS_MESSAGE_CLEAR = auto()  # 状态栏消息清除事件
 
 class Event:
     """事件对象"""

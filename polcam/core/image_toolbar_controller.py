@@ -1,6 +1,13 @@
+"""
+MIT License
+Copyright (c) 2024 Junhao Cai
+See LICENSE file for full license details.
+"""
+
 from .base_module import BaseModule
 from typing import Optional, List
 from qtpy import QtWidgets
+from .events import Event, EventType
 
 class ImageToolbarController(BaseModule):
     """图像工具栏控制器"""
@@ -9,30 +16,8 @@ class ImageToolbarController(BaseModule):
         super().__init__("ImageToolbarController")
         self.toolbar = toolbar
         self.image_display = image_display
-        self._cursor_mode = False  # 默认关闭游标模式
-        self._status_bar = None  # 使用私有属性
-        self._init_status_bar()  # 初始化时就获取状态栏
-
-    def _init_status_bar(self):
-        """初始化状态栏引用"""
-        try:
-            if self.image_display:
-                main_window = self.image_display.window()
-                if isinstance(main_window, QtWidgets.QMainWindow):
-                    self._status_bar = main_window.statusBar()
-                    self._logger.debug("状态栏初始化成功")
-                else:
-                    self._logger.warning("未找到主窗口")
-        except Exception as e:
-            self._logger.error(f"状态栏初始化失败: {str(e)}")
-            
-    @property
-    def status_bar(self):
-        """状态栏访问器"""
-        if self._status_bar is None:
-            self._init_status_bar()  # 尝试重新初始化
-        return self._status_bar
-                
+        self._cursor_mode = False
+        
     def _do_initialize(self) -> bool:
         """初始化工具栏控制器"""
         try:
@@ -43,7 +28,6 @@ class ImageToolbarController(BaseModule):
             self.toolbar.zoomAreaActivated.connect(self._handle_zoom_area)
             self.toolbar.resetView.connect(self._handle_reset_view)
             
-            # 获取主窗口的状态栏引用
             if self.image_display:
                 self.image_display.cursorPositionChanged.connect(self._handle_cursor_position)
                 
@@ -73,18 +57,23 @@ class ImageToolbarController(BaseModule):
             return True
         except:
             return False
-            
+
+    def _show_status_message(self, message: str):
+        """发送状态栏消息更新事件"""
+        self.publish_event(EventType.STATUS_MESSAGE_UPDATE, {
+            'message': message
+        })
+    
+    def _clear_status_message(self):
+        """发送状态栏消息清除事件"""
+        self.publish_event(EventType.STATUS_MESSAGE_CLEAR)
+
     def _handle_cursor_position(self, info: dict):
         """处理游标位置变化"""
         if not self._cursor_mode:
             return
             
-        if self.status_bar is None:
-            self._logger.warning("状态栏未初始化")
-            return
-            
         try:
-
             x, y = info['position']
             mode = info['mode']
             quad_index = info.get('quad_index')
@@ -119,7 +108,7 @@ class ImageToolbarController(BaseModule):
                             pixel_text = ""
                         
                         status_text = f"{position_text} || {pixel_text}"
-                        self.status_bar.showMessage(status_text)
+                        self._show_status_message(status_text)
             else:
                 # 单图模式
                 position_text = f"({x}, {y})"
@@ -133,10 +122,47 @@ class ImageToolbarController(BaseModule):
                     pixel_text = ""
                     
                 status_text = f"{position_text} || {pixel_text}"
-                self.status_bar.showMessage(status_text)
-            
+                self._show_status_message(status_text)
+                
         except Exception as e:
             self._logger.error(f"处理游标位置失败: {str(e)}")
+            
+    def _handle_cursor_mode(self, enabled: bool):
+        """处理游标"""
+        if enabled:
+            self._show_status_message("游标模式已开启")
+            self._cursor_mode = True
+            self.image_display.set_cursor_mode(True)
+        else:
+            self._clear_status_message()
+            self.image_display.set_cursor_mode(False)
+            self.image_display.refresh_current_image()
+            
+    def _handle_zoom_in(self, enabled: bool):
+        """处理放大"""
+        if enabled:
+            self._show_status_message("放大模式未实现")
+        else:
+            self._clear_status_message()
+        
+    def _handle_zoom_out(self, enabled: bool):
+        """处理缩小"""
+        if enabled:
+            self._show_status_message("缩小模式未实现")
+        else:
+            self._clear_status_message()
+        
+    def _handle_zoom_area(self, enabled: bool):
+        """处理区域放大"""
+        if enabled:
+            self._show_status_message("区域放大模式未实现")
+        else:
+            self._clear_status_message()
+            
+    def _handle_reset_view(self):
+        """处理复原"""
+        self.image_display.refresh_current_image()
+        self._show_status_message("视图已重置")
 
     def _get_quad_titles(self, info: dict) -> List[str]:
         """根据不同的四分图模式返回对应的标题列表"""
@@ -156,43 +182,5 @@ class ImageToolbarController(BaseModule):
                 
         # 默认返回通用标题
         return ['区域1', '区域2', '区域3', '区域4']
-    
-    def _handle_cursor_mode(self, enabled: bool):
-        """处理游标"""
-        if self.status_bar:
-            if enabled:
-                self.status_bar.showMessage("游标模式已开启")
-                self._cursor_mode=True
-                self.image_display.set_cursor_mode(True)
-            else:
-                self.status_bar.clearMessage()
-                self.image_display.set_cursor_mode(False)
-                self.image_display.refresh_current_image()
 
-    def _handle_zoom_in(self, enabled: bool):
-        """处理放大"""
-        if self.status_bar:
-            if enabled:
-                self.status_bar.showMessage("放大模式未实现")
-            else:
-                self.status_bar.clearMessage()
-        
-    def _handle_zoom_out(self, enabled: bool):
-        """处理缩小"""
-        if self.status_bar:
-            if enabled:
-                self.status_bar.showMessage("缩小模式未实现")
-            else:
-                self.status_bar.clearMessage()
-        
-    def _handle_zoom_area(self, enabled: bool):
-        """处理区域放大"""
-        if self.status_bar:
-            if enabled:
-                self.status_bar.showMessage("区域放大模式未实现")
-            else:
-                self.status_bar.clearMessage()
-            
-    def _handle_reset_view(self):
-        """处理复原"""
-        self.image_display.refresh_current_image()
+
