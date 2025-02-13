@@ -10,7 +10,7 @@ from ..core.camera_module import CameraModule
 from ..core.events import EventType, Event, EventManager  # 添加 EventManager 导入
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
-from .status_indicator import StatusIndicator
+from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
 import logging
 from ..core.processing_module import ProcessingModule, ProcessingMode
