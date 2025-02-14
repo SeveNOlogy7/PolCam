@@ -466,7 +466,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if current_mode == ProcessingMode.RAW:
                 self.image_display.show_image(frame)
             else:
-                self.processor.process_frame(frame)
+                # 确保处理模块没有待处理任务时才发送新任务
+                if self.processor.get_task_count() == 0 and not self.processor.is_processing():
+                    self.processor.process_frame(frame)
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
