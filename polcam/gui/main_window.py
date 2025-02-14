@@ -213,26 +213,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.camera.is_connected():
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
-        
         self._set_capture_buttons_enabled(False)
-        
         try:
-            frame = self.camera.get_frame()
-            if frame is not None:
-                self.current_frame = frame
-                current_mode = ProcessingMode.index_to_mode(self.image_display.display_mode.currentIndex())
-                if current_mode == ProcessingMode.RAW:
-                    # 原始图像模式直接显示，不经过处理模块
-                    self.image_display.show_image(frame)
-                    self.toolbar_controller.enable_save_raw(not self._continuous_mode)
-                else:
-                    # 其他模式需要通过处理模块
-                    self.status_indicator.setProcessing(True)
-                    self.processor.process_frame(frame)
-                self._update_auto_parameters()
-            else:
-                QtWidgets.QMessageBox.warning(self, "错误", "获取图像失败")
-                self.status_indicator.setProcessing(False)
+            self.camera.get_frame() # 采集一帧图像，后续通过事件处理显示
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {str(e)}")
             self.status_indicator.setProcessing(False) 
