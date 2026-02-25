@@ -5,9 +5,11 @@
 ## 中文
 
 ### 简介
+
 PolCam 是一个用于控制和处理偏振相机图像的Python应用程序。它提供了直观的图形用户界面，支持实时图像采集、偏振图像处理和数据可视化功能。
 
 ### 功能特性
+
 - 相机控制
   - 相机连接与断开
   - 单帧图像采集
@@ -23,29 +25,51 @@ PolCam 是一个用于控制和处理偏振相机图像的Python应用程序。�
   - 自适应界面布局
 
 ### 安装要求
-- Python 3.8+
+
+- Python 3.12+
 - DAHENG Galaxy USB3.0 相机驱动
 - 相关Python包（详见 `environment.yaml`）
 
 ### 快速开始
+
 1. 克隆仓库：
+
 ```bash
 git clone https://github.com/SeveNOlogy7/PolCam.git
 cd PolCam
 ```
 
-2. 创建并激活conda环境：
+#### 使用 uv
+
+2. 创建并激活 uv 环境：
+
+```bash
+uv sync
+```
+
+3. 运行程序：
+
+```bash
+uv run python main.py
+```
+
+#### 使用 Conda
+
+2. 创建并激活 conda 环境：
+
 ```bash
 conda env create -f environment.yaml
 conda activate polcam
 ```
 
 3. 运行程序：
+
 ```bash
 python main.py
 ```
 
 ### 项目结构
+
 ```
 PolCam/
 ├── polcam/             # 主要源代码
@@ -58,11 +82,21 @@ PolCam/
 ```
 
 ### 开发
+
+#### 使用 uv
+
+- 运行测试：`uv run pytest`
+- 代码风格检查：`uv run flake8`
+- 类型检查：`uv run mypy .`
+
+#### 使用 Conda
+
 - 运行测试：`pytest`
 - 代码风格检查：`flake8`
-- 类型检查：`mypy`
+- 类型检查：`mypy .`
 
 ### 许可证
+
 MIT License
 
 ---
@@ -70,9 +104,11 @@ MIT License
 ## English
 
 ### Introduction
+
 PolCam is a Python application for controlling and processing polarization camera images. It provides an intuitive graphical user interface with real-time image acquisition, polarization image processing, and data visualization capabilities.
 
 ### Features
+
 - Camera Control
   - Camera connection/disconnection
   - Single frame capture
@@ -88,29 +124,51 @@ PolCam is a Python application for controlling and processing polarization camer
   - Adaptive layout
 
 ### Requirements
-- Python 3.8+
+
+- Python 3.12+
 - DAHENG Galaxy USB3.0 camera drivers
 - Python packages (see `environment.yaml`)
 
 ### Quick Start
+
 1. Clone repository:
+
 ```bash
 git clone https://github.com/SeveNOlogy7/PolCam.git
 cd PolCam
 ```
 
+#### Use uv
+
+2. Create and activate uv environment:
+
+```bash
+uv sync
+```
+
+3. Run program:
+
+```bash
+uv run python main.py
+```
+
+#### Use Conda
+
 2. Create and activate conda environment:
+
 ```bash
 conda env create -f environment.yaml
 conda activate polcam
 ```
 
 3. Run program:
+
 ```bash
 python main.py
 ```
 
 ### Project Structure
+
 ```
 PolCam/
 ├── polcam/             # Main source code
@@ -123,9 +181,19 @@ PolCam/
 ```
 
 ### Development
+
+#### Use uv
+
+- Run tests: `uv run pytest`
+- Style check: `uv run flake8`
+- Type check: `uv run mypy .`
+
+#### Use Conda
+
 - Run tests: `pytest`
 - Style check: `flake8`
-- Type check: `mypy`
+- Type check: `mypy .`
 
 ### License
+
 MIT License
