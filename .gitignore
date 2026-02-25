@@ -62,3 +62,5 @@ output/
 *.png
 *.bmp
 *.tiff
+
+gxipy_docs
