@@ -6,7 +6,7 @@ See LICENSE file for full license details.
 
 import numpy as np
 from qtpy import QtWidgets, QtCore, QtGui
-from ..core.camera_module import CameraModule
+from ..core.camera_module import CameraModule, CameraType
 from ..core.events import EventType, Event, EventManager
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
@@ -88,6 +88,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_process_time = 0.0  # 添加处理时间缓存
         self._continuous_mode = False  # 添加连续采集模式标志
         self._current_frame_timestamp = None  # 添加时间戳属性
+        self._camera_type = None  # 相机类型（彩色/黑白）
 
         # 订阅RAW_FILE_LOADED事件
         event_manager.subscribe(EventType.RAW_FILE_LOADED, self._on_raw_file_loaded)
@@ -175,12 +176,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def handle_connect(self, connect: bool):
         if connect:
-            success = self.camera.start()  # 使用CameraModule的start方法
+            # 枚举设备
+            device_count, device_list = self.camera.enumerate_devices()
+
+            if device_count == 0:
+                QtWidgets.QMessageBox.warning(self, "错误", "未找到相机设备")
+                self.camera_control.connect_btn.setChecked(False)
+                self.camera_control.set_connected(False)
+                self.status_indicator.setEnabled(False)
+                self.status_indicator.setStatus(False)
+                return
+
+            if device_count > 1:
+                # 多相机：弹出选择对话框
+                from .camera_select_dialog import CameraSelectDialog
+                dialog = CameraSelectDialog(self.camera, device_list, parent=self)
+                dialog.exec()
+                success = self.camera.is_connected()
+            else:
+                # 单相机：保留原有行为
+                success = self.camera.start()
+
+            # 根据连接结果统一更新主界面状态
             if success:
                 self.camera_control.set_connected(True)
                 self.status_indicator.setEnabled(True)
                 self.status_indicator.setStatus(True)
-                # 添加连接状态日志
                 self._logger.info("相机连接状态: " + str(self.camera.is_connected()))
             else:
                 self.camera_control.connect_btn.setChecked(False)
@@ -281,25 +302,31 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
-        mode = ProcessingMode.index_to_mode(index)
+        mode = self.image_display.get_current_processing_mode()
         self.processor.set_mode(mode)
-        
+
+        is_mono = (self._camera_type == CameraType.MONO)
+
         # 更新控件可见性
-        show_wb = not self._is_grayscale_mode(mode)
+        show_wb = not self._is_grayscale_mode(mode) and not is_mono
         show_angle = mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]
         show_pol = mode == ProcessingMode.POLARIZATION
-        
+
         self._logger.debug(f"显示模式改变: {mode}, 显示白平衡: {show_wb}, 显示角度: {show_angle}")
-        
+
         self.camera_control.set_wb_controls_visible(show_wb)
         self.camera_control.set_angle_controls_visible(show_angle)
         self.camera_control.set_pol_controls_visible(show_pol)
-        
+
+        # 偏振模式下锁定黑白相机的色彩切换
+        if show_pol:
+            self.camera_control.pol_control.set_mono_locked(is_mono)
+
         # 禁用 RAW 模式下的保存结果按钮
         if mode == ProcessingMode.RAW:
             self.toolbar_controller.enable_save_result(False)
             # 原始图像模式直接显示，不经过处理模块
-            self.image_display.show_image(self.current_frame)       
+            self.image_display.show_image(self.current_frame)
         else:
             # 重新处理当前帧
             self._reprocessing_from_current_frame()
@@ -427,7 +454,21 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理相机连接事件"""
         self.camera_info.setText(event.data.get("device_info", ""))
         self.status_label.setText("相机已连接")
-        
+
+        # 检测并传播相机类型
+        self._camera_type = event.data.get("camera_type", CameraType.COLOR)
+        is_mono = (self._camera_type == CameraType.MONO)
+
+        # 配置处理流水线
+        self.processor.set_camera_type(self._camera_type)
+
+        # 更新显示模式列表
+        self.image_display.set_camera_modes(is_mono)
+
+        # 黑白相机隐藏白平衡
+        if is_mono:
+            self.camera_control.set_wb_controls_visible(False)
+
         # 使用相机当前值更新控制面板
         self.camera_control.update_exposure_value(self.camera.get_last_exposure())
         self.camera_control.update_gain_value(self.camera.get_last_gain())
@@ -436,7 +477,11 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理相机断开事件"""
         self.status_label.setText("相机已断开")
         self.camera_info.clear()
-        
+        self._camera_type = None
+
+        # 恢复全部8个显示模式
+        self.image_display.set_camera_modes(is_mono=False)
+
         # 禁用保存按钮
         self.toolbar_controller.enable_save_raw(False)
         self.toolbar_controller.enable_save_result(False)
@@ -458,9 +503,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_frame_timestamp = timestamp
 
             # 获取当前显示模式
-            current_mode = ProcessingMode.index_to_mode(
-                self.image_display.display_mode.currentIndex()
-            )
+            current_mode = self.image_display.get_current_processing_mode()
             
             # 根据模式更新显示或后处理图像
             if current_mode == ProcessingMode.RAW:

@@ -13,6 +13,31 @@ from polcam.gui.styles import Styles
 from ..core.processing_module import ProcessingMode
 from ..core.image_plotter import ImagePlotter
 
+# 彩色相机可用模式（全部8种）
+COLOR_MODES = [
+    ProcessingMode.RAW, ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY,
+    ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY,
+    ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY, ProcessingMode.POLARIZATION,
+]
+
+# 黑白相机可用模式（5种，去掉彩色相关）
+MONO_MODES = [
+    ProcessingMode.RAW, ProcessingMode.SINGLE_GRAY,
+    ProcessingMode.MERGED_GRAY, ProcessingMode.QUAD_GRAY, ProcessingMode.POLARIZATION,
+]
+
+# 模式显示标签
+MODE_LABELS = {
+    ProcessingMode.RAW: "原始图像",
+    ProcessingMode.SINGLE_COLOR: "单角度彩色",
+    ProcessingMode.SINGLE_GRAY: "单角度灰度",
+    ProcessingMode.MERGED_COLOR: "彩色图像",
+    ProcessingMode.MERGED_GRAY: "灰度图像",
+    ProcessingMode.QUAD_COLOR: "四角度彩色",
+    ProcessingMode.QUAD_GRAY: "四角度灰度",
+    ProcessingMode.POLARIZATION: "偏振度图像",
+}
+
 class ImageDisplay(QtWidgets.QWidget):
     # 添加鼠标位置信号
     cursorPositionChanged = QtCore.Signal(dict)
@@ -28,6 +53,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self.quad_positions = []      # 四分图的四个区域位置
         self.cursor_enabled = False   # 游标模式启用状态
         self.cursor_info = None       # 游标信息
+        self._active_modes = list(COLOR_MODES)  # 当前可用模式列表
 
         self.setup_ui()
         # 初始化时禁用控件
@@ -53,16 +79,7 @@ class ImageDisplay(QtWidgets.QWidget):
         Styles.apply_combobox_style(self.display_mode)
         self.display_mode.setFont(QtGui.QFont("", 11))
         self.display_mode.setMinimumHeight(30)
-        self.display_mode.addItems([
-            "原始图像",
-            "单角度彩色",
-            "单角度灰度",
-            "彩色图像",
-            "灰度图像",
-            "四角度彩色",
-            "四角度灰度",
-            "偏振度图像"
-        ])
+        self._populate_display_modes(COLOR_MODES)
         
         # 创建工具栏和控制器
         from .widgets.image_toolbar import ImageToolbar
@@ -104,11 +121,31 @@ class ImageDisplay(QtWidgets.QWidget):
         
     def is_display_controls_enabled(self) -> bool:
         """检查显示控件是否已启用
-        
+
         Returns:
             bool: 显示控件是否已启用
         """
         return self.display_mode.isEnabled()
+
+    def _populate_display_modes(self, modes):
+        """根据模式列表填充 combo"""
+        self.display_mode.blockSignals(True)
+        self.display_mode.clear()
+        self._active_modes = list(modes)
+        self.display_mode.addItems([MODE_LABELS[m] for m in modes])
+        self.display_mode.setCurrentIndex(0)
+        self.display_mode.blockSignals(False)
+
+    def set_camera_modes(self, is_mono: bool):
+        """切换彩色/黑白相机模式，更新可用显示模式列表"""
+        self._populate_display_modes(MONO_MODES if is_mono else COLOR_MODES)
+
+    def get_current_processing_mode(self) -> ProcessingMode:
+        """获取当前 combo 对应的 ProcessingMode"""
+        index = self.display_mode.currentIndex()
+        if 0 <= index < len(self._active_modes):
+            return self._active_modes[index]
+        return ProcessingMode.RAW
         
     def resizeEvent(self, event: QtGui.QResizeEvent):
         """窗口大小变化时重新显示图像"""
@@ -322,7 +359,7 @@ class ImageDisplay(QtWidgets.QWidget):
                         pixel_values.append(gray)
                 
                 # 根据显示模式决定像素信息键名
-                mode = ProcessingMode.index_to_mode(self.display_mode.currentIndex())
+                mode = self.get_current_processing_mode()
                 if mode == ProcessingMode.POLARIZATION:
                     info_key = 'quad_pol_values'
                 elif mode == ProcessingMode.QUAD_COLOR:
@@ -383,7 +420,7 @@ class ImageDisplay(QtWidgets.QWidget):
         Returns:
             bool: 是否为四分图模式
         """
-        current_index = ProcessingMode.index_to_mode(self.display_mode.currentIndex())
+        current_index = self.get_current_processing_mode()
         return current_index in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY, ProcessingMode.POLARIZATION]
     
     def get_quad_index(self, img_x: int, img_y: int) -> int:

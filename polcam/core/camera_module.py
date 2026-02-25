@@ -11,10 +11,24 @@ import gxipy as gx
 import numpy as np
 import threading
 from typing import Optional, Tuple, Dict, Any
+from enum import Enum
 import queue
 import time
 from .base_module import BaseModule
 from .events import EventType, Event
+
+
+class CameraType(Enum):
+    """相机类型"""
+    COLOR = "color"
+    MONO = "mono"
+
+
+# 已知相机型号 → 类型映射，新型号在此添加
+KNOWN_CAMERA_TYPES = {
+    "MER2-503-23GC-P POL": CameraType.COLOR,
+    "MER2-502-79U3M-HS POL": CameraType.MONO,
+}
 
 class CameraModule(BaseModule):
     """相机控制模块
@@ -43,15 +57,16 @@ class CameraModule(BaseModule):
         }
         self._connected = False  # 添加连接状态标志
         self._device_indices = []  # 添加已打开设备的索引列表
+        self._target_device_index = None  # 指定要连接的目标设备索引
+        self._camera_type: Optional[CameraType] = None  # 相机类型（彩色/黑白）
 
     def _do_initialize(self) -> bool:
         """初始化相机设备管理器"""
         try:
-            device_count, device_list = self.device_manager.update_all_device_list()
+            device_count, _ = self.device_manager.update_all_device_list()
             if device_count == 0:
-                self._logger.error("未找到相机设备")
-                return False
-            return True
+                self._logger.warning("未找到相机设备，将在连接时重新检测")
+            return True  # 始终成功，设备检测移到连接时
         except Exception as e:
             self._logger.error(f"初始化相机管理器失败: {str(e)}")
             return False
@@ -87,20 +102,81 @@ class CameraModule(BaseModule):
             self._logger.error(f"销毁相机模块失败: {str(e)}")
             return False
 
+    def enumerate_devices(self) -> tuple:
+        """枚举可用设备
+
+        Returns:
+            (device_count, device_info_list) tuple
+        """
+        try:
+            return self.device_manager.update_all_device_list()
+        except Exception as e:
+            self._logger.error(f"枚举设备失败: {str(e)}")
+            return 0, []
+
+    def set_target_device_index(self, index: int):
+        """设置要连接的目标设备索引（1-based）
+
+        Args:
+            index: 设备索引，对应 device_info_list 中的 index 字段
+        """
+        self._target_device_index = index
+
+    def get_camera_type(self) -> Optional[CameraType]:
+        """获取检测到的相机类型"""
+        return self._camera_type
+
+    def _detect_camera_type(self, model_name: str) -> CameraType:
+        """检测相机类型（彩色/黑白）
+
+        检测策略:
+        1. 先查 KNOWN_CAMERA_TYPES 映射表
+        2. 未知型号则查询 PixelColorFilter 特征
+        3. 均失败则默认 COLOR
+        """
+        # 1. 查映射表
+        if model_name in KNOWN_CAMERA_TYPES:
+            camera_type = KNOWN_CAMERA_TYPES[model_name]
+            self._logger.info(f"相机类型（映射表）: {model_name} -> {camera_type.value}")
+            return camera_type
+
+        # 2. 查 PixelColorFilter
+        try:
+            if self._camera and self._camera.PixelColorFilter.is_implemented():
+                value, _ = self._camera.PixelColorFilter.get()
+                # GxPixelColorFilterEntry.NONE == 0 表示黑白相机
+                camera_type = CameraType.MONO if value == 0 else CameraType.COLOR
+                self._logger.info(
+                    f"相机类型（PixelColorFilter）: {model_name} -> {camera_type.value} "
+                    f"(filter={value})"
+                )
+                return camera_type
+        except Exception as e:
+            self._logger.warning(f"查询 PixelColorFilter 失败: {e}")
+
+        # 3. 默认 COLOR
+        self._logger.warning(f"无法检测相机类型: {model_name}，默认为彩色相机")
+        return CameraType.COLOR
+
     def connect(self) -> bool:
         """连接相机"""
         try:
             # 检查设备列表
-            device_count, _ = self.device_manager.update_all_device_list()
+            device_count, device_list = self.device_manager.update_all_device_list()
             if device_count == 0:
                 self._logger.error("未找到相机设备")
                 return False
 
-            # 查找可用的设备索引
-            device_index = 1
-            while device_index in self._device_indices:
-                device_index += 1
-            
+            # 确定要连接的设备索引
+            if self._target_device_index is not None:
+                device_index = self._target_device_index
+                self._target_device_index = None  # 用后清除
+            else:
+                # 查找可用的设备索引
+                device_index = 1
+                while device_index in self._device_indices:
+                    device_index += 1
+
             # 打开设备
             try:
                 self._camera = self.device_manager.open_device_by_index(device_index)
@@ -110,29 +186,38 @@ class CameraModule(BaseModule):
             if self._camera is None:
                 self._logger.error("打开相机失败")
                 return False
-                
+
             self._device_indices.append(device_index)
             self._remote_feature = self._camera.get_remote_device_feature_control()
-            
+
             # 初始化相机参数
             self._init_camera_parameters()
-            
+
             # 设置连接状态
             self._connected = True
-            
+
+            # 获取实际设备信息
+            device_info = device_list[device_index - 1] if device_list and len(device_list) >= device_index else {}
+            display_name = device_info.get('model_name', 'Unknown')
+
+            # 检测相机类型
+            self._camera_type = self._detect_camera_type(display_name)
+
             # 发布连接成功事件
             self.publish_event(EventType.CAMERA_CONNECTED, {
-                "device_info": "MER2-503-23GC-POL"
+                "device_info": display_name,
+                "camera_type": self._camera_type,
             })
-            
-            self._logger.info("相机连接成功")
+
+            self._logger.info(f"相机连接成功: index={device_index}, model={display_name}")
             return True
-            
+
         except Exception as e:
             self._logger.error(f"连接相机失败: {str(e)}")
             self._camera = None
             self._remote_feature = None
             self._connected = False
+            self._target_device_index = None  # 失败时也清除
             self.publish_event(EventType.ERROR_OCCURRED, {
                 "source": "camera",
                 "error": str(e)
@@ -152,6 +237,7 @@ class CameraModule(BaseModule):
                 
             self._connected = False
             self._device_indices.clear()  # 清空设备索引列表
+            self._camera_type = None
             
             # 等待资源释放
             time.sleep(0.1)
@@ -170,6 +256,7 @@ class CameraModule(BaseModule):
             self._remote_feature = None
             self._connected = False
             self._device_indices.clear()
+            self._camera_type = None
 
     def start_streaming(self):
         """开始图像采集"""

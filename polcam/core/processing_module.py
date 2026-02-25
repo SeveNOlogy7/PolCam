@@ -18,6 +18,7 @@ from .base_module import BaseModule
 from .events import EventType, Event
 from .image_processor import ImageProcessor
 from .caching import WhiteBalanceCache
+from .camera_module import CameraType
 
 class ProcessingMode(Enum):
     """图像处理模式"""
@@ -99,6 +100,9 @@ class ProcessingModule(BaseModule):
             'pol_wb_auto': False        # 偏振分析模式下彩色图像的白平衡开关
         }
         
+        # 相机类型
+        self._is_mono = False
+
         # 缓存管理
         self._last_result: Optional[ProcessingResult] = None
         self._frame_cache = {}          # 缓存最近处理过的帧
@@ -180,6 +184,15 @@ class ProcessingModule(BaseModule):
                 'value': value
             })
 
+    def set_camera_type(self, camera_type):
+        """设置相机类型，切换彩色/黑白处理模式
+
+        Args:
+            camera_type: CameraType.COLOR 或 CameraType.MONO
+        """
+        self._is_mono = (camera_type == CameraType.MONO)
+        self.clear_cache()
+
     def process_frame(self, frame: np.ndarray, priority: int = 0):
         """添加处理任务
         
@@ -251,6 +264,15 @@ class ProcessingModule(BaseModule):
     def _process_task(self, task: ProcessingTask) -> Optional[ProcessingResult]:
         """处理单个任务"""
         try:
+            # 安全防护：黑白相机不支持彩色模式，回退到RAW
+            if self._is_mono and task.mode in [
+                ProcessingMode.SINGLE_COLOR,
+                ProcessingMode.MERGED_COLOR,
+                ProcessingMode.QUAD_COLOR,
+            ]:
+                task = ProcessingTask(frame=task.frame, mode=ProcessingMode.RAW,
+                                     params=task.params, priority=task.priority)
+
             # 检查缓存
             cache_key = self._get_cache_key(task)
             if cache_key in self._frame_cache:
@@ -263,7 +285,7 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]:
                 # 解码获取单角度图像
-                decoded = self._processor.demosaic_polarization(task.frame)
+                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
                 angle_index = task.params.get('selected_angle', 0) // 45
                 selected_image = decoded[angle_index]
                 # 对单个角度图像进行白平衡处理
@@ -288,7 +310,7 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode in [ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY]:
                 # 解码并合成图像
-                decoded = self._processor.demosaic_polarization(task.frame)
+                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
                 # 对合成后的图像进行白平衡
                 wb_applied = False
@@ -308,7 +330,7 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
                 # 解码获取四角度图像
-                decoded = self._processor.demosaic_polarization(task.frame)
+                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
                 images = decoded
                 wb_applied = False
                 if task.mode == ProcessingMode.QUAD_COLOR and task.params.get('wb_auto', False):
@@ -333,11 +355,13 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode == ProcessingMode.POLARIZATION:
                 # 偏振分析
-                decoded = self._processor.demosaic_polarization(task.frame)
+                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
                 merged = np.mean(decoded, axis=0).astype(np.uint8)
-                
+
                 # 根据设置决定合成图像是彩色还是灰度
                 is_color = task.params.get('pol_color_mode', False)
+                if self._is_mono:
+                    is_color = False
                 wb_enabled = task.params.get('pol_wb_auto', False) and is_color
                 if not is_color:
                     merged = self._processor.to_grayscale(merged)

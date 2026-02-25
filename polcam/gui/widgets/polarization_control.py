@@ -48,3 +48,12 @@ class PolarizationControl(ControlGroup):
         
     def is_color_mode(self) -> bool:
         return self.color_mode_combo.currentIndex() == 1
+
+    def set_mono_locked(self, locked: bool):
+        """黑白相机时锁定为灰度模式"""
+        if locked:
+            self.color_mode_combo.setCurrentIndex(0)  # 强制灰度
+            self.color_mode_combo.setEnabled(False)
+            self.wb_control.setVisible(False)
+        else:
+            self.color_mode_combo.setEnabled(True)

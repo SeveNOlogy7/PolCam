@@ -14,27 +14,34 @@ class ImageProcessor:
         pass
 
     @staticmethod
-    def demosaic_polarization(raw_image: np.ndarray) -> List[np.ndarray]:
-        """仅解码获取彩色偏振图像"""
+    def demosaic_polarization(raw_image: np.ndarray, mono: bool = False) -> List[np.ndarray]:
+        """解码偏振图像
+
+        Args:
+            raw_image: 2维原始偏振图像
+            mono: True 使用 PolarMono_EA（返回4张灰度2D图），
+                  False 使用 PolarRGB_EA（返回4张BGR 3通道图）
+        """
         # 输入类型验证
         if not isinstance(raw_image, np.ndarray):
             raise TypeError("输入必须是numpy数组类型")
-            
+
         # 输入尺寸验证
         if len(raw_image.shape) != 2:
             raise ValueError("输入图像必须是2维数组")
-            
+
         if raw_image.shape[0] % 4 != 0 or raw_image.shape[1] % 4 != 0:
             raise ValueError("输入图像的宽度和高度必须是4的倍数")
-            
+
         if raw_image.shape[0] < 4 or raw_image.shape[1] < 4:
             raise ValueError("输入图像尺寸太小，最小需要4x4像素")
 
         # 偏振解码
+        demosaic_code = pa.COLOR_PolarMono_EA if mono else pa.COLOR_PolarRGB_EA
         [img_000, img_045, img_090, img_135] = pa.demosaicing(
-            raw_image, pa.COLOR_PolarRGB_EA
+            raw_image, demosaic_code
         )
-        
+
         return [img_000, img_045, img_090, img_135]
 
     @staticmethod
