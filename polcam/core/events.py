@@ -32,6 +32,7 @@ class EventType(Enum):
     RAW_FILE_LOADED = auto()       # RAW文件加载完成事件
     STATUS_MESSAGE_UPDATE = auto() # 状态栏消息更新事件
     STATUS_MESSAGE_CLEAR = auto()  # 状态栏消息清除事件
+    ROI_CHANGED = auto()           # ROI变更事件
 
 class Event:
     """事件对象"""

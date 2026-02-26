@@ -663,3 +663,199 @@ class CameraModule(BaseModule):
     def get_last_gain(self) -> float:
         """获取最后设置的增益值"""
         return self._last_params['gain']
+
+    # ==================== ROI 控制 ====================
+
+    def get_sensor_size(self) -> Tuple[int, int]:
+        """获取传感器完整尺寸
+
+        Returns:
+            (sensor_width, sensor_height)
+        """
+        if not self._camera:
+            return (0, 0)
+        try:
+            w = self._camera.SensorWidth.get()
+            h = self._camera.SensorHeight.get()
+            return (w, h)
+        except Exception as e:
+            self._logger.error(f"获取传感器尺寸失败: {e}")
+            return (0, 0)
+
+    def get_roi(self) -> Tuple[int, int, int, int]:
+        """获取当前 ROI
+
+        Returns:
+            (offset_x, offset_y, width, height)
+        """
+        if not self._camera:
+            return (0, 0, 0, 0)
+        try:
+            ox = self._camera.OffsetX.get()
+            oy = self._camera.OffsetY.get()
+            w = self._camera.Width.get()
+            h = self._camera.Height.get()
+            return (ox, oy, w, h)
+        except Exception as e:
+            self._logger.error(f"获取 ROI 失败: {e}")
+            return (0, 0, 0, 0)
+
+    def get_roi_constraints(self) -> dict:
+        """获取 ROI 对齐约束
+
+        Returns:
+            包含 width_inc, height_inc, width_min, height_min,
+            offset_x_inc, offset_y_inc 的字典
+        """
+        if not self._camera:
+            return {}
+        try:
+            w_range = self._camera.Width.get_range()
+            h_range = self._camera.Height.get_range()
+            ox_range = self._camera.OffsetX.get_range()
+            oy_range = self._camera.OffsetY.get_range()
+            return {
+                'width_inc': w_range['inc'],
+                'height_inc': h_range['inc'],
+                'width_min': w_range['min'],
+                'height_min': h_range['min'],
+                'offset_x_inc': ox_range['inc'],
+                'offset_y_inc': oy_range['inc'],
+            }
+        except Exception as e:
+            self._logger.error(f"获取 ROI 约束失败: {e}")
+            return {}
+
+    @staticmethod
+    def _align_value(value: int, increment: int) -> int:
+        """将值向下对齐到最近的有效增量
+
+        Args:
+            value: 待对齐的值
+            increment: 对齐步长（如 2, 4, 8）
+        Returns:
+            对齐后的值
+        """
+        if increment <= 1:
+            return value
+        return (value // increment) * increment
+
+    def set_roi(self, offset_x: int, offset_y: int, width: int, height: int) -> bool:
+        """设置相机 ROI，自动处理流暂停/恢复
+
+        执行顺序:
+        1. 停止流（如果正在采集）
+        2. 将偏移归零防止越界
+        3. 设置 Width, Height
+        4. 设置 OffsetX, OffsetY
+        5. 恢复流（如果之前在采集）
+
+        所有值自动对齐到相机增量约束。
+
+        Args:
+            offset_x, offset_y: 传感器坐标系中的左上角
+            width, height: ROI 尺寸
+        Returns:
+            是否成功
+        """
+        if not self._camera:
+            return False
+
+        was_streaming = self._is_streaming
+
+        try:
+            constraints = self.get_roi_constraints()
+            if not constraints:
+                return False
+
+            sensor_w, sensor_h = self.get_sensor_size()
+            if sensor_w == 0 or sensor_h == 0:
+                return False
+
+            # 偏振相机需要 4 像素对齐（2x2 偏振超像素 × 2x2 Bayer = 4x4）
+            POL_ALIGN = 4
+            is_pol = self._camera_type in (CameraType.COLOR, CameraType.MONO)
+
+            w_inc = max(constraints['width_inc'], POL_ALIGN) if is_pol else constraints['width_inc']
+            h_inc = max(constraints['height_inc'], POL_ALIGN) if is_pol else constraints['height_inc']
+            ox_inc = max(constraints['offset_x_inc'], POL_ALIGN) if is_pol else constraints['offset_x_inc']
+            oy_inc = max(constraints['offset_y_inc'], POL_ALIGN) if is_pol else constraints['offset_y_inc']
+
+            # 对齐尺寸
+            width = self._align_value(width, w_inc)
+            height = self._align_value(height, h_inc)
+
+            # 钳位到最小尺寸
+            width = max(width, constraints['width_min'])
+            height = max(height, constraints['height_min'])
+
+            # 钳位尺寸不超过传感器
+            width = min(width, sensor_w)
+            height = min(height, sensor_h)
+
+            # 对齐偏移
+            offset_x = self._align_value(offset_x, ox_inc)
+            offset_y = self._align_value(offset_y, oy_inc)
+
+            # 钳位偏移使 ROI 不超出传感器范围
+            offset_x = max(0, min(offset_x, sensor_w - width))
+            offset_y = max(0, min(offset_y, sensor_h - height))
+
+            # 重新对齐偏移（钳位后可能不再对齐）
+            offset_x = self._align_value(offset_x, ox_inc)
+            offset_y = self._align_value(offset_y, oy_inc)
+
+            # 停止流
+            if was_streaming:
+                self.stop_streaming()
+
+            # 设置 ROI：先归零偏移，再设尺寸，最后设偏移
+            self._camera.OffsetX.set(0)
+            self._camera.OffsetY.set(0)
+            self._camera.Width.set(width)
+            self._camera.Height.set(height)
+            self._camera.OffsetX.set(offset_x)
+            self._camera.OffsetY.set(offset_y)
+
+            self._logger.info(
+                f"ROI 已设置: offset=({offset_x},{offset_y}), size=({width}x{height})"
+            )
+
+            # 发布 ROI 变更事件
+            self.publish_event(EventType.ROI_CHANGED, {
+                'offset_x': offset_x,
+                'offset_y': offset_y,
+                'width': width,
+                'height': height,
+                'sensor_width': sensor_w,
+                'sensor_height': sensor_h,
+            })
+
+            # 恢复流
+            if was_streaming:
+                self.start_streaming()
+
+            return True
+
+        except Exception as e:
+            self._logger.error(f"设置 ROI 失败: {e}")
+            self.publish_event(EventType.ERROR_OCCURRED, {
+                'source': 'camera',
+                'error': f"设置 ROI 失败: {e}"
+            })
+            # 尝试恢复流
+            if was_streaming and not self._is_streaming:
+                try:
+                    self.start_streaming()
+                except Exception:
+                    pass
+            return False
+
+    def reset_roi(self) -> bool:
+        """重置 ROI 为全传感器尺寸"""
+        if not self._camera:
+            return False
+        sensor_w, sensor_h = self.get_sensor_size()
+        if sensor_w == 0 or sensor_h == 0:
+            return False
+        return self.set_roi(0, 0, sensor_w, sensor_h)

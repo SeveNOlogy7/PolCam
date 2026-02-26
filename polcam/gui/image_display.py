@@ -7,7 +7,7 @@ See LICENSE file for full license details.
 from qtpy import QtWidgets, QtCore, QtGui
 import numpy as np
 import cv2
-from typing import List
+from typing import List, Optional, Tuple
 from polcam.core.image_processor import ImageProcessor
 from polcam.gui.styles import Styles
 from ..core.processing_module import ProcessingMode
@@ -47,7 +47,11 @@ MODE_LABELS = {
 class ImageDisplay(QtWidgets.QWidget):
     # 添加鼠标位置信号
     cursorPositionChanged = QtCore.Signal(dict)
-    
+    # 缩放交互信号
+    zoomClickRequested = QtCore.Signal(int, int)            # (sensor_x, sensor_y)
+    zoomAreaRequested = QtCore.Signal(int, int, int, int)   # (sensor_x, sensor_y, w, h)
+    zoomAreaPreview = QtCore.Signal(int, int, int, int)     # 拖拽中实时预览 (sensor_x, sensor_y, w, h)
+
     def __init__(self):
         super().__init__()
         # 先初始化基本属性
@@ -60,6 +64,13 @@ class ImageDisplay(QtWidgets.QWidget):
         self.cursor_enabled = False   # 游标模式启用状态
         self.cursor_info = None       # 游标信息
         self._active_modes = list(COLOR_MODES)  # 当前可用模式列表
+        # 缩放交互相关
+        self._interaction_mode = 'none'     # 'none' | 'cursor' | 'zoom_in' | 'zoom_out' | 'zoom_area'
+        self._rubber_band = None            # QRubberBand 选区
+        self._rubber_band_origin = None     # 橡皮筋起始点
+        self._current_roi = None            # 当前 ROI: (offset_x, offset_y, width, height)
+        self._sensor_size = None            # 传感器尺寸: (width, height)
+        self._rubber_band_clamp_rect = None # QRect: 四分图模式下橡皮筋的显示空间钳位边界
 
         self.setup_ui()
         # 初始化时禁用控件
@@ -306,6 +317,266 @@ class ImageDisplay(QtWidgets.QWidget):
             self.image_label.setMouseTracking(False)
             self.image_label.mouseMoveEvent = None
             self.cursor_info = None
+
+    # ==================== 缩放交互 ====================
+
+    def set_interaction_mode(self, mode: str):
+        """设置鼠标交互模式
+
+        Args:
+            mode: 'none' | 'cursor' | 'zoom_in' | 'zoom_out' | 'zoom_area'
+        """
+        self._interaction_mode = mode
+
+        if mode == 'cursor':
+            self.set_cursor_mode(True)
+        elif mode in ('zoom_in', 'zoom_out', 'zoom_area'):
+            # 关闭游标模式
+            self.cursor_enabled = False
+            self.cursor_info = None
+            self.image_label.setCursor(QtCore.Qt.CrossCursor)
+            self.image_label.setMouseTracking(False)
+            self.image_label.mousePressEvent = self._on_zoom_mouse_press
+            self.image_label.mouseReleaseEvent = self._on_zoom_mouse_release
+            self.image_label.mouseMoveEvent = self._on_zoom_mouse_move
+        else:
+            # 'none' — 清除所有事件处理器
+            self.set_cursor_mode(False)
+            self.image_label.mousePressEvent = None
+            self.image_label.mouseReleaseEvent = None
+            self.image_label.mouseMoveEvent = None
+
+    def update_roi_info(self, roi: tuple, sensor_size: tuple):
+        """缓存当前 ROI 和传感器尺寸，供坐标映射使用
+
+        Args:
+            roi: (offset_x, offset_y, width, height)
+            sensor_size: (sensor_width, sensor_height)
+        """
+        self._current_roi = roi
+        self._sensor_size = sensor_size
+
+    def _get_display_geometry(self) -> Optional[Tuple[float, float, float, float]]:
+        """计算图像在 QLabel 中的显示区域
+
+        Returns:
+            (x_offset, y_offset, display_width, display_height) 或 None
+        """
+        pixmap = self.image_label.pixmap()
+        if not pixmap:
+            return None
+
+        label_size = self.image_label.size()
+        pixmap_size = pixmap.size()
+
+        if label_size.width() / label_size.height() > pixmap_size.width() / pixmap_size.height():
+            display_height = label_size.height()
+            display_width = pixmap_size.width() * display_height / pixmap_size.height()
+            x_offset = (label_size.width() - display_width) / 2
+            y_offset = 0
+        else:
+            display_width = label_size.width()
+            display_height = pixmap_size.height() * display_width / pixmap_size.width()
+            x_offset = 0
+            y_offset = (label_size.height() - display_height) / 2
+
+        return (x_offset, y_offset, display_width, display_height)
+
+    def _display_to_sensor_coords(self, display_x: int, display_y: int,
+                                   clamp: bool = False) -> Optional[Tuple[int, int]]:
+        """将 QLabel 显示坐标转换为传感器坐标
+
+        非四分图模式: 显示坐标 → 归一化 (0~1) → ROI 相对 → 传感器绝对
+        四分图模式: 显示坐标 → 画布像素 → 确定子图 → 子图内归一化 → ROI → 传感器
+
+        Args:
+            display_x, display_y: QLabel 内的鼠标坐标
+            clamp: 若为 True，允许坐标超出图像显示区域，
+                   结果钳位到传感器范围 [0, sensor_size]（用于区域放大外推）
+        Returns:
+            (sensor_x, sensor_y) 或 None（坐标在图像外且 clamp=False）
+        """
+        geom = self._get_display_geometry()
+        if geom is None or self._current_roi is None:
+            return None
+
+        x_offset, y_offset, display_width, display_height = geom
+
+        mouse_x = display_x - x_offset
+        mouse_y = display_y - y_offset
+
+        if mouse_x < 0 or mouse_x >= display_width or mouse_y < 0 or mouse_y >= display_height:
+            if not clamp:
+                return None
+
+        if (self.is_quad_view_mode()
+                and self._current_canvas is not None
+                and self.quad_size):
+            # 四分图路径: 在子图内归一化
+            canvas_h, canvas_w = self._current_canvas.shape[:2]
+            img_x = int(mouse_x * canvas_w / display_width)
+            img_y = int(mouse_y * canvas_h / display_height)
+            img_x = max(0, min(img_x, canvas_w - 1))
+            img_y = max(0, min(img_y, canvas_h - 1))
+
+            quad_index = self.get_quad_index(img_x, img_y)
+            if quad_index is None:
+                return None
+
+            quad_y, quad_x = self.quad_positions[quad_index]
+            quad_h, quad_w = self.quad_size
+            rel_x = img_x - quad_x
+            rel_y = img_y - quad_y
+
+            norm_x = rel_x / quad_w
+            norm_y = rel_y / quad_h
+        else:
+            # 非四分图路径（允许 norm 超出 [0,1] 以便外推）
+            norm_x = mouse_x / display_width
+            norm_y = mouse_y / display_height
+
+        # 映射到当前 ROI 内的传感器坐标
+        roi_ox, roi_oy, roi_w, roi_h = self._current_roi
+        sensor_x = int(roi_ox + norm_x * roi_w)
+        sensor_y = int(roi_oy + norm_y * roi_h)
+
+        # 钳位到传感器范围
+        if clamp and self._sensor_size:
+            sensor_w, sensor_h = self._sensor_size
+            sensor_x = max(0, min(sensor_x, sensor_w))
+            sensor_y = max(0, min(sensor_y, sensor_h))
+
+        return (sensor_x, sensor_y)
+
+    def _get_quad_display_rect(self, display_x: int, display_y: int) -> Optional[QtCore.QRect]:
+        """返回给定显示坐标所在子图的显示空间 QRect
+
+        用于四分图模式下橡皮筋选区的钳位。
+
+        Args:
+            display_x, display_y: QLabel 内的鼠标坐标
+        Returns:
+            该子图在 QLabel 中的 QRect，或 None
+        """
+        geom = self._get_display_geometry()
+        if geom is None or self._current_canvas is None or not self.quad_size:
+            return None
+
+        x_offset, y_offset, display_width, display_height = geom
+        canvas_h, canvas_w = self._current_canvas.shape[:2]
+
+        mouse_x = display_x - x_offset
+        mouse_y = display_y - y_offset
+        if mouse_x < 0 or mouse_x >= display_width or mouse_y < 0 or mouse_y >= display_height:
+            return None
+
+        img_x = int(mouse_x * canvas_w / display_width)
+        img_y = int(mouse_y * canvas_h / display_height)
+        img_x = max(0, min(img_x, canvas_w - 1))
+        img_y = max(0, min(img_y, canvas_h - 1))
+
+        quad_index = self.get_quad_index(img_x, img_y)
+        if quad_index is None:
+            return None
+
+        quad_y, quad_x = self.quad_positions[quad_index]
+        quad_h, quad_w = self.quad_size
+
+        # 画布像素边界 → 显示空间边界
+        disp_left   = int(quad_x * display_width / canvas_w + x_offset)
+        disp_top    = int(quad_y * display_height / canvas_h + y_offset)
+        disp_right  = int((quad_x + quad_w) * display_width / canvas_w + x_offset)
+        disp_bottom = int((quad_y + quad_h) * display_height / canvas_h + y_offset)
+
+        return QtCore.QRect(disp_left, disp_top,
+                            disp_right - disp_left, disp_bottom - disp_top)
+
+    def _on_zoom_mouse_press(self, event: QtGui.QMouseEvent):
+        """处理缩放模式下的鼠标按下事件"""
+        if event.button() != QtCore.Qt.LeftButton:
+            return
+
+        if self._interaction_mode == 'zoom_area':
+            # 开始橡皮筋选区
+            self._rubber_band_origin = event.pos()
+            # 四分图模式下计算钳位矩形
+            self._rubber_band_clamp_rect = None
+            if self.is_quad_view_mode():
+                self._rubber_band_clamp_rect = self._get_quad_display_rect(
+                    event.x(), event.y()
+                )
+            if self._rubber_band is None:
+                self._rubber_band = QtWidgets.QRubberBand(
+                    QtWidgets.QRubberBand.Rectangle, self.image_label
+                )
+            self._rubber_band.setGeometry(QtCore.QRect(self._rubber_band_origin, QtCore.QSize()))
+            self._rubber_band.show()
+
+        elif self._interaction_mode in ('zoom_in', 'zoom_out'):
+            # 单击缩放
+            coords = self._display_to_sensor_coords(event.x(), event.y())
+            if coords:
+                self.zoomClickRequested.emit(coords[0], coords[1])
+
+    def _on_zoom_mouse_move(self, event: QtGui.QMouseEvent):
+        """处理缩放模式下的鼠标移动事件（橡皮筋拖拽）"""
+        if self._interaction_mode == 'zoom_area' and self._rubber_band and self._rubber_band_origin:
+            current_pos = event.pos()
+            # 四分图模式下钳位到子图边界
+            if self._rubber_band_clamp_rect is not None:
+                cr = self._rubber_band_clamp_rect
+                clamped_x = max(cr.left(), min(current_pos.x(), cr.right() - 1))
+                clamped_y = max(cr.top(), min(current_pos.y(), cr.bottom() - 1))
+                current_pos = QtCore.QPoint(clamped_x, clamped_y)
+            rect = QtCore.QRect(self._rubber_band_origin, current_pos).normalized()
+            self._rubber_band.setGeometry(rect)
+
+            # 实时发送选区的传感器坐标预览（clamp=True 允许外推到传感器边界）
+            if rect.width() >= 10 and rect.height() >= 10:
+                tl = self._display_to_sensor_coords(rect.x(), rect.y(), clamp=True)
+                br = self._display_to_sensor_coords(
+                    rect.x() + rect.width(), rect.y() + rect.height(), clamp=True
+                )
+                if tl and br:
+                    self.zoomAreaPreview.emit(tl[0], tl[1], br[0] - tl[0], br[1] - tl[1])
+
+    def _on_zoom_mouse_release(self, event: QtGui.QMouseEvent):
+        """处理缩放模式下的鼠标释放事件（区域放大完成）"""
+        if event.button() != QtCore.Qt.LeftButton:
+            return
+
+        if self._interaction_mode == 'zoom_area' and self._rubber_band and self._rubber_band_origin:
+            self._rubber_band.hide()
+
+            end_pos = event.pos()
+            # 四分图模式下钳位到子图边界
+            if self._rubber_band_clamp_rect is not None:
+                cr = self._rubber_band_clamp_rect
+                clamped_x = max(cr.left(), min(end_pos.x(), cr.right() - 1))
+                clamped_y = max(cr.top(), min(end_pos.y(), cr.bottom() - 1))
+                end_pos = QtCore.QPoint(clamped_x, clamped_y)
+
+            rect = QtCore.QRect(self._rubber_band_origin, end_pos).normalized()
+
+            # 忽略过小的选区
+            if rect.width() < 10 or rect.height() < 10:
+                self._rubber_band_origin = None
+                self._rubber_band_clamp_rect = None
+                return
+
+            # 转换矩形两角为传感器坐标（clamp=True 允许外推到传感器边界）
+            top_left = self._display_to_sensor_coords(rect.x(), rect.y(), clamp=True)
+            bottom_right = self._display_to_sensor_coords(
+                rect.x() + rect.width(), rect.y() + rect.height(), clamp=True
+            )
+
+            if top_left and bottom_right:
+                sx, sy = top_left
+                ex, ey = bottom_right
+                self.zoomAreaRequested.emit(sx, sy, ex - sx, ey - sy)
+
+            self._rubber_band_origin = None
+            self._rubber_band_clamp_rect = None
             
     def _on_mouse_move(self, event: QtGui.QMouseEvent):
         """处理鼠标移动事件"""

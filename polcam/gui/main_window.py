@@ -59,6 +59,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_connections()
         self.setup_statusbar()
         self.current_frame = None      # 原始帧缓存
+
+        # 将相机模块注入图像工具栏控制器，用于 ROI 控制
+        self.image_display.toolbar_controller.set_camera_module(self.camera)
         
         # 初始化处理模块
         self.processor = ProcessingModule()
@@ -96,6 +99,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 订阅状态栏消息事件
         event_manager.subscribe(EventType.STATUS_MESSAGE_UPDATE, self._on_status_message_update)
         event_manager.subscribe(EventType.STATUS_MESSAGE_CLEAR, self._on_status_message_clear)
+
+        # 订阅 ROI 变更事件
+        event_manager.subscribe(EventType.ROI_CHANGED, self._on_roi_changed)
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -475,6 +481,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.update_exposure_value(self.camera.get_last_exposure())
         self.camera_control.update_gain_value(self.camera.get_last_gain())
 
+        # 初始化 ROI 缓存
+        roi = self.camera.get_roi()
+        sensor = self.camera.get_sensor_size()
+        self.image_display.update_roi_info(roi, sensor)
+
     def _on_camera_disconnected(self, event):
         """处理相机断开事件"""
         self.status_label.setText("相机已断开")
@@ -581,3 +592,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_status_message_clear(self, event: Event):
         """处理状态栏消息清除事件"""
         self.status_label.setText("就绪")
+
+    def _on_roi_changed(self, event: Event):
+        """处理 ROI 变更事件"""
+        data = event.data
+        self._logger.info(
+            f"ROI 变更: offset=({data['offset_x']},{data['offset_y']}) "
+            f"size={data['width']}x{data['height']} / "
+            f"sensor={data['sensor_width']}x{data['sensor_height']}"
+        )
