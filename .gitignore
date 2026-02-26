@@ -60,6 +60,7 @@ data/
 output/
 *.jpg
 *.png
+!images/*.png
 *.bmp
 *.tiff
 
