@@ -133,15 +133,21 @@ class ImagePlotter:
             processed_images.append(img)
         
         # 绘制图像和标题
+        # 根据子图高度缩放字体参数，使标题在屏幕上的视觉大小保持一致
+        scale = h / Styles.IMAGE_TITLE_REFERENCE_HEIGHT
+        font_scale = Styles.IMAGE_TITLE_FONT_SCALE * scale
+        thickness = max(1, round(Styles.IMAGE_TITLE_THICKNESS * scale))
+        y_offset = max(15, round(Styles.IMAGE_TITLE_Y_OFFSET * scale))
+        x_offset = max(5, round(Styles.IMAGE_TITLE_X_OFFSET * scale))
+
         for img, (y, x), title in zip(processed_images, quad_positions, titles):
             canvas[y:y+h, x:x+w] = img
-            cv2.putText(canvas, title, 
-                       (x + Styles.IMAGE_TITLE_X_OFFSET, 
-                        y + Styles.IMAGE_TITLE_Y_OFFSET),
-                       cv2.FONT_HERSHEY_SIMPLEX, 
-                       Styles.IMAGE_TITLE_FONT_SCALE, 
-                       Styles.IMAGE_TITLE_COLOR, 
-                       Styles.IMAGE_TITLE_THICKNESS)
+            cv2.putText(canvas, title,
+                       (x + x_offset, y + y_offset),
+                       cv2.FONT_HERSHEY_SIMPLEX,
+                       font_scale,
+                       Styles.IMAGE_TITLE_COLOR,
+                       thickness)
         
         return canvas, quad_positions, quad_size
 

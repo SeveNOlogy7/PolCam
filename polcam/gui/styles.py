@@ -27,12 +27,13 @@ class Styles:
     TOOLBAR_ICON_SIZE = QSize(32, 32)  # 工具栏图标尺寸
     TOOLBAR_HEIGHT = 48                 # 工具栏高度
 
-    # 图像标题样式定义
+    # 图像标题样式定义（参考高度 2048 下的基准值）
     IMAGE_TITLE_FONT_SCALE = 3.0    # 标题字体大小
     IMAGE_TITLE_THICKNESS = 4        # 标题线条粗细
     IMAGE_TITLE_COLOR = (255, 255, 255)  # 标题颜色 (BGR)
     IMAGE_TITLE_Y_OFFSET = 70       # 标题Y轴偏移
     IMAGE_TITLE_X_OFFSET = 20       # 标题X轴偏移
+    IMAGE_TITLE_REFERENCE_HEIGHT = 2048  # 上述基准值对应的子图高度
     
     @classmethod
     def get_font(cls, size: int) -> QFont:
