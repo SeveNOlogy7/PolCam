@@ -13,6 +13,7 @@ class ImageToolbarController(BaseModule):
     """图像工具栏控制器"""
 
     ZOOM_FACTOR = 1.5  # 放大/缩小倍率
+    MAX_ZOOM = 100.0   # 最大放大倍率
 
     def __init__(self, toolbar, image_display=None):
         super().__init__("ImageToolbarController")
@@ -241,6 +242,12 @@ class ImageToolbarController(BaseModule):
         if self._zoom_mode == 'zoom_in':
             new_w = int(w / self.ZOOM_FACTOR)
             new_h = int(h / self.ZOOM_FACTOR)
+            # 超过最大放大倍率时，自适应调节到恰好 MAX_ZOOM
+            min_area = (sensor_w * sensor_h) / self.MAX_ZOOM
+            if new_w > 0 and new_h > 0 and new_w * new_h < min_area:
+                scale = (min_area / (new_w * new_h)) ** 0.5
+                new_w = int(new_w * scale)
+                new_h = int(new_h * scale)
         elif self._zoom_mode == 'zoom_out':
             new_w = int(w * self.ZOOM_FACTOR)
             new_h = int(h * self.ZOOM_FACTOR)
@@ -263,7 +270,10 @@ class ImageToolbarController(BaseModule):
             actual_roi = self._camera_module.get_roi()
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
-                self._show_status_message(f"缩放: {zoom_pct:.1f}x")
+                if zoom_pct >= self.MAX_ZOOM - 0.1:
+                    self._show_status_message(f"已达最大放大倍率 {zoom_pct:.1f}x")
+                else:
+                    self._show_status_message(f"缩放: {zoom_pct:.1f}x")
 
     def _handle_zoom_area_selection(self, sensor_x: int, sensor_y: int,
                                      width: int, height: int):
@@ -277,6 +287,21 @@ class ImageToolbarController(BaseModule):
             self._show_status_message("相机未连接")
             return
 
+        # 超过最大放大倍率时，自适应扩大选区到恰好 MAX_ZOOM，保持中心不变
+        sensor_w, sensor_h = self._camera_module.get_sensor_size()
+        if width > 0 and height > 0:
+            min_area = (sensor_w * sensor_h) / self.MAX_ZOOM
+            if width * height < min_area:
+                scale = (min_area / (width * height)) ** 0.5
+                new_w = int(width * scale)
+                new_h = int(height * scale)
+                center_x = sensor_x + width // 2
+                center_y = sensor_y + height // 2
+                sensor_x = center_x - new_w // 2
+                sensor_y = center_y - new_h // 2
+                width = new_w
+                height = new_h
+
         success = self._camera_module.set_roi(sensor_x, sensor_y, width, height)
         if success:
             self._update_roi_cache()
@@ -284,7 +309,10 @@ class ImageToolbarController(BaseModule):
             sensor_w, sensor_h = self._camera_module.get_sensor_size()
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
-                self._show_status_message(f"区域放大: {zoom_pct:.1f}x")
+                if zoom_pct >= self.MAX_ZOOM - 0.1:
+                    self._show_status_message(f"选区已调整到最大放大倍率 {zoom_pct:.1f}x")
+                else:
+                    self._show_status_message(f"区域放大: {zoom_pct:.1f}x")
 
     def _handle_zoom_area_preview(self, sensor_x: int, sensor_y: int,
                                    width: int, height: int):
