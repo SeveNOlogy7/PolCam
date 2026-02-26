@@ -455,15 +455,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_info.setText(event.data.get("device_info", ""))
         self.status_label.setText("相机已连接")
 
-        # 检测并传播相机类型
+        # 获取相机类型和 Bayer 排列
         self._camera_type = event.data.get("camera_type", CameraType.COLOR)
+        bayer_pattern = event.data.get("bayer_pattern")
+        pixel_format = event.data.get("pixel_format")
         is_mono = (self._camera_type == CameraType.MONO)
 
-        # 配置处理流水线
-        self.processor.set_camera_type(self._camera_type)
+        # 配置处理流水线（传递 bayer_pattern 和 pixel_format 用于普通彩色相机）
+        self.processor.set_camera_type(self._camera_type, bayer_pattern=bayer_pattern, pixel_format=pixel_format)
 
         # 更新显示模式列表
-        self.image_display.set_camera_modes(is_mono)
+        self.image_display.set_camera_modes(self._camera_type)
 
         # 黑白相机隐藏白平衡
         if is_mono:
@@ -480,7 +482,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._camera_type = None
 
         # 恢复全部8个显示模式
-        self.image_display.set_camera_modes(is_mono=False)
+        self.image_display.set_camera_modes(None)
 
         # 禁用保存按钮
         self.toolbar_controller.enable_save_raw(False)

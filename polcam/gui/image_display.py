@@ -12,6 +12,7 @@ from polcam.core.image_processor import ImageProcessor
 from polcam.gui.styles import Styles
 from ..core.processing_module import ProcessingMode
 from ..core.image_plotter import ImagePlotter
+from ..core.camera_module import CameraType
 
 # 彩色相机可用模式（全部8种）
 COLOR_MODES = [
@@ -24,6 +25,11 @@ COLOR_MODES = [
 MONO_MODES = [
     ProcessingMode.RAW, ProcessingMode.SINGLE_GRAY,
     ProcessingMode.MERGED_GRAY, ProcessingMode.QUAD_GRAY, ProcessingMode.POLARIZATION,
+]
+
+# 普通彩色相机可用模式（3种）
+NORMAL_COLOR_MODES = [
+    ProcessingMode.RAW, ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY,
 ]
 
 # 模式显示标签
@@ -136,9 +142,19 @@ class ImageDisplay(QtWidgets.QWidget):
         self.display_mode.setCurrentIndex(0)
         self.display_mode.blockSignals(False)
 
-    def set_camera_modes(self, is_mono: bool):
-        """切换彩色/黑白相机模式，更新可用显示模式列表"""
-        self._populate_display_modes(MONO_MODES if is_mono else COLOR_MODES)
+    def set_camera_modes(self, camera_type=None):
+        """根据相机类型更新可用显示模式列表
+
+        Args:
+            camera_type: CameraType 枚举值，None 表示恢复默认（全部偏振模式）
+        """
+        if camera_type == CameraType.MONO:
+            modes = MONO_MODES
+        elif camera_type == CameraType.NORMAL_COLOR:
+            modes = NORMAL_COLOR_MODES
+        else:
+            modes = COLOR_MODES
+        self._populate_display_modes(modes)
 
     def get_current_processing_mode(self) -> ProcessingMode:
         """获取当前 combo 对应的 ProcessingMode"""

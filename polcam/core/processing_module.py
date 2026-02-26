@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import threading
 import queue
+from ctypes import c_ubyte, addressof
 from typing import List, Tuple, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -19,6 +20,48 @@ from .events import EventType, Event
 from .image_processor import ImageProcessor
 from .caching import WhiteBalanceCache
 from .camera_module import CameraType
+
+from gxipy.ImageFormatConvert import ImageFormatConvert
+from gxipy.gxidef import GxPixelFormatEntry, DxValidBit
+
+
+def get_best_valid_bits(pixel_format):
+    """根据像素格式获取最佳有效位设置（参考 gxipy 官方例程）"""
+    valid_bits = DxValidBit.BIT0_7
+    if pixel_format in (GxPixelFormatEntry.MONO8,
+                        GxPixelFormatEntry.BAYER_GR8, GxPixelFormatEntry.BAYER_RG8,
+                        GxPixelFormatEntry.BAYER_GB8, GxPixelFormatEntry.BAYER_BG8,
+                        GxPixelFormatEntry.RGB8, GxPixelFormatEntry.BGR8,
+                        GxPixelFormatEntry.R8, GxPixelFormatEntry.B8, GxPixelFormatEntry.G8):
+        valid_bits = DxValidBit.BIT0_7
+    elif pixel_format in (GxPixelFormatEntry.MONO10, GxPixelFormatEntry.MONO10_PACKED, GxPixelFormatEntry.MONO10_P,
+                          GxPixelFormatEntry.BAYER_GR10, GxPixelFormatEntry.BAYER_RG10,
+                          GxPixelFormatEntry.BAYER_GB10, GxPixelFormatEntry.BAYER_BG10,
+                          GxPixelFormatEntry.BAYER_GR10_P, GxPixelFormatEntry.BAYER_RG10_P,
+                          GxPixelFormatEntry.BAYER_GB10_P, GxPixelFormatEntry.BAYER_BG10_P,
+                          GxPixelFormatEntry.BAYER_GR10_PACKED, GxPixelFormatEntry.BAYER_RG10_PACKED,
+                          GxPixelFormatEntry.BAYER_GB10_PACKED, GxPixelFormatEntry.BAYER_BG10_PACKED):
+        valid_bits = DxValidBit.BIT2_9
+    elif pixel_format in (GxPixelFormatEntry.MONO12, GxPixelFormatEntry.MONO12_PACKED, GxPixelFormatEntry.MONO12_P,
+                          GxPixelFormatEntry.BAYER_GR12, GxPixelFormatEntry.BAYER_RG12,
+                          GxPixelFormatEntry.BAYER_GB12, GxPixelFormatEntry.BAYER_BG12,
+                          GxPixelFormatEntry.BAYER_GR12_P, GxPixelFormatEntry.BAYER_RG12_P,
+                          GxPixelFormatEntry.BAYER_GB12_P, GxPixelFormatEntry.BAYER_BG12_P,
+                          GxPixelFormatEntry.BAYER_GR12_PACKED, GxPixelFormatEntry.BAYER_RG12_PACKED,
+                          GxPixelFormatEntry.BAYER_GB12_PACKED, GxPixelFormatEntry.BAYER_BG12_PACKED):
+        valid_bits = DxValidBit.BIT4_11
+    elif pixel_format in (GxPixelFormatEntry.MONO14, GxPixelFormatEntry.MONO14_P,
+                          GxPixelFormatEntry.BAYER_GR14, GxPixelFormatEntry.BAYER_RG14,
+                          GxPixelFormatEntry.BAYER_GB14, GxPixelFormatEntry.BAYER_BG14,
+                          GxPixelFormatEntry.BAYER_GR14_P, GxPixelFormatEntry.BAYER_RG14_P,
+                          GxPixelFormatEntry.BAYER_GB14_P, GxPixelFormatEntry.BAYER_BG14_P):
+        valid_bits = DxValidBit.BIT6_13
+    elif pixel_format in (GxPixelFormatEntry.MONO16,
+                          GxPixelFormatEntry.BAYER_GR16, GxPixelFormatEntry.BAYER_RG16,
+                          GxPixelFormatEntry.BAYER_GB16, GxPixelFormatEntry.BAYER_BG16):
+        valid_bits = DxValidBit.BIT8_15
+    return valid_bits
+
 
 class ProcessingMode(Enum):
     """图像处理模式"""
@@ -102,6 +145,9 @@ class ProcessingModule(BaseModule):
         
         # 相机类型
         self._is_mono = False
+        self._is_normal_color = False
+        self._pixel_format = None           # GxPixelFormatEntry 值
+        self._image_format_convert = None   # gxipy ImageFormatConvert 实例
 
         # 缓存管理
         self._last_result: Optional[ProcessingResult] = None
@@ -184,13 +230,27 @@ class ProcessingModule(BaseModule):
                 'value': value
             })
 
-    def set_camera_type(self, camera_type):
-        """设置相机类型，切换彩色/黑白处理模式
+    def set_camera_type(self, camera_type, bayer_pattern=None, pixel_format=None):
+        """设置相机类型，切换处理模式
 
         Args:
-            camera_type: CameraType.COLOR 或 CameraType.MONO
+            camera_type: CameraType 枚举
+            bayer_pattern: Bayer 排列值 (GxPixelColorFilterEntry)
+            pixel_format: 像素格式值 (GxPixelFormatEntry)，NORMAL_COLOR 时需要
         """
         self._is_mono = (camera_type == CameraType.MONO)
+        self._is_normal_color = (camera_type == CameraType.NORMAL_COLOR)
+
+        # 为普通彩色相机创建 gxipy 格式转换器
+        self._image_format_convert = None
+        self._pixel_format = None
+        if self._is_normal_color and pixel_format is not None:
+            self._pixel_format = pixel_format
+            self._image_format_convert = ImageFormatConvert()
+            self._image_format_convert.set_dest_format(GxPixelFormatEntry.BGR8)
+            valid_bits = get_best_valid_bits(pixel_format)
+            self._image_format_convert.set_valid_bits(valid_bits)
+
         self.clear_cache()
 
     def process_frame(self, frame: np.ndarray, priority: int = 0):
@@ -273,6 +333,15 @@ class ProcessingModule(BaseModule):
                 task = ProcessingTask(frame=task.frame, mode=ProcessingMode.RAW,
                                      params=task.params, priority=task.priority)
 
+            # 安全防护：普通彩色相机仅支持 RAW, MERGED_COLOR, MERGED_GRAY
+            if self._is_normal_color and task.mode not in [
+                ProcessingMode.RAW,
+                ProcessingMode.MERGED_COLOR,
+                ProcessingMode.MERGED_GRAY,
+            ]:
+                task = ProcessingTask(frame=task.frame, mode=ProcessingMode.RAW,
+                                     params=task.params, priority=task.priority)
+
             # 检查缓存
             cache_key = self._get_cache_key(task)
             if cache_key in self._frame_cache:
@@ -309,9 +378,13 @@ class ProcessingModule(BaseModule):
                 }
                 
             elif task.mode in [ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY]:
-                # 解码并合成图像
-                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
-                merged = np.mean(decoded, axis=0).astype(np.uint8)
+                if self._is_normal_color and self._image_format_convert is not None:
+                    # 普通彩色相机：使用 gxipy SDK 进行 Bayer → BGR 转换
+                    merged = self._convert_bayer_to_bgr(task.frame)
+                else:
+                    # 偏振相机：偏振解码后合成
+                    decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
+                    merged = np.mean(decoded, axis=0).astype(np.uint8)
                 # 对合成后的图像进行白平衡
                 wb_applied = False
                 if task.mode == ProcessingMode.MERGED_COLOR and task.params.get('wb_auto', False):
@@ -404,6 +477,37 @@ class ProcessingModule(BaseModule):
         except Exception as e:
             self._logger.error(f"处理任务失败: {str(e)}")
             raise
+
+    def _convert_bayer_to_bgr(self, frame: np.ndarray) -> np.ndarray:
+        """使用 gxipy ImageFormatConvert 将 Bayer 原始帧转换为 BGR 图像
+
+        Args:
+            frame: 2D Bayer 原始帧 (H, W), dtype=uint8
+
+        Returns:
+            BGR 图像 (H, W, 3), dtype=uint8
+        """
+        h, w = frame.shape[:2]
+
+        # 按目标格式 (BGR8) 计算输出缓冲区大小并分配
+        buffer_out_size = self._image_format_convert.get_buffer_size_for_conversion_ex(
+            w, h, GxPixelFormatEntry.BGR8
+        )
+        output_array = (c_ubyte * buffer_out_size)()
+        output_addr = addressof(output_array)
+
+        # 获取输入帧的内存地址
+        input_addr = frame.ctypes.data
+
+        # 执行格式转换
+        self._image_format_convert.convert_ex(
+            input_addr, w, h, self._pixel_format,
+            output_addr, buffer_out_size, False
+        )
+
+        # 转换为 numpy BGR 数组
+        bgr_image = np.frombuffer(output_array, dtype=np.uint8, count=buffer_out_size).reshape(h, w, 3)
+        return bgr_image
 
     def _enhance_images(self, images: List[np.ndarray], 
                        params: Dict[str, Any]) -> List[np.ndarray]:

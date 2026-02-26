@@ -20,14 +20,16 @@ from .events import EventType, Event
 
 class CameraType(Enum):
     """相机类型"""
-    COLOR = "color"
-    MONO = "mono"
+    COLOR = "color"                  # 彩色偏振相机
+    MONO = "mono"                    # 黑白偏振相机
+    NORMAL_COLOR = "normal_color"    # 普通彩色相机（非偏振）
 
 
 # 已知相机型号 → 类型映射，新型号在此添加
 KNOWN_CAMERA_TYPES = {
     "MER2-503-23GC-P POL": CameraType.COLOR,
     "MER2-502-79U3M-HS POL": CameraType.MONO,
+    "ME2S-2440-16U3C": CameraType.NORMAL_COLOR,
 }
 
 class CameraModule(BaseModule):
@@ -59,6 +61,8 @@ class CameraModule(BaseModule):
         self._device_indices = []  # 添加已打开设备的索引列表
         self._target_device_index = None  # 指定要连接的目标设备索引
         self._camera_type: Optional[CameraType] = None  # 相机类型（彩色/黑白）
+        self._bayer_pattern: Optional[int] = None  # Bayer 排列 (PixelColorFilter 值)
+        self._pixel_format: Optional[int] = None   # 像素格式 (GxPixelFormatEntry 值)
 
     def _do_initialize(self) -> bool:
         """初始化相机设备管理器"""
@@ -126,36 +130,47 @@ class CameraModule(BaseModule):
         """获取检测到的相机类型"""
         return self._camera_type
 
+    def get_bayer_pattern(self) -> Optional[int]:
+        """获取检测到的 Bayer 排列 (GxPixelColorFilterEntry 值)"""
+        return self._bayer_pattern
+
     def _detect_camera_type(self, model_name: str) -> CameraType:
-        """检测相机类型（彩色/黑白）
+        """检测相机类型（彩色偏振/黑白偏振/普通彩色）
 
         检测策略:
-        1. 先查 KNOWN_CAMERA_TYPES 映射表
-        2. 未知型号则查询 PixelColorFilter 特征
-        3. 均失败则默认 COLOR
+        1. 查询 PixelColorFilter 特征，记录 Bayer 排列
+        2. 查 KNOWN_CAMERA_TYPES 映射表
+        3. 未知型号根据 PixelColorFilter 推断
+        4. 均失败则默认 COLOR
         """
-        # 1. 查映射表
+        # 1. 查询 PixelColorFilter（所有相机通用，记录 Bayer 排列）
+        self._bayer_pattern = None
+        try:
+            if self._camera and self._camera.PixelColorFilter.is_implemented():
+                value, desc = self._camera.PixelColorFilter.get()
+                self._bayer_pattern = value
+                self._logger.info(
+                    f"PixelColorFilter: {model_name} -> value={value}, desc={desc}"
+                )
+        except Exception as e:
+            self._logger.warning(f"查询 PixelColorFilter 失败: {e}")
+
+        # 2. 查映射表
         if model_name in KNOWN_CAMERA_TYPES:
             camera_type = KNOWN_CAMERA_TYPES[model_name]
             self._logger.info(f"相机类型（映射表）: {model_name} -> {camera_type.value}")
             return camera_type
 
-        # 2. 查 PixelColorFilter
-        try:
-            if self._camera and self._camera.PixelColorFilter.is_implemented():
-                value, _ = self._camera.PixelColorFilter.get()
-                # GxPixelColorFilterEntry.NONE == 0 表示黑白相机
-                camera_type = CameraType.MONO if value == 0 else CameraType.COLOR
-                self._logger.info(
-                    f"相机类型（PixelColorFilter）: {model_name} -> {camera_type.value} "
-                    f"(filter={value})"
-                )
-                return camera_type
-        except Exception as e:
-            self._logger.warning(f"查询 PixelColorFilter 失败: {e}")
+        # 3. 未知型号根据 PixelColorFilter 推断（无法区分偏振/非偏振，默认偏振）
+        if self._bayer_pattern is not None:
+            camera_type = CameraType.MONO if self._bayer_pattern == 0 else CameraType.COLOR
+            self._logger.info(
+                f"相机类型（PixelColorFilter推断）: {model_name} -> {camera_type.value}"
+            )
+            return camera_type
 
-        # 3. 默认 COLOR
-        self._logger.warning(f"无法检测相机类型: {model_name}，默认为彩色相机")
+        # 4. 默认 COLOR
+        self._logger.warning(f"无法检测相机类型: {model_name}，默认为彩色偏振相机")
         return CameraType.COLOR
 
     def connect(self) -> bool:
@@ -203,10 +218,21 @@ class CameraModule(BaseModule):
             # 检测相机类型
             self._camera_type = self._detect_camera_type(display_name)
 
+            # 查询像素格式（用于 gxipy 格式转换）
+            self._pixel_format = None
+            try:
+                pixel_format_value, pixel_format_str = self._remote_feature.get_enum_feature("PixelFormat").get()
+                self._pixel_format = pixel_format_value
+                self._logger.info(f"PixelFormat: {pixel_format_str} (0x{pixel_format_value:08X})")
+            except Exception as e:
+                self._logger.warning(f"查询 PixelFormat 失败: {e}")
+
             # 发布连接成功事件
             self.publish_event(EventType.CAMERA_CONNECTED, {
                 "device_info": display_name,
                 "camera_type": self._camera_type,
+                "bayer_pattern": self._bayer_pattern,
+                "pixel_format": self._pixel_format,
             })
 
             self._logger.info(f"相机连接成功: index={device_index}, model={display_name}")
@@ -238,8 +264,8 @@ class CameraModule(BaseModule):
             self._connected = False
             self._device_indices.clear()  # 清空设备索引列表
             self._camera_type = None
-            
-            # 等待资源释放
+            self._bayer_pattern = None
+            self._pixel_format = None
             time.sleep(0.1)
             
             self.publish_event(EventType.CAMERA_DISCONNECTED)
@@ -257,6 +283,8 @@ class CameraModule(BaseModule):
             self._connected = False
             self._device_indices.clear()
             self._camera_type = None
+            self._bayer_pattern = None
+            self._pixel_format = None
 
     def start_streaming(self):
         """开始图像采集"""
