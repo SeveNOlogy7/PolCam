@@ -84,6 +84,19 @@ class ProcessingMode(Enum):
         """转换显示模式索引为处理模式"""
         return ProcessingMode(index)
 
+
+DEFAULT_PROCESSING_PARAMS = {
+    'wb_auto': False,           # 自动白平衡开关
+    'wb_roi': None,             # 白平衡ROI
+    'brightness': 1.0,          # 亮度调节
+    'contrast': 1.0,            # 对比度调节
+    'sharpness': 0.0,           # 锐化强度
+    'denoise': 0.0,             # 降噪强度
+    'selected_angle': 0,        # 选择的角度 (0, 45, 90, 135)
+    'pol_color_mode': False,    # 偏振分析模式下合成图像是否为彩色
+    'pol_wb_auto': False        # 偏振分析模式下彩色图像的白平衡开关
+}
+
 @dataclass
 class ProcessingResult:
     """处理结果数据类"""
@@ -131,17 +144,7 @@ class ProcessingModule(BaseModule):
         self._current_mode = ProcessingMode.RAW
         
         # 参数管理
-        self._params = {
-            'wb_auto': False,           # 自动白平衡开关
-            'wb_roi': None,             # 白平衡ROI
-            'brightness': 1.0,          # 亮度调节
-            'contrast': 1.0,            # 对比度调节
-            'sharpness': 0.0,          # 锐化强度
-            'denoise': 0.0,            # 降噪强度
-            'selected_angle': 0,        # 选择的角度 (0, 45, 90, 135)
-            'pol_color_mode': False,    # 偏振分析模式下合成图像是否为彩色
-            'pol_wb_auto': False        # 偏振分析模式下彩色图像的白平衡开关
-        }
+        self._params = DEFAULT_PROCESSING_PARAMS.copy()
         
         # 相机类型
         self._is_mono = False
@@ -596,14 +599,7 @@ class ProcessingModule(BaseModule):
 
     def reset_parameters(self):
         """重置所有处理参数为默认值"""
-        self._params = {
-            'wb_auto': False,
-            'wb_roi': None,
-            'brightness': 1.0,
-            'contrast': 1.0,
-            'sharpness': 0.0,
-            'denoise': 0.0
-        }
+        self._params = DEFAULT_PROCESSING_PARAMS.copy()
         # 发送参数重置事件
         self.publish_event(EventType.PARAMETER_CHANGED, {
             'parameter': 'all',

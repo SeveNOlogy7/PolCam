@@ -14,6 +14,7 @@ from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
 import logging
 from ..core.processing_module import ProcessingModule, ProcessingMode
+from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
 import os
 from ..core.toolbar_controller import ToolbarController
 from .widgets.tool_bar import ToolBar
@@ -24,6 +25,9 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # 设置日志记录器
         self._logger = logging.getLogger("polcam.gui.MainWindow")
+        self.settings_service = SettingsService()
+        self._preferred_display_mode = ProcessingMode.RAW
+        self._current_settings = AppSettings()
         
         # 设置全局字体
         app = QtWidgets.QApplication.instance()
@@ -32,6 +36,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 设置窗口标题和图标
         self.setWindowTitle("PolCam")
 
+        icon = QtGui.QIcon()
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon", "icon.svg")
         if os.path.exists(icon_path):
             icon = QtGui.QIcon(icon_path)
@@ -102,6 +107,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 订阅 ROI 变更事件
         event_manager.subscribe(EventType.ROI_CHANGED, self._on_roi_changed)
+
+        self.restore_settings()
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -309,6 +316,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
         mode = self.image_display.get_current_processing_mode()
+        self._preferred_display_mode = mode
         self.processor.set_mode(mode)
 
         is_mono = (self._camera_type == CameraType.MONO)
@@ -431,6 +439,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.close_flag = True  # 设置关闭标志
         
         try:
+            self.save_settings()
+
             # 如果正在连续采集，先停止采集
             if self._continuous_mode:  # 修改判断条件
                 self.handle_stream(False)
@@ -472,6 +482,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 更新显示模式列表
         self.image_display.set_camera_modes(self._camera_type)
+        self.image_display.set_processing_mode(self._preferred_display_mode)
 
         # 黑白相机隐藏白平衡
         if is_mono:
@@ -494,6 +505,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 恢复全部8个显示模式
         self.image_display.set_camera_modes(None)
+        self.image_display.set_processing_mode(self._preferred_display_mode)
 
         # 禁用保存按钮
         self.toolbar_controller.enable_save_raw(False)
@@ -601,3 +613,53 @@ class MainWindow(QtWidgets.QMainWindow):
             f"size={data['width']}x{data['height']} / "
             f"sensor={data['sensor_width']}x{data['sensor_height']}"
         )
+
+    def restore_settings(self):
+        """恢复持久化设置。"""
+        settings = self.settings_service.load()
+        self.apply_settings(settings, persist=False)
+
+        geometry = self.settings_service.load_window_geometry()
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
+    def build_current_settings(self) -> AppSettings:
+        """从当前界面和处理模块构建设置对象。"""
+        return AppSettings(
+            ui=UISettings(
+                display_mode=self.image_display.get_current_processing_mode(),
+                last_directory=self.settings_service.get_last_directory(),
+            ),
+            processing=ProcessingSettings.from_params(self.processor.get_parameters()),
+        )
+
+    def apply_settings(self, settings: AppSettings, persist: bool = True):
+        """应用设置到界面和处理模块。"""
+        self._current_settings = settings
+        self._preferred_display_mode = settings.ui.display_mode
+
+        self.camera_control.set_wb_auto(settings.processing.wb_auto)
+        self.camera_control.set_selected_angle(settings.processing.selected_angle)
+        self.camera_control.set_pol_color_mode(settings.processing.pol_color_mode)
+        self.camera_control.set_pol_wb_auto(settings.processing.pol_wb_auto)
+
+        for name, value in settings.processing.to_params().items():
+            self.processor.set_parameter(name, value)
+
+        self.image_display.set_processing_mode(settings.ui.display_mode)
+
+        if settings.processing.pol_color_mode and self._camera_type == CameraType.MONO:
+            self.camera_control.pol_control.set_mono_locked(True)
+
+        if persist:
+            self.settings_service.save(settings)
+
+        if self.current_frame is not None:
+            self._reprocessing_from_current_frame()
+
+    def save_settings(self):
+        """保存当前设置和窗口状态。"""
+        current_settings = self.build_current_settings()
+        self._current_settings = current_settings
+        self.settings_service.save(current_settings)
+        self.settings_service.save_window_geometry(self.saveGeometry())

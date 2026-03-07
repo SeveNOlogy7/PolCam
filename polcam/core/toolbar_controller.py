@@ -14,6 +14,7 @@ from polcam.core.image_processor import ImageProcessor
 from .base_module import BaseModule
 from ..core.processing_module import ProcessingMode
 from ..core.events import Event, EventType
+from ..gui.settings_dialog import SettingsDialog
 
 class ToolbarController(BaseModule):
     def __init__(self, main_window):
@@ -160,16 +161,18 @@ class ToolbarController(BaseModule):
         """
         timestamp_str = self._format_timestamp(timestamp)
         default_name = f"{timestamp_str}{mode_str}"
+        default_directory = self._main_window.settings_service.get_last_directory()
         
         dialog = QtWidgets.QFileDialog(self._main_window)
         dialog.setWindowTitle(title)
         dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png)")
         dialog.selectNameFilter("TIFF files (*.tiff *.tif)")
-        dialog.selectFile(default_name)
+        dialog.selectFile(os.path.join(default_directory, default_name))
         
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             filename = dialog.selectedFiles()[0]
+            self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
             # 分离基础名称和扩展名
             base_name, ext = os.path.splitext(filename)
             
@@ -191,13 +194,17 @@ class ToolbarController(BaseModule):
         
         复用保存对话框的过滤器设置，保持一致的用户体验
         """
+        default_directory = self._main_window.settings_service.get_last_directory()
         dialog = QtWidgets.QFileDialog(self._main_window)
         dialog.setWindowTitle(title)
         dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptOpen)
         dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png);;Raw files (*.raw *.bin);;All Files (*)")
+        dialog.setDirectory(default_directory)
         
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            return dialog.selectedFiles()[0], True
+            filename = dialog.selectedFiles()[0]
+            self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
+            return filename, True
         return "", False
 
     def _verify_image_size(self, data: np.ndarray) -> bool:
@@ -451,8 +458,12 @@ class ToolbarController(BaseModule):
 
     def _handle_settings(self):
         """处理设置事件"""
-        # TODO: 实现设置对话框
-        self._main_window.status_label.setText("显示设置界面（不支持）")
+        dialog = SettingsDialog(self._main_window.build_current_settings(), self._main_window)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            self._main_window.apply_settings(dialog.get_settings())
+            self._main_window.status_label.setText("设置已更新")
+        else:
+            self._main_window.status_label.setText("已取消设置")
 
     def _handle_about(self):
         """处理关于事件"""

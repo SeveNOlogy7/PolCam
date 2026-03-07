@@ -167,6 +167,17 @@ class ImageDisplay(QtWidgets.QWidget):
             modes = COLOR_MODES
         self._populate_display_modes(modes)
 
+    def set_processing_mode(self, mode: ProcessingMode) -> bool:
+        """设置当前显示模式。"""
+        try:
+            index = self._active_modes.index(mode)
+        except ValueError:
+            self.display_mode.setCurrentIndex(0)
+            return False
+
+        self.display_mode.setCurrentIndex(index)
+        return True
+
     def get_current_processing_mode(self) -> ProcessingMode:
         """获取当前 combo 对应的 ProcessingMode"""
         index = self.display_mode.currentIndex()

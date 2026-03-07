@@ -170,11 +170,39 @@ class CameraControl(QtWidgets.QWidget):
 
     def get_selected_angle(self) -> int:
         """获取当前选择的角度值"""
-        return self.angle_selector.combo.currentIndex() * 45
+        return self.angle_selector.get_angle()
 
     def is_pol_color_mode(self) -> bool:
         """返回当前是否为彩色模式"""
-        return self.pol_control.combo.currentIndex() == 1
+        return self.pol_control.is_color_mode()
+
+    def set_wb_auto(self, enabled: bool):
+        """设置白平衡自动模式且不触发外部信号。"""
+        self.wb_control.auto_check.blockSignals(True)
+        self.wb_control.auto_check.setChecked(enabled)
+        self.wb_control.once_btn.setEnabled(not enabled)
+        self.wb_control.auto_check.blockSignals(False)
+
+    def set_selected_angle(self, angle: int):
+        """设置角度选择且不触发外部信号。"""
+        index = max(0, min(3, angle // 45))
+        self.angle_selector.angle_combo.blockSignals(True)
+        self.angle_selector.angle_combo.setCurrentIndex(index)
+        self.angle_selector.angle_combo.blockSignals(False)
+
+    def set_pol_color_mode(self, is_color: bool):
+        """设置偏振彩色模式且不触发外部信号。"""
+        self.pol_control.color_mode_combo.blockSignals(True)
+        self.pol_control.color_mode_combo.setCurrentIndex(1 if is_color else 0)
+        self.pol_control.wb_control.setVisible(is_color)
+        self.pol_control.color_mode_combo.blockSignals(False)
+
+    def set_pol_wb_auto(self, enabled: bool):
+        """设置偏振模式白平衡自动开关且不触发外部信号。"""
+        self.pol_control.wb_control.auto_check.blockSignals(True)
+        self.pol_control.wb_control.auto_check.setChecked(enabled)
+        self.pol_control.wb_control.once_btn.setEnabled(not enabled)
+        self.pol_control.wb_control.auto_check.blockSignals(False)
 
     def handle_one_shot_auto(self, control_type: str):
         """处理单次自动调整

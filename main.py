@@ -6,6 +6,8 @@ from polcam.utils.logger import setup_logger
 def main():
     setup_logger()
     app = QtWidgets.QApplication(sys.argv)
+    app.setOrganizationName("SeveNOlogy7")
+    app.setApplicationName("PolCam")
     window = MainWindow()
     window.show()
     return app.exec()
