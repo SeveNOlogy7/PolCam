@@ -21,6 +21,7 @@ from .processing_module import DEFAULT_PROCESSING_PARAMS, ProcessingMode
 class UISettings:
     display_mode: ProcessingMode = ProcessingMode.RAW
     last_directory: str = ""
+    auto_save_directory: str = ""
 
 
 @dataclass
@@ -87,15 +88,18 @@ class SettingsService:
 
     def load_ui_settings(self) -> UISettings:
         display_mode_name = self._settings.value("ui/display_mode", ProcessingMode.RAW.name)
-        last_directory = self._settings.value("ui/last_directory", "")
+        last_directory = self._settings.value("ui/last_directory", self.get_default_capture_directory())
+        auto_save_directory = self._settings.value("ui/auto_save_directory", self.get_default_capture_directory())
         return UISettings(
             display_mode=self._parse_processing_mode(display_mode_name),
             last_directory=str(last_directory or ""),
+            auto_save_directory=str(auto_save_directory or ""),
         )
 
     def save_ui_settings(self, ui_settings: UISettings):
         self._settings.setValue("ui/display_mode", ui_settings.display_mode.name)
         self._settings.setValue("ui/last_directory", self._normalize_directory(ui_settings.last_directory))
+        self._settings.setValue("ui/auto_save_directory", self._normalize_directory(ui_settings.auto_save_directory))
 
     def load_processing_settings(self) -> ProcessingSettings:
         defaults = ProcessingSettings()
@@ -129,14 +133,31 @@ class SettingsService:
             self._settings.sync()
 
     def get_last_directory(self) -> str:
-        directory = self._settings.value("ui/last_directory", "")
+        directory = self._settings.value("ui/last_directory", self.get_default_capture_directory())
         directory = self._normalize_directory(directory)
-        return directory or str(Path.home())
+        return directory or self.get_default_capture_directory()
 
     def set_last_directory(self, directory: str):
         normalized = self._normalize_directory(directory)
         if normalized:
             self._settings.setValue("ui/last_directory", normalized)
+            self._settings.sync()
+
+    def get_app_data_directory(self) -> str:
+        return str((Path.home() / "PolCam").expanduser())
+
+    def get_default_capture_directory(self) -> str:
+        return str((Path(self.get_app_data_directory()) / "capture").expanduser())
+
+    def get_auto_save_directory(self) -> str:
+        directory = self._settings.value("ui/auto_save_directory", self.get_default_capture_directory())
+        directory = self._normalize_directory(directory)
+        return directory or self.get_default_capture_directory()
+
+    def set_auto_save_directory(self, directory: str):
+        normalized = self._normalize_directory(directory)
+        if normalized:
+            self._settings.setValue("ui/auto_save_directory", normalized)
             self._settings.sync()
 
     def _parse_processing_mode(self, value: Any) -> ProcessingMode:

@@ -9,18 +9,20 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
-from typing import Optional, Tuple, Union, List
+from typing import Any, Optional, Tuple, Union, List
 from polcam.core.image_processor import ImageProcessor
 from .base_module import BaseModule
 from ..core.processing_module import ProcessingMode
 from ..core.events import Event, EventType
 from ..gui.settings_dialog import SettingsDialog
+from .raw_image_service import RawImageService
 
 class ToolbarController(BaseModule):
     def __init__(self, main_window):
         super().__init__("ToolbarController")
         self._main_window = main_window
         self._toolbar = main_window.toolbar
+        self._raw_image_service = RawImageService()
         
         # 缓存最近的图像和结果
         self._current_frame = None
@@ -95,7 +97,7 @@ class ToolbarController(BaseModule):
         if timestamp is None:
             timestamp = datetime.now()
         
-        if isinstance(timestamp, float):
+        if isinstance(timestamp, (int, float)):
             timestamp = datetime.fromtimestamp(timestamp)
             
         return timestamp.strftime("%Y%m%d_%H%M%S")
@@ -165,12 +167,12 @@ class ToolbarController(BaseModule):
         
         dialog = QtWidgets.QFileDialog(self._main_window)
         dialog.setWindowTitle(title)
-        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
         dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png)")
         dialog.selectNameFilter("TIFF files (*.tiff *.tif)")
         dialog.selectFile(os.path.join(default_directory, default_name))
         
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
             filename = dialog.selectedFiles()[0]
             self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
             # 分离基础名称和扩展名
@@ -197,11 +199,11 @@ class ToolbarController(BaseModule):
         default_directory = self._main_window.settings_service.get_last_directory()
         dialog = QtWidgets.QFileDialog(self._main_window)
         dialog.setWindowTitle(title)
-        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptOpen)
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
         dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png);;Raw files (*.raw *.bin);;All Files (*)")
         dialog.setDirectory(default_directory)
         
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
             filename = dialog.selectedFiles()[0]
             self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
             return filename, True
@@ -216,10 +218,29 @@ class ToolbarController(BaseModule):
         Returns:
             bool: 是否符合要求
         """
-        if len(data.shape) != 2:
-            return False
-        shape = data.shape
-        return shape[0] % 8 == 0 and shape[1] % 8 == 0
+        return self._raw_image_service.verify_image_size(data)
+
+    def save_raw_frame_to_path(self, frame: np.ndarray, file_path: str):
+        """将指定帧保存到目标文件。"""
+        self._raw_image_service.save_image(frame, file_path)
+
+    def load_raw_file(self, file_path: str, publish_event: bool = True) -> np.ndarray:
+        """读取原始图像文件，并按需发布加载事件。"""
+        raw_data = self._raw_image_service.load_image(file_path)
+
+        timestamp = datetime.now()
+        self.update_current_frame(raw_data, timestamp)
+        self.enable_save_raw(True)
+
+        if publish_event:
+            event_data = {
+                'frame': raw_data,
+                'timestamp': timestamp,
+                'filepath': file_path
+            }
+            self._event_manager.publish(Event(EventType.RAW_FILE_LOADED, event_data))
+
+        return raw_data
 
     def _save_image_set(self, images: List[np.ndarray], base_name: str, suffixes: List[str], 
                        save_dir: str, extension: str) -> bool:
@@ -269,7 +290,7 @@ class ToolbarController(BaseModule):
                 'docp': docp   # 原始圆偏振度数据
             }
             npy_filename = os.path.join(save_dir, f"{base_name}_POL.npy")
-            np.save(npy_filename, pol_data)
+            np.save(npy_filename, pol_data, allow_pickle=True)  # type: ignore[arg-type]
             self._logger.info(f"偏振数据已保存: {npy_filename}")
             return True
         except Exception as e:
@@ -290,7 +311,7 @@ class ToolbarController(BaseModule):
         if success:
             filename = f"{base_name}{ext}"
             try:
-                cv2.imwrite(filename, self._current_frame)
+                self.save_raw_frame_to_path(self._current_frame, filename)
                 self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
                 self._logger.info(f"原始图像已保存: {filename}")
                 # 添加保存成功对话框
@@ -424,30 +445,7 @@ class ToolbarController(BaseModule):
             return
             
         try:
-            # 读取原始图像文件
-            raw_data = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-            if raw_data is None:
-                raise ValueError("无法读取图像文件")
-            
-            # 验证图像尺寸
-            if not self._verify_image_size(raw_data):
-                raise ValueError("图像尺寸必须是8x8马赛克的整数倍")
-            
-            # 更新当前帧
-            timestamp = datetime.now()
-            self.update_current_frame(raw_data, timestamp)
-            self.enable_save_raw(True)
-            
-            # 创建事件数据
-            event_data = {
-                'frame': raw_data,
-                'timestamp': timestamp,
-                'filepath': file_path
-            }
-            
-            # 发布文件加载事件
-            self._event_manager.publish(Event(EventType.RAW_FILE_LOADED, event_data))
-            
+            self.load_raw_file(file_path)
         except Exception as e:
             self._logger.error(f"打开原始图像失败: {str(e)}")
             QtWidgets.QMessageBox.warning(
@@ -459,7 +457,7 @@ class ToolbarController(BaseModule):
     def _handle_settings(self):
         """处理设置事件"""
         dialog = SettingsDialog(self._main_window.build_current_settings(), self._main_window)
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
             self._main_window.apply_settings(dialog.get_settings())
             self._main_window.status_label.setText("设置已更新")
         else:

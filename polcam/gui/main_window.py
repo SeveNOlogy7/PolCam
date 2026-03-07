@@ -10,11 +10,13 @@ from ..core.camera_module import CameraModule, CameraType
 from ..core.events import EventType, Event, EventManager
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
+from .widgets.gallery_panel import GalleryPanel
 from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
 import logging
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
+from ..core.gallery_service import GalleryService
 import os
 from ..core.toolbar_controller import ToolbarController
 from .widgets.tool_bar import ToolBar
@@ -26,6 +28,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 设置日志记录器
         self._logger = logging.getLogger("polcam.gui.MainWindow")
         self.settings_service = SettingsService()
+        self.gallery_service = GalleryService()
         self._preferred_display_mode = ProcessingMode.RAW
         self._current_settings = AppSettings()
         
@@ -113,9 +116,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
         self.setCentralWidget(self.central_widget)
-        
-        layout = QtWidgets.QHBoxLayout(self.central_widget)
-        
+
+        root_layout = QtWidgets.QVBoxLayout(self.central_widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        root_layout.addWidget(self.main_splitter)
+
+        top_widget = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(top_widget)
+
         # 左侧控制面板
         self.camera_control = CameraControl()
         self.camera_control.setMinimumWidth(300)  # 设置最小宽度
@@ -130,6 +140,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # 设置布局的边距和控件之间的间距
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
+
+        self.gallery_panel = GalleryPanel()
+        self.gallery_panel.setMinimumHeight(180)
+
+        self.main_splitter.addWidget(top_widget)
+        self.main_splitter.addWidget(self.gallery_panel)
+        self.main_splitter.setStretchFactor(0, 5)
+        self.main_splitter.setStretchFactor(1, 2)
+        self.main_splitter.setSizes([580, 220])
         
         self.resize(1200, 800)
 
@@ -158,6 +177,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.pol_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
         self.camera_control.pol_control.wb_auto_changed.connect(self._handle_pol_wb_auto_changed)
         self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
+
+        self.gallery_panel.imageActivated.connect(self._handle_gallery_item_activated)
+        self.gallery_panel.deleteRequested.connect(self._handle_gallery_item_delete)
+        self.gallery_panel.refreshRequested.connect(self.refresh_gallery)
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -552,6 +575,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_auto_parameters()
             # 更新保存按钮状态
             self.toolbar_controller.enable_save_raw(not self._continuous_mode)
+            if not self._continuous_mode:
+                self._auto_save_captured_frame(frame, timestamp)
             # 更新帧和显示
             self._update_frame_and_display(frame, timestamp)
 
@@ -596,6 +621,98 @@ class MainWindow(QtWidgets.QMainWindow):
             self._logger.error(f"处理原始文件加载事件失败: {str(e)}")
             self.status_label.setText("加载图像失败")
 
+    def _build_capture_metadata(self, frame: np.ndarray, timestamp=None) -> dict:
+        """构建图库记录元数据。"""
+        metadata = {
+            'display_mode': self.image_display.get_current_processing_mode().name,
+            'camera_connected': self.camera.is_connected(),
+            'camera_type': self._camera_type.name if self._camera_type else '',
+            'timestamp': timestamp,
+        }
+
+        if frame is not None:
+            metadata['dtype'] = str(frame.dtype)
+            metadata['shape'] = list(frame.shape)
+
+        if self.camera.is_connected():
+            metadata['exposure_us'] = self.camera.get_exposure_time()
+            metadata['gain_db'] = self.camera.get_gain()
+            metadata['roi'] = list(self.camera.get_roi())
+            metadata['sensor_size'] = list(self.camera.get_sensor_size())
+
+        return metadata
+
+    def _auto_save_captured_frame(self, frame: np.ndarray, timestamp=None):
+        """自动保存单次采集图像并刷新图库。"""
+        try:
+            save_dir = self.settings_service.get_auto_save_directory()
+            metadata = self._build_capture_metadata(frame, timestamp)
+            self.gallery_service.save_capture(
+                frame=frame,
+                save_directory=save_dir,
+                timestamp=timestamp,
+                metadata=metadata,
+            )
+            self.refresh_gallery()
+        except Exception as e:
+            self._logger.error(f"自动保存采集图像失败: {str(e)}")
+            self.status_label.setText(f"自动保存失败: {str(e)}")
+
+    def refresh_gallery(self):
+        """刷新图库面板数据。"""
+        try:
+            self.gallery_panel.set_items(self.gallery_service.list_items())
+        except Exception as e:
+            self._logger.error(f"刷新图库失败: {str(e)}")
+            self.status_label.setText("刷新图库失败")
+
+    def _handle_gallery_item_activated(self, file_path: str):
+        """处理图库项读取请求。"""
+        try:
+            self.toolbar_controller.load_raw_file(file_path)
+        except Exception as e:
+            self._logger.error(f"读取图库图像失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, "读取失败", f"无法读取图库图像: {str(e)}")
+
+    def _handle_gallery_item_delete(self, item_ids: list[int]):
+        """处理图库项删除请求。"""
+        if not item_ids:
+            return
+
+        unique_ids = list(dict.fromkeys(item_ids))
+        items = []
+        for item_id in unique_ids:
+            try:
+                items.append(self.gallery_service.get_item(item_id))
+            except KeyError:
+                continue
+
+        if not items:
+            self.refresh_gallery()
+            return
+
+        preview_text = "\n".join(item.file_name for item in items[:5])
+        if len(items) > 5:
+            preview_text += f"\n... 其余 {len(items) - 5} 项"
+
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "删除图库图像",
+            f"确定要删除选中的 {len(items)} 项图像及数据库记录吗？\n\n{preview_text}",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            deleted_items = self.gallery_service.delete_items([item.id for item in items])
+            self.refresh_gallery()
+            self.status_label.setText(f"已删除 {len(deleted_items)} 项图像")
+        except Exception as e:
+            self._logger.error(f"删除图库图像失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, "删除失败", f"删除图库图像失败: {str(e)}")
+
     def _on_status_message_update(self, event: Event):
         """处理状态栏消息更新事件"""
         message = event.data.get('message', '')
@@ -618,6 +735,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """恢复持久化设置。"""
         settings = self.settings_service.load()
         self.apply_settings(settings, persist=False)
+        self.refresh_gallery()
 
         geometry = self.settings_service.load_window_geometry()
         if geometry is not None:
@@ -629,6 +747,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ui=UISettings(
                 display_mode=self.image_display.get_current_processing_mode(),
                 last_directory=self.settings_service.get_last_directory(),
+                auto_save_directory=self.settings_service.get_auto_save_directory(),
             ),
             processing=ProcessingSettings.from_params(self.processor.get_parameters()),
         )

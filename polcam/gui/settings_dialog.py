@@ -39,12 +39,23 @@ class SettingsDialog(QtWidgets.QDialog):
 
         dir_layout = QtWidgets.QHBoxLayout()
         self.directory_edit = QtWidgets.QLineEdit()
-        self.directory_edit.setPlaceholderText("未设置时将使用用户主目录")
+        self.directory_edit.setPlaceholderText("未设置时将使用用户目录/PolCam/capture")
         browse_button = QtWidgets.QPushButton("浏览...")
-        browse_button.clicked.connect(self._browse_directory)
+        browse_button.clicked.connect(lambda: self._browse_directory(self.directory_edit, "选择默认文件目录"))
         dir_layout.addWidget(self.directory_edit)
         dir_layout.addWidget(browse_button)
         app_form.addRow("默认文件目录", dir_layout)
+
+        auto_save_layout = QtWidgets.QHBoxLayout()
+        self.auto_save_directory_edit = QtWidgets.QLineEdit()
+        self.auto_save_directory_edit.setPlaceholderText("未设置时将使用用户目录/PolCam/capture")
+        auto_save_browse_button = QtWidgets.QPushButton("浏览...")
+        auto_save_browse_button.clicked.connect(
+            lambda: self._browse_directory(self.auto_save_directory_edit, "选择自动保存目录")
+        )
+        auto_save_layout.addWidget(self.auto_save_directory_edit)
+        auto_save_layout.addWidget(auto_save_browse_button)
+        app_form.addRow("自动保存目录", auto_save_layout)
 
         processing_group = QtWidgets.QGroupBox("处理参数")
         processing_form = QtWidgets.QFormLayout(processing_group)
@@ -105,6 +116,7 @@ class SettingsDialog(QtWidgets.QDialog):
         index = self.display_mode_combo.findData(ui_settings.display_mode)
         self.display_mode_combo.setCurrentIndex(index if index >= 0 else 0)
         self.directory_edit.setText(ui_settings.last_directory)
+        self.auto_save_directory_edit.setText(ui_settings.auto_save_directory)
 
         self.wb_auto_check.setChecked(processing_settings.wb_auto)
         self._set_combo_value(self.angle_combo, processing_settings.selected_angle)
@@ -118,19 +130,21 @@ class SettingsDialog(QtWidgets.QDialog):
     def _restore_defaults(self):
         self._load_settings(AppSettings())
 
-    def _browse_directory(self):
-        start_dir = self.directory_edit.text().strip() or str(Path.home())
-        selected = QtWidgets.QFileDialog.getExistingDirectory(self, "选择默认文件目录", start_dir)
+    def _browse_directory(self, target_edit: QtWidgets.QLineEdit, title: str):
+        start_dir = target_edit.text().strip() or str(Path.home() / "PolCam" / "capture")
+        selected = QtWidgets.QFileDialog.getExistingDirectory(self, title, start_dir)
         if selected:
-            self.directory_edit.setText(selected)
+            target_edit.setText(selected)
 
     def get_settings(self) -> AppSettings:
         display_mode = self.display_mode_combo.currentData(QtCore.Qt.ItemDataRole.UserRole)
         directory = self.directory_edit.text().strip()
+        auto_save_directory = self.auto_save_directory_edit.text().strip()
         return AppSettings(
             ui=UISettings(
                 display_mode=display_mode,
                 last_directory=directory,
+                auto_save_directory=auto_save_directory,
             ),
             processing=ProcessingSettings(
                 wb_auto=self.wb_auto_check.isChecked(),
