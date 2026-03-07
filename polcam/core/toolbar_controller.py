@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 Junhao Cai
+Copyright (c) 2024-2026 Junhao Cai
 See LICENSE file for full license details.
 """
 
@@ -471,7 +471,7 @@ class ToolbarController(BaseModule):
         <p>偏振相机采集和处理软件</p>
         <p>作者: Junhao Cai</p>
         <p>项目主页: <a href="https://github.com/SeveNOlogy7/PolCam">Github</a></p>
-        <p>Copyright © 2024</p>
+        <p>Copyright © 2024-2026</p>
         """
         QtWidgets.QMessageBox.about(self._main_window, "关于", about_text)
         self._main_window.status_label.setText("显示关于信息")

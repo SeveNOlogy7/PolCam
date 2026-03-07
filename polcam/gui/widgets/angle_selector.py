@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 Junhao Cai
+Copyright (c) 2024-2026 Junhao Cai
 See LICENSE file for full license details.
 
 角度选择控制组组件

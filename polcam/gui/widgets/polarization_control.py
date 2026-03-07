@@ -1,6 +1,6 @@
 """
 MIT License
-Copyright (c) 2024 Junhao Cai
+Copyright (c) 2024-2026 Junhao Cai
 See LICENSE file for full license details.
 
 偏振分析控制组组件
