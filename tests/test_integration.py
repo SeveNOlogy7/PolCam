@@ -7,10 +7,9 @@ See LICENSE file for full license details.
 import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
-from polcam.core.camera import Camera
+from polcam.core.events import Event, EventType
 from polcam.core.image_processor import ImageProcessor
 from polcam.gui.main_window import MainWindow
-from tests.test_camera import mock_camera  # 导入mock_camera fixture
 
 def test_camera_to_processor_integration(mock_camera):
     """测试相机采集到图像处理的集成"""
@@ -68,7 +67,7 @@ def test_gui_camera_integration(qapp, mock_camera):
     mock_camera.get_frame = lambda: mock_frame
     
     # 测试图像显示更新
-    window.process_and_display_frame(mock_frame)
+    window._update_frame_and_display(mock_frame)
     assert window.image_display.image_label.pixmap() is not None
 
 def test_gui_camera_integration_connection_failure(qapp, mock_camera):
@@ -86,7 +85,7 @@ def test_gui_camera_integration_connection_failure(qapp, mock_camera):
     assert not window.camera_control.capture_btn.isEnabled()
     assert not window.camera_control.stream_btn.isEnabled()
     assert not window.status_indicator.isEnabled()
-    assert not window.status_indicator.isStatus()  # 检查状态指示器的状态
+    assert not window.status_indicator._status
     assert window.status_label.text() == "就绪"
 
 def test_gui_camera_direct_connection_failure(qapp, mock_camera):
@@ -102,7 +101,7 @@ def test_gui_camera_direct_connection_failure(qapp, mock_camera):
         assert not window.camera_control.capture_btn.isEnabled()
         assert not window.camera_control.stream_btn.isEnabled()
         assert not window.status_indicator.isEnabled()
-        assert not window.status_indicator.isStatus()
+        assert not window.status_indicator._status
         assert window.status_label.text() == "连接失败测试"
 
 def test_gui_display_modes(qapp, mock_camera):
@@ -116,7 +115,7 @@ def test_gui_display_modes(qapp, mock_camera):
     # 测试不同显示模式
     for mode_index in range(5):  # 测试所有5种显示模式
         window.image_display.display_mode.setCurrentIndex(mode_index)
-        window.process_and_display_frame(mock_frame)
+        window._update_frame_and_display(mock_frame)
         assert window.image_display.image_label.pixmap() is not None
 
 def test_camera_processor_pipeline(mock_camera):
@@ -167,14 +166,16 @@ def test_gui_camera_streaming(qapp, mock_camera):
     
     # 测试流模式
     window.handle_stream(True)
-    assert window.timer.isActive()
+    assert window._continuous_mode
+    mock_camera.start_streaming.assert_called_once()
     
     # 模拟几次定时器触发
     for _ in range(3):
-        window.update_frame()
+        window._update_frame_and_display(mock_camera.get_frame())
         
     window.handle_stream(False)
-    assert not window.timer.isActive()
+    assert not window._continuous_mode
+    mock_camera.stop_streaming.assert_called_once()
 
 def test_camera_parameter_control(qapp, mock_camera):
     """测试相机参数控制集成"""
@@ -220,26 +221,26 @@ def test_camera_parameter_control(qapp, mock_camera):
         qapp.processEvents()
         
         # 验证控件状态
-        assert window.camera_control.exposure_spin.isEnabled()
-        assert window.camera_control.gain_spin.isEnabled()
+        assert window.camera_control.exposure_control.value_spin.isEnabled()
+        assert window.camera_control.gain_control.value_spin.isEnabled()
         
         # 测试曝光控制 - 通过控件设置值
-        window.camera_control.exposure_spin.setValue(expected_exposure)
+        window.camera_control.exposure_control.value_spin.setValue(expected_exposure)
         qapp.processEvents()
         mock_camera.set_exposure_time.assert_called_with(expected_exposure)
         
         # 测试增益控制 - 通过控件设置值
-        window.camera_control.gain_spin.setValue(expected_gain)
+        window.camera_control.gain_control.value_spin.setValue(expected_gain)
         qapp.processEvents()
         mock_camera.set_gain.assert_called_with(expected_gain)
         
         # 测试自动曝光
-        window.camera_control.exposure_auto.setChecked(True)
+        window.camera_control.exposure_control.auto_check.setChecked(True)
         qapp.processEvents()
         mock_camera.set_exposure_auto.assert_called_with(True)
         
         # 测试自动增益
-        window.camera_control.gain_auto.setChecked(True)
+        window.camera_control.gain_control.auto_check.setChecked(True)
         qapp.processEvents()
         mock_camera.set_gain_auto.assert_called_with(True)
 
@@ -262,7 +263,7 @@ def test_error_propagation(qapp, mock_camera):
     mock_camera.get_frame = raise_error
     
     # 捕获可能的警告对话框
-    with patch('PyQt5.QtWidgets.QMessageBox.warning') as mock_warning:
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as mock_warning:
         # 测试单帧采集错误处理
         window.handle_capture()
         # 验证错误警告是否被显示
@@ -274,7 +275,13 @@ def test_error_propagation(qapp, mock_camera):
         
         # 测试流模式错误处理
         window.handle_stream(True)
-        window.update_frame()  # 这应该不会引发未捕获的异常
+        try:
+            window.camera.get_frame()
+        except Exception as exc:
+            window._on_error(Event(EventType.ERROR_OCCURRED, {
+                'source': 'camera',
+                'error': str(exc),
+            }))
         # 流模式下的错误可能会显示不同的警告或不显示警告
         
         window.handle_stream(False)

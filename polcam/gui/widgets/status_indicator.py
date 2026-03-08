@@ -19,7 +19,7 @@ class StatusIndicator(QtWidgets.QWidget):
         if self._status != status:
             self._status = status
             self.update()
-            
+
     def setProcessing(self, processing: bool):
         """设置处理状态"""
         if self._processing != processing:

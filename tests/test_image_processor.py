@@ -85,19 +85,19 @@ def test_auto_white_balance(image_processor, sample_color_image):
     gray = np.zeros((100, 100), dtype=np.uint8)
     assert np.array_equal(image_processor.auto_white_balance(gray), gray)
 
-def test_apply_white_balance(image_processor, sample_color_image):
-    """测试应用已有白平衡参数"""
-    # 先执行自动白平衡以获取参数
-    _ = image_processor.auto_white_balance(sample_color_image)
-    
-    # 测试应用到新图像
-    balanced = image_processor.apply_white_balance(sample_color_image)
+def test_apply_wb_gains(image_processor, sample_color_image):
+    """测试应用已有白平衡增益"""
+    _, gains = image_processor.auto_white_balance(
+        sample_color_image,
+        return_gains=True,
+    )
+
+    balanced = image_processor.apply_wb_gains(sample_color_image, gains)
     assert balanced.shape == sample_color_image.shape
     assert balanced.dtype == np.uint8
-    
-    # 测试应用到灰度图像
+
     gray = cv2.cvtColor(sample_color_image, cv2.COLOR_BGR2GRAY)
-    assert np.array_equal(image_processor.apply_white_balance(gray), gray)
+    assert np.array_equal(image_processor.apply_wb_gains(gray, gains), gray)
 
 def test_calculate_polarization_parameters(image_processor, polarization_images):
     """测试偏振参数计算"""
@@ -146,9 +146,9 @@ def test_error_handling(image_processor):
     # 测试无效的数据类型
     with pytest.raises(TypeError):
         image_processor.auto_white_balance("invalid")
-        
+
     with pytest.raises(TypeError):
-        image_processor.apply_white_balance("invalid")
+        image_processor.apply_wb_gains("invalid", np.ones(3, dtype=np.float32))
 
 def test_brightness_adjustment(image_processor, sample_color_image):
     """测试亮度调节"""
@@ -233,17 +233,13 @@ def test_demosaic_polarization_minimum_size():
 
 def test_white_balance_gains(image_processor, sample_color_image):
     """测试白平衡增益系数"""
-    # 执行自动白平衡
-    _ = image_processor.auto_white_balance(sample_color_image)
-    
-    # 检查增益系数
-    assert hasattr(image_processor, '_wb_gains')
-    assert len(image_processor._wb_gains) == 3
-    assert all(gain > 0 for gain in image_processor._wb_gains)
-    
-    # 检查亮度系数
-    assert hasattr(image_processor, '_brightness_factor')
-    assert image_processor._brightness_factor > 0
+    _, gains = image_processor.auto_white_balance(
+        sample_color_image,
+        return_gains=True,
+    )
+
+    assert len(gains) == 3
+    assert all(gain > 0 for gain in gains)
 
 def test_calculate_polarization_parameters():
     """测试偏振参数计算 - 基本功能"""

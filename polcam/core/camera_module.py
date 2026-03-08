@@ -204,16 +204,22 @@ class CameraModule(BaseModule):
 
             self._device_indices.append(device_index)
             self._remote_feature = self._camera.get_remote_device_feature_control()
+            cached_params = self._last_params.copy()
 
             # 初始化相机参数
             self._init_camera_parameters()
+            self._last_params.update(cached_params)
+            self._restore_cached_parameters()
 
             # 设置连接状态
             self._connected = True
 
             # 获取实际设备信息
             device_info = device_list[device_index - 1] if device_list and len(device_list) >= device_index else {}
-            display_name = device_info.get('model_name', 'Unknown')
+            if isinstance(device_info, dict):
+                display_name = device_info.get('model_name', 'Unknown')
+            else:
+                display_name = str(device_info or 'Unknown')
 
             # 检测相机类型
             self._camera_type = self._detect_camera_type(display_name)
@@ -293,6 +299,7 @@ class CameraModule(BaseModule):
             
         try:
             # 发送串流开始事件
+            self.publish_event(EventType.PROCESSING_STARTED)
             self.publish_event(EventType.STREAMING_STARTED)
             # 确保事件被处理
             time.sleep(0.1)
@@ -340,6 +347,7 @@ class CameraModule(BaseModule):
             
             # 发送串流停止事件
             self.publish_event(EventType.STREAMING_STOPPED)
+            self.publish_event(EventType.PROCESSING_COMPLETED)
             
         except Exception as e:
             self._logger.error(f"停止图像采集失败: {str(e)}")
@@ -488,6 +496,14 @@ class CameraModule(BaseModule):
                 "error": str(e)
             })
 
+    def _restore_cached_parameters(self):
+        """将缓存参数恢复到当前相机会话。"""
+        if not self._remote_feature:
+            return
+
+        self.set_exposure_time(self._last_params['exposure'])
+        self.set_gain(self._last_params['gain'])
+
     def set_exposure_time(self, exposure: float):
         """设置曝光时间"""
         if not self._remote_feature:
@@ -521,7 +537,12 @@ class CameraModule(BaseModule):
                 "value": gain
             })
         except Exception as e:
-            self._logger.error(f"设置增益值失败: {str(e)}")
+            error_msg = f"设置增益值失败: {str(e)}"
+            self._logger.error(error_msg)
+            self.publish_event(EventType.ERROR_OCCURRED, {
+                "source": "camera",
+                "error": error_msg
+            })
 
     def set_exposure_auto(self, auto: bool):
         """设置自动曝光模式"""

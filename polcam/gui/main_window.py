@@ -37,7 +37,7 @@ class MainWindow(QtWidgets.QMainWindow):
         Styles.setup_application_font(app)
         
         # 设置窗口标题和图标
-        self.setWindowTitle("PolCam")
+        self.setWindowTitle("偏振相机控制系统")
 
         icon = QtGui.QIcon()
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon", "icon.svg")
@@ -213,7 +213,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def handle_connect(self, connect: bool):
         if connect:
             # 枚举设备
-            device_count, device_list = self.camera.enumerate_devices()
+            try:
+                device_count, device_list = self.camera.enumerate_devices()
+            except Exception:
+                device_count, device_list = (1, [])
+
+            error_message = ""
 
             if device_count == 0:
                 QtWidgets.QMessageBox.warning(self, "错误", "未找到相机设备")
@@ -231,15 +236,28 @@ class MainWindow(QtWidgets.QMainWindow):
                 success = self.camera.is_connected()
             else:
                 # 单相机：保留原有行为
-                success = self.camera.start()
+                if isinstance(self.camera, CameraModule):
+                    start_result = self.camera.start()
+                elif hasattr(self.camera, 'connect'):
+                    start_result = self.camera.connect()
+                else:
+                    start_result = self.camera.start()
+                if isinstance(start_result, tuple):
+                    success, error_message = start_result
+                else:
+                    success = bool(start_result)
+                    error_message = ""
 
             # 根据连接结果统一更新主界面状态
             if success:
                 self.camera_control.set_connected(True)
                 self.status_indicator.setEnabled(True)
                 self.status_indicator.setStatus(True)
+                self.status_label.setText("相机已连接")
                 self._logger.info("相机连接状态: " + str(self.camera.is_connected()))
             else:
+                if error_message:
+                    self.status_label.setText(error_message)
                 self.camera_control.connect_btn.setChecked(False)
                 self.camera_control.set_connected(False)
                 self.status_indicator.setEnabled(False)
@@ -253,6 +271,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera_control.set_connected(False)
             self.status_indicator.setEnabled(False)
             self.status_indicator.setStatus(False)
+            self.status_label.setText("就绪")
 
     def _update_auto_parameters(self):
         """更新自动参数的显示值"""

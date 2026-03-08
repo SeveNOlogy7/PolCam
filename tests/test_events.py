@@ -169,7 +169,13 @@ def test_event_types():
         'ERROR_OCCURRED',
         'DISPLAY_MODE_CHANGED',
         'PROCESSING_STARTED',
-        'PROCESSING_COMPLETED'
+        'PROCESSING_COMPLETED',
+        'STREAMING_STARTED',
+        'STREAMING_STOPPED',
+        'RAW_FILE_LOADED',
+        'STATUS_MESSAGE_UPDATE',
+        'STATUS_MESSAGE_CLEAR',
+        'ROI_CHANGED',
     }
     
     actual_types = {e.name for e in EventType}

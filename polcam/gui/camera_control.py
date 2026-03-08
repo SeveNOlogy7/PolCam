@@ -77,7 +77,7 @@ class CameraControl(QtWidgets.QWidget):
         # 应用样式
         for btn in [self.connect_btn, self.capture_btn, self.stream_btn]:
             Styles.apply_button_style(btn)
-            
+
     def setup_connections(self):
         # 设置参数范围
         self.exposure_control.set_range(20.0, 1000000.0)  # 20us - 1s

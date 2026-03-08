@@ -176,6 +176,9 @@ class ImageProcessor:
             如果return_gains为False，返回处理后的图像
             如果return_gains为True，返回元组(处理后的图像, 白平衡增益值)
         """
+        if not isinstance(image, np.ndarray):
+            raise TypeError("输入必须是numpy数组类型")
+
         if len(image.shape) != 3:
             return (image, np.ones(3)) if return_gains else image
             
@@ -185,23 +188,25 @@ class ImageProcessor:
         g_avg = np.mean(g)
         r_avg = np.mean(r)
         
+        mean_intensity = float(np.mean(image))
+        target_intensity = 128.0
+        brightness_gain = target_intensity / mean_intensity if mean_intensity > 0 else 1.0
+
         # 计算增益值，以绿色通道为基准
         if g_avg == 0:
-            gains = np.ones(3)
+            gains = np.ones(3, dtype=np.float32)
         else:
             b_gain = g_avg / b_avg if b_avg > 0 else 1.0
             r_gain = g_avg / r_avg if r_avg > 0 else 1.0
-            gains = np.array([b_gain, 1.0, r_gain])
+            gains = np.array([b_gain, 1.0, r_gain], dtype=np.float32)
             
         # 限制增益范围
-        gains = np.clip(gains, 0.1, 3.0)
+        gains = np.clip(gains * brightness_gain, 0.1, 3.0)
+        gains = gains.astype(np.float32)
         
-        # 保存现有的处理结果
-        result = image.copy()
-        for i in range(3):  # BGR
-            result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
-            
-        return (result, gains) if return_gains else result
+        result = self.apply_wb_gains(image, gains)
+
+        return (result, gains.copy()) if return_gains else result
 
     def enhance_image(self, image: np.ndarray, 
                      brightness: float = 1.0,
@@ -266,10 +271,14 @@ class ImageProcessor:
         Returns:
             np.ndarray: 白平衡后的图像
         """
+        if not isinstance(image, np.ndarray):
+            raise TypeError("输入必须是numpy数组类型")
+
         if len(image.shape) != 3:
             return image
             
-        result = image.copy()
+        float_image = image.astype(np.float32)
+        result = float_image.copy()
         for i in range(3):  # BGR
-            result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
-        return result
+            result[:, :, i] = result[:, :, i] * float(gains[i])
+        return np.clip(result, 0, 255).astype(np.uint8)

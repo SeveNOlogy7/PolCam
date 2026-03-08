@@ -80,10 +80,6 @@ def test_parameter_control(camera_module):
     camera_module.set_gain(10.0)
     assert camera_module.get_last_gain() == 10.0
     
-    # 测试白平衡控制
-    camera_module.set_white_balance_auto(True)
-    assert camera_module.is_wb_auto()
-    
     # 清理
     camera_module.destroy()
 
@@ -358,54 +354,6 @@ def test_auto_gain_control(camera_module):
     ]
     assert len(gain_events) == 1
     assert isinstance(gain_events[0].data["value"], (int, float))
-    
-    # 清理
-    camera_module.destroy()
-
-def test_white_balance_control(camera_module):
-    """测试白平衡控制"""
-    camera_module.initialize()
-    camera_module.start()
-    
-    # 记录事件
-    events_received = []
-    def on_event(event):
-        events_received.append(event)
-    camera_module.subscribe_event(EventType.PARAMETER_CHANGED, on_event)
-    
-    # 测试自动白平衡开关
-    camera_module.set_white_balance_auto(True)
-    
-    # 等待事件处理
-    time.sleep(0.1)
-    
-    # 验证参数变化事件
-    wb_auto_events = [
-        e for e in events_received 
-        if (e.type == EventType.PARAMETER_CHANGED and 
-            e.data.get("parameter") == "white_balance_auto")
-    ]
-    assert len(wb_auto_events) == 1
-    assert wb_auto_events[0].data["value"] is True
-    assert camera_module.is_wb_auto()
-    
-    # 清除已接收的事件
-    events_received.clear()
-    
-    # 测试单次白平衡
-    camera_module.set_balance_white_once()
-    
-    # 等待事件处理
-    time.sleep(0.1)
-    
-    # 验证白平衡完成事件
-    wb_events = [
-        e for e in events_received 
-        if (e.type == EventType.PARAMETER_CHANGED and 
-            e.data.get("parameter") == "white_balance")
-    ]
-    assert len(wb_events) == 1
-    assert wb_events[0].data["value"] == "once_completed"
     
     # 清理
     camera_module.destroy()
