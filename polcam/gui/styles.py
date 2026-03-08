@@ -34,6 +34,17 @@ class Styles:
     IMAGE_TITLE_Y_OFFSET = 70       # 标题Y轴偏移
     IMAGE_TITLE_X_OFFSET = 20       # 标题X轴偏移
     IMAGE_TITLE_REFERENCE_HEIGHT = 2048  # 上述基准值对应的子图高度
+    QUAD_TITLE_OVERLAY_FONT_SIZE = 11
+    QUAD_TITLE_OVERLAY_X_OFFSET = 8
+    QUAD_TITLE_OVERLAY_Y_OFFSET = 6
+    QUAD_TITLE_OVERLAY_STYLE = (
+        "QLabel {"
+        "color: white;"
+        "background-color: rgba(0, 0, 0, 128);"
+        "padding: 2px 6px;"
+        "border-radius: 3px;"
+        "}"
+    )
     
     @classmethod
     def get_font(cls, size: int) -> QFont:

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Optional, Tuple, Union, List
 from polcam.core.image_processor import ImageProcessor
 from .base_module import BaseModule
+from .image_plotter import ImagePlotter
 from ..core.processing_module import ProcessingMode
 from ..core.events import Event, EventType
 from ..gui.settings_dialog import SettingsDialog
@@ -269,6 +270,46 @@ class ToolbarController(BaseModule):
                 success = False
         return success
 
+    def _save_single_image(self, image: np.ndarray, base_name: str,
+                           suffix: str, save_dir: str, extension: str) -> bool:
+        """保存单张图像。"""
+        filename = os.path.join(save_dir, f"{base_name}_{suffix}{extension}")
+        try:
+            cv2.imwrite(filename, image)
+            self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
+            self._logger.info(f"图像已保存: {filename}")
+            return True
+        except Exception as e:
+            self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
+            self._logger.error(f"保存图像失败 {suffix}: {str(e)}")
+            return False
+
+    def _build_quad_composite_export(self) -> Optional[Tuple[np.ndarray, str]]:
+        """为四分图模式构建带标题的合成图。"""
+        if self._last_result is None:
+            return None
+
+        if self._last_result.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
+            images = self._last_result.images
+            titles = ['0 deg', '45 deg', '90 deg', '135 deg']
+            suffix = 'QUAD_COMPOSITE'
+        elif self._last_result.mode == ProcessingMode.POLARIZATION:
+            merged = self._last_result.images[0]
+            dolp = self._last_result.images[1]
+            aolp = self._last_result.images[2]
+            docp = self._last_result.images[3]
+            dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
+                dolp, aolp, docp
+            )
+            images = [merged, dolp_colored, aolp_colored, docp_colored]
+            titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
+            suffix = 'POLARIZATION_QUAD_COMPOSITE'
+        else:
+            return None
+
+        composite, _, _ = ImagePlotter.create_quad_canvas(images, titles, draw_titles=True)
+        return composite, suffix
+
     def _save_polarization_data(self, dolp: np.ndarray, aolp: np.ndarray, docp: np.ndarray, 
                                save_dir: str, base_name: str) -> bool:
         """保存原始偏振数据
@@ -380,6 +421,17 @@ class ToolbarController(BaseModule):
                     save_dir=save_dir,
                     extension=ext
                 )
+
+                composite_export = self._build_quad_composite_export()
+                if composite_export is not None:
+                    composite_image, composite_suffix = composite_export
+                    success = self._save_single_image(
+                        composite_image,
+                        base_name,
+                        composite_suffix,
+                        save_dir,
+                        ext,
+                    ) and success
                 
                 # 更新总体保存状态
                 success = success and save_npy_success
@@ -399,6 +451,17 @@ class ToolbarController(BaseModule):
                     save_dir,
                     ext
                 )
+
+                composite_export = self._build_quad_composite_export()
+                if composite_export is not None:
+                    composite_image, composite_suffix = composite_export
+                    success = self._save_single_image(
+                        composite_image,
+                        base_name,
+                        composite_suffix,
+                        save_dir,
+                        ext,
+                    ) and success
 
             else:
                 # 其他模式

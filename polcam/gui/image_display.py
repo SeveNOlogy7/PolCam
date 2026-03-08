@@ -64,6 +64,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self.quad_size = None         # 四分图单区域尺寸
         self._display_content_kind = 'single'  # 'single' | 'quad' | 'polarization'
         self._quad_titles = []
+        self._quad_title_labels = []
         self._quad_gray_mode = False
         self.cursor_enabled = False   # 游标模式启用状态
         self.cursor_info = None       # 游标信息
@@ -97,6 +98,7 @@ class ImageDisplay(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding
         )
+        self._create_quad_title_labels()
         
         # 显示模式选择
         self.display_mode = QtWidgets.QComboBox()
@@ -133,6 +135,63 @@ class ImageDisplay(QtWidgets.QWidget):
         
         # 初始化工具栏控制器（移到最后）
         self.toolbar_controller.initialize()
+
+    def _create_quad_title_labels(self):
+        """创建四分图标题覆盖控件。"""
+        self._quad_title_labels = []
+        for _ in range(4):
+            label = QtWidgets.QLabel(self.image_label)
+            label.setFont(Styles.get_font(Styles.QUAD_TITLE_OVERLAY_FONT_SIZE))
+            label.setStyleSheet(Styles.QUAD_TITLE_OVERLAY_STYLE)
+            label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+            label.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+            label.hide()
+            self._quad_title_labels.append(label)
+
+    def _hide_quad_title_labels(self):
+        """隐藏四分图标题覆盖控件。"""
+        for label in self._quad_title_labels:
+            label.hide()
+
+    def _update_quad_title_labels(self, canvas: Optional[np.ndarray] = None):
+        """根据当前显示几何更新四分图标题覆盖控件。"""
+        has_quad_titles = (
+            self.is_quad_view_mode()
+            and len(self._quad_titles) == 4
+            and len(self._quad_title_labels) == 4
+            and bool(self.quad_positions)
+            and self.quad_size is not None
+        )
+        if not has_quad_titles:
+            self._hide_quad_title_labels()
+            return
+
+        geom = self._get_display_geometry()
+        if geom is None:
+            self._hide_quad_title_labels()
+            return
+
+        if canvas is None:
+            canvas = self._compose_current_view_canvas()
+            if canvas is None:
+                self._hide_quad_title_labels()
+                return
+
+        x_offset, y_offset, display_width, display_height = geom
+        canvas_h, canvas_w = canvas.shape[:2]
+
+        for label, title, (quad_y, quad_x) in zip(self._quad_title_labels, self._quad_titles, self.quad_positions):
+            label.setText(title)
+            label.adjustSize()
+
+            left = int(quad_x * display_width / canvas_w + x_offset)
+            top = int(quad_y * display_height / canvas_h + y_offset)
+            label.move(
+                left + Styles.QUAD_TITLE_OVERLAY_X_OFFSET,
+                top + Styles.QUAD_TITLE_OVERLAY_Y_OFFSET,
+            )
+            label.show()
+            label.raise_()
         
     def enable_display_controls(self, enabled: bool):
         """启用或禁用显示控件
@@ -377,6 +436,7 @@ class ImageDisplay(QtWidgets.QWidget):
             canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
                 images,
                 self._quad_titles,
+                draw_titles=False,
             )
             return canvas
 
@@ -393,6 +453,7 @@ class ImageDisplay(QtWidgets.QWidget):
         """渲染已经组装完成的显示画布。"""
         if canvas is not None:
             self._show_canvas(canvas)
+            self._update_quad_title_labels(canvas)
 
     def _render_current_view(self):
         """渲染当前软件视图。"""
@@ -508,7 +569,11 @@ class ImageDisplay(QtWidgets.QWidget):
             images = [self.to_grayscale(img) for img in images]
             images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
                 
-        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, self._quad_titles)
+        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
+            images,
+            self._quad_titles,
+            draw_titles=False,
+        )
         
         # 更新画布缓存
         self._current_canvas = canvas.copy()
@@ -532,7 +597,11 @@ class ImageDisplay(QtWidgets.QWidget):
             
         images = [image, dolp_colored, aolp_colored, docp_colored]
         
-        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, self._quad_titles)
+        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
+            images,
+            self._quad_titles,
+            draw_titles=False,
+        )
         
         # 更新画布缓存
         self._current_canvas = canvas.copy()

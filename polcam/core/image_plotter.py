@@ -15,6 +15,30 @@ from ..gui.styles import Styles
 
 class ImagePlotter:
     """图像绘制工具类，负责所有的图像绘制操作"""
+
+    @staticmethod
+    def draw_quad_titles(canvas: np.ndarray,
+                         titles: List[str],
+                         quad_positions: List[Tuple[int, int]],
+                         quad_size: Tuple[int, int]) -> np.ndarray:
+        """在四分图画布上绘制标题。"""
+        h, _ = quad_size
+
+        scale = h / Styles.IMAGE_TITLE_REFERENCE_HEIGHT
+        font_scale = Styles.IMAGE_TITLE_FONT_SCALE * scale
+        thickness = max(1, round(Styles.IMAGE_TITLE_THICKNESS * scale))
+        y_offset = max(15, round(Styles.IMAGE_TITLE_Y_OFFSET * scale))
+        x_offset = max(5, round(Styles.IMAGE_TITLE_X_OFFSET * scale))
+
+        for (y, x), title in zip(quad_positions, titles):
+            cv2.putText(canvas, title,
+                       (x + x_offset, y + y_offset),
+                       cv2.FONT_HERSHEY_SIMPLEX,
+                       font_scale,
+                       Styles.IMAGE_TITLE_COLOR,
+                       thickness)
+
+        return canvas
     
     @staticmethod
     def draw_quad_cursors(canvas: np.ndarray, 
@@ -112,8 +136,9 @@ class ImagePlotter:
         return canvas
 
     @staticmethod
-    def create_quad_canvas(images: List[np.ndarray], 
-                          titles: List[str]) -> Tuple[np.ndarray, List[Tuple[int, int]], Tuple[int, int]]:
+    def create_quad_canvas(images: List[np.ndarray],
+                          titles: List[str],
+                          draw_titles: bool = True) -> Tuple[np.ndarray, List[Tuple[int, int]], Tuple[int, int]]:
         """创建四分图画布"""
         if len(images) != 4 or len(titles) != 4:
             raise ValueError("必须提供4张图像和4个标题")
@@ -132,22 +157,11 @@ class ImagePlotter:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             processed_images.append(img)
         
-        # 绘制图像和标题
-        # 根据子图高度缩放字体参数，使标题在屏幕上的视觉大小保持一致
-        scale = h / Styles.IMAGE_TITLE_REFERENCE_HEIGHT
-        font_scale = Styles.IMAGE_TITLE_FONT_SCALE * scale
-        thickness = max(1, round(Styles.IMAGE_TITLE_THICKNESS * scale))
-        y_offset = max(15, round(Styles.IMAGE_TITLE_Y_OFFSET * scale))
-        x_offset = max(5, round(Styles.IMAGE_TITLE_X_OFFSET * scale))
-
         for img, (y, x), title in zip(processed_images, quad_positions, titles):
             canvas[y:y+h, x:x+w] = img
-            cv2.putText(canvas, title,
-                       (x + x_offset, y + y_offset),
-                       cv2.FONT_HERSHEY_SIMPLEX,
-                       font_scale,
-                       Styles.IMAGE_TITLE_COLOR,
-                       thickness)
+
+        if draw_titles:
+            ImagePlotter.draw_quad_titles(canvas, titles, quad_positions, quad_size)
         
         return canvas, quad_positions, quad_size
 

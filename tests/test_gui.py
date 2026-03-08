@@ -6,14 +6,36 @@ See LICENSE file for full license details.
 
 import pytest
 from qtpy.QtCore import Qt, QSize
+from qtpy import QtWidgets
 from qtpy.QtWidgets import QApplication
 from unittest.mock import MagicMock, patch
 from polcam.gui.main_window import MainWindow
 from polcam.gui.camera_control import CameraControl
 from polcam.gui.image_display import ImageDisplay
+from polcam.gui.widgets.tool_bar import ToolBar
 from polcam.gui.styles import Styles
-from polcam.core.processing_module import ProcessingMode
+from polcam.core.processing_module import ProcessingMode, ProcessingResult
+from polcam.core.toolbar_controller import ToolbarController
 import numpy as np
+
+
+class DummySettingsService:
+    def __init__(self, directory: str):
+        self.directory = directory
+
+    def get_last_directory(self):
+        return self.directory
+
+    def set_last_directory(self, directory: str):
+        self.directory = directory
+
+
+class DummyMainWindow(QtWidgets.QMainWindow):
+    def __init__(self, directory: str):
+        super().__init__()
+        self.toolbar = ToolBar(self)
+        self.settings_service = DummySettingsService(directory)
+        self.status_label = QtWidgets.QLabel("就绪")
 
 @pytest.fixture
 def main_window(qapp):
@@ -297,6 +319,119 @@ def test_image_display_resize_does_not_crash_with_single_image_in_quad_mode(qapp
     assert display.image_label.pixmap() is not None
     assert display.quad_size is None
     assert display.quad_positions == []
+
+
+def test_image_display_quad_title_overlays_follow_quad_layout(qapp):
+    display = ImageDisplay()
+    images = [np.zeros((80, 80, 3), dtype=np.uint8) for _ in range(4)]
+
+    display.resize(800, 600)
+    display.show()
+    qapp.processEvents()
+
+    display.set_processing_mode(ProcessingMode.QUAD_COLOR)
+    display.show_quad_view(images)
+    qapp.processEvents()
+
+    visible_labels = [label for label in display._quad_title_labels if label.isVisible()]
+    assert [label.text() for label in visible_labels] == ['0 deg', '45 deg', '90 deg', '135 deg']
+
+    top_left = display._quad_title_labels[0].pos()
+    top_right = display._quad_title_labels[1].pos()
+    bottom_left = display._quad_title_labels[2].pos()
+    assert top_right.x() > top_left.x()
+    assert bottom_left.y() > top_left.y()
+
+    display.show_image(images[0])
+    qapp.processEvents()
+
+    assert not any(label.isVisible() for label in display._quad_title_labels)
+
+
+def test_toolbar_controller_exports_quad_composite_with_titles(qapp, tmp_path):
+    main_window = DummyMainWindow(str(tmp_path))
+    controller = ToolbarController(main_window)
+    controller.initialize()
+
+    images = [np.full((16, 16, 3), fill_value=index * 20, dtype=np.uint8) for index in range(4)]
+    controller.update_last_result(
+        ProcessingResult(
+            mode=ProcessingMode.QUAD_COLOR,
+            images=images,
+            metadata={'wb_enabled': False},
+            timestamp=0.0,
+        )
+    )
+
+    saved_files = []
+
+    def fake_imwrite(filename, image):
+        saved_files.append((filename, image.shape))
+        return True
+
+    with patch.object(controller, '_get_save_filename', return_value=(str(tmp_path / 'result'), '.png', True)), \
+         patch('polcam.core.toolbar_controller.cv2.imwrite', side_effect=fake_imwrite), \
+         patch('polcam.core.toolbar_controller.QtWidgets.QMessageBox.information'):
+        controller._handle_save_result()
+
+    file_names = [str(path) for path, _ in saved_files]
+    assert any(name.endswith('result_COLOR_0.png') for name in file_names)
+    assert any(name.endswith('result_COLOR_45.png') for name in file_names)
+    assert any(name.endswith('result_COLOR_90.png') for name in file_names)
+    assert any(name.endswith('result_COLOR_135.png') for name in file_names)
+    assert any(name.endswith('result_COLOR_QUAD_COMPOSITE.png') for name in file_names)
+
+    composite_shapes = [shape for path, shape in saved_files if str(path).endswith('result_COLOR_QUAD_COMPOSITE.png')]
+    assert composite_shapes == [(32, 32, 3)]
+
+
+def test_toolbar_controller_exports_polarization_composite_with_titles(qapp, tmp_path):
+    main_window = DummyMainWindow(str(tmp_path))
+    controller = ToolbarController(main_window)
+    controller.initialize()
+
+    merged = np.full((16, 16, 3), fill_value=64, dtype=np.uint8)
+    dolp = np.full((16, 16), fill_value=32, dtype=np.uint8)
+    aolp = np.full((16, 16), fill_value=96, dtype=np.uint8)
+    docp = np.full((16, 16), fill_value=128, dtype=np.uint8)
+    controller.update_last_result(
+        ProcessingResult(
+            mode=ProcessingMode.POLARIZATION,
+            images=[merged, dolp, aolp, docp],
+            metadata={'is_color': False, 'pol_wb_enabled': False},
+            timestamp=0.0,
+        )
+    )
+
+    saved_files = []
+    saved_arrays = []
+
+    def fake_imwrite(filename, image):
+        saved_files.append((filename, image.shape))
+        return True
+
+    def fake_save(filename, data, allow_pickle=True):
+        saved_arrays.append((filename, sorted(data.keys()), allow_pickle))
+
+    with patch.object(controller, '_get_save_filename', return_value=(str(tmp_path / 'pol_result'), '.png', True)), \
+         patch('polcam.core.toolbar_controller.cv2.imwrite', side_effect=fake_imwrite), \
+         patch('polcam.core.toolbar_controller.np.save', side_effect=fake_save), \
+         patch('polcam.core.toolbar_controller.QtWidgets.QMessageBox.information'):
+        controller._handle_save_result()
+
+    file_names = [str(path) for path, _ in saved_files]
+    assert any(name.endswith('pol_result_MERGED_GRAY.png') for name in file_names)
+    assert any(name.endswith('pol_result_DOLP.png') for name in file_names)
+    assert any(name.endswith('pol_result_AOLP.png') for name in file_names)
+    assert any(name.endswith('pol_result_DOCP.png') for name in file_names)
+    assert any(name.endswith('pol_result_POLARIZATION_QUAD_COMPOSITE.png') for name in file_names)
+
+    composite_shapes = [shape for path, shape in saved_files if str(path).endswith('pol_result_POLARIZATION_QUAD_COMPOSITE.png')]
+    assert composite_shapes == [(32, 32, 3)]
+
+    assert saved_arrays == [
+        (str(tmp_path / 'pol_result_POL.npy'), ['aolp', 'docp', 'dolp'], True)
+    ]
 
 def test_image_toolbar_controller_uses_software_zoom_for_static_image(qapp):
     """测试非连续采集时工具栏缩放走显示层软件缩放而非相机 ROI。"""
