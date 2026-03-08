@@ -57,6 +57,10 @@ class SettingsDialog(QtWidgets.QDialog):
         auto_save_layout.addWidget(auto_save_browse_button)
         app_form.addRow("自动保存目录", auto_save_layout)
 
+        self.max_zoom_spin = self._create_double_spinbox(1.0, 10000.0, 10.0)
+        self.max_zoom_spin.setDecimals(1)
+        app_form.addRow("最大放大倍率", self.max_zoom_spin)
+
         processing_group = QtWidgets.QGroupBox("处理参数")
         processing_form = QtWidgets.QFormLayout(processing_group)
 
@@ -117,6 +121,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self.display_mode_combo.setCurrentIndex(index if index >= 0 else 0)
         self.directory_edit.setText(ui_settings.last_directory)
         self.auto_save_directory_edit.setText(ui_settings.auto_save_directory)
+        self.max_zoom_spin.setValue(ui_settings.max_zoom)
 
         self.wb_auto_check.setChecked(processing_settings.wb_auto)
         self._set_combo_value(self.angle_combo, processing_settings.selected_angle)
@@ -145,6 +150,7 @@ class SettingsDialog(QtWidgets.QDialog):
                 display_mode=display_mode,
                 last_directory=directory,
                 auto_save_directory=auto_save_directory,
+                max_zoom=self.max_zoom_spin.value(),
             ),
             processing=ProcessingSettings(
                 wb_auto=self.wb_auto_check.isChecked(),

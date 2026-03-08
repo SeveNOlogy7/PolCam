@@ -56,14 +56,21 @@ class ImageDisplay(QtWidgets.QWidget):
         super().__init__()
         # 先初始化基本属性
         self.current_images = []      # 原始图像缓存列表
-        self._current_canvas = None   # 当前显示画布缓存
+        self._current_canvas = None   # 当前显示源画布缓存（完整画布）
         self.image_rect = None        # 图像在标签中的实际显示区域
         self.scale_factor = 1.0       # 图像缩放因子
         self.image_mode = None        # 当前显示模式
         self.quad_positions = []      # 四分图的四个区域位置
+        self.quad_size = None         # 四分图单区域尺寸
+        self._display_content_kind = 'single'  # 'single' | 'quad' | 'polarization'
+        self._quad_titles = []
+        self._quad_gray_mode = False
         self.cursor_enabled = False   # 游标模式启用状态
         self.cursor_info = None       # 游标信息
         self._active_modes = list(COLOR_MODES)  # 当前可用模式列表
+        self._software_view_roi = None         # 当前软件视图窗口: (x, y, width, height)
+        self._zoom_coordinate_space = 'hardware'  # 'hardware' | 'canvas'
+        self._max_zoom = 1000.0
         # 缩放交互相关
         self._interaction_mode = 'none'     # 'none' | 'cursor' | 'zoom_in' | 'zoom_out' | 'zoom_area'
         self._rubber_band = None            # QRubberBand 选区
@@ -201,6 +208,8 @@ class ImageDisplay(QtWidgets.QWidget):
         try:
             if image is None:
                 return
+
+            image = np.ascontiguousarray(image)
                 
             # 转换为QImage
             if len(image.shape) == 2:
@@ -248,6 +257,216 @@ class ImageDisplay(QtWidgets.QWidget):
         except Exception as e:
             print(f"图像显示错误: {e}")
 
+    def has_display_image(self) -> bool:
+        """当前是否有可用于显示或软件缩放的图像。"""
+        return bool(self.current_images) or (
+            isinstance(self._current_canvas, np.ndarray) and self._current_canvas.size > 0
+        )
+
+    def set_zoom_coordinate_space(self, coordinate_space: str):
+        """设置缩放交互的坐标空间。"""
+        if coordinate_space not in ('hardware', 'canvas'):
+            raise ValueError(f"Unsupported coordinate space: {coordinate_space}")
+        self._zoom_coordinate_space = coordinate_space
+
+    def set_max_zoom(self, max_zoom: float):
+        """设置软件缩放允许的最大放大倍率。"""
+        self._max_zoom = max(1.0, float(max_zoom))
+
+    def get_max_zoom(self) -> float:
+        """获取当前软件缩放最大放大倍率。"""
+        return self._max_zoom
+
+    def _constrain_view_size_to_max_zoom(self, width: int, height: int) -> Tuple[int, int]:
+        """根据最大放大倍率限制当前视图窗口尺寸。"""
+        full_roi = self._get_full_view_roi()
+        if full_roi is None:
+            return (width, height)
+
+        _, _, full_w, full_h = full_roi
+        min_area = (full_w * full_h) / self._max_zoom
+        if width > 0 and height > 0 and width * height < min_area:
+            scale = (min_area / (width * height)) ** 0.5
+            width = int(width * scale)
+            height = int(height * scale)
+
+        width = max(1, min(width, full_w))
+        height = max(1, min(height, full_h))
+        return (width, height)
+
+    def _get_full_view_roi(self) -> Optional[Tuple[int, int, int, int]]:
+        """返回完整源画布对应的视图窗口。"""
+        if not self.has_display_image():
+            return None
+
+        if self.is_quad_view_mode() and self.current_images:
+            source_h, source_w = self.current_images[0].shape[:2]
+            return (0, 0, source_w, source_h)
+
+        canvas_h, canvas_w = self._current_canvas.shape[:2]
+        return (0, 0, canvas_w, canvas_h)
+
+    def _get_current_view_roi(self) -> Optional[Tuple[int, int, int, int]]:
+        """返回当前软件缩放视图窗口。"""
+        full_roi = self._get_full_view_roi()
+        if full_roi is None:
+            return None
+
+        if self._software_view_roi is None:
+            return full_roi
+
+        full_x, full_y, full_w, full_h = full_roi
+        view_x, view_y, view_w, view_h = self._software_view_roi
+
+        view_w = max(1, min(view_w, full_w))
+        view_h = max(1, min(view_h, full_h))
+        view_x = max(full_x, min(view_x, full_w - view_w))
+        view_y = max(full_y, min(view_y, full_h - view_h))
+        return (view_x, view_y, view_w, view_h)
+
+    def is_software_zoom_active(self) -> bool:
+        """当前软件视图是否已缩放到完整画布之外。"""
+        full_roi = self._get_full_view_roi()
+        view_roi = self._get_current_view_roi()
+        return full_roi is not None and view_roi is not None and view_roi != full_roi
+
+    def get_software_zoom_ratio(self) -> float:
+        """返回当前软件缩放倍率。"""
+        full_roi = self._get_full_view_roi()
+        view_roi = self._get_current_view_roi()
+        if full_roi is None or view_roi is None or view_roi[2] <= 0 or view_roi[3] <= 0:
+            return 1.0
+
+        return (full_roi[2] * full_roi[3]) / (view_roi[2] * view_roi[3])
+
+    def _crop_to_current_view(self, image: np.ndarray) -> np.ndarray:
+        """根据当前软件视图窗口裁切单张源图像。"""
+        view_roi = self._get_current_view_roi()
+        if view_roi is None:
+            return image
+
+        view_x, view_y, view_w, view_h = view_roi
+        return np.ascontiguousarray(image[view_y:view_y + view_h, view_x:view_x + view_w])
+
+    def _compose_current_view_canvas(self) -> Optional[np.ndarray]:
+        """按当前视图窗口生成实际显示画布。"""
+        if not self.has_display_image():
+            return None
+
+        has_valid_quad_source = (
+            self.is_quad_view_mode()
+            and len(self.current_images) == 4
+            and len(self._quad_titles) == 4
+        )
+
+        if has_valid_quad_source:
+            cropped_images = [self._crop_to_current_view(image) for image in self.current_images]
+
+            if self._display_content_kind == 'polarization' and len(cropped_images) == 4:
+                image, dolp, aolp, docp = cropped_images
+                dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
+                    dolp, aolp, docp
+                )
+                images = [image, dolp_colored, aolp_colored, docp_colored]
+            else:
+                images = cropped_images
+                if self._quad_gray_mode:
+                    images = [self.to_grayscale(img) for img in images]
+                    images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
+
+            canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
+                images,
+                self._quad_titles,
+            )
+            return canvas
+
+        if self.is_quad_view_mode():
+            self.quad_positions = []
+            self.quad_size = None
+
+        if self._current_canvas is None:
+            return None
+
+        return self._crop_to_current_view(self._current_canvas)
+
+    def _render_canvas(self, canvas: np.ndarray):
+        """渲染已经组装完成的显示画布。"""
+        if canvas is not None:
+            self._show_canvas(canvas)
+
+    def _render_current_view(self):
+        """渲染当前软件视图。"""
+        canvas = self._compose_current_view_canvas()
+        if canvas is not None:
+            self._render_canvas(canvas)
+
+    def reset_software_view(self, refresh: bool = True) -> bool:
+        """重置软件缩放视图到完整画布。"""
+        full_roi = self._get_full_view_roi()
+        if full_roi is None:
+            return False
+
+        self._software_view_roi = full_roi
+        if refresh:
+            self.refresh_current_image()
+        return True
+
+    def apply_software_zoom_click(self, source_x: int, source_y: int,
+                                  zoom_mode: str, zoom_factor: float = 1.5,
+                                  min_size: int = 16) -> bool:
+        """围绕指定源画布坐标执行软件放大/缩小。"""
+        full_roi = self._get_full_view_roi()
+        view_roi = self._get_current_view_roi()
+        if full_roi is None or view_roi is None:
+            return False
+
+        _, _, full_w, full_h = full_roi
+        _, _, view_w, view_h = view_roi
+
+        if zoom_mode == 'zoom_in':
+            new_w = max(min_size, int(view_w / zoom_factor))
+            new_h = max(min_size, int(view_h / zoom_factor))
+            new_w, new_h = self._constrain_view_size_to_max_zoom(new_w, new_h)
+        elif zoom_mode == 'zoom_out':
+            new_w = min(full_w, int(view_w * zoom_factor))
+            new_h = min(full_h, int(view_h * zoom_factor))
+        else:
+            return False
+
+        new_x = int(source_x - new_w / 2)
+        new_y = int(source_y - new_h / 2)
+        new_x = max(0, min(new_x, full_w - new_w))
+        new_y = max(0, min(new_y, full_h - new_h))
+
+        self._software_view_roi = (new_x, new_y, new_w, new_h)
+        self.refresh_current_image()
+        return True
+
+    def apply_software_zoom_area(self, source_x: int, source_y: int,
+                                 width: int, height: int,
+                                 min_size: int = 16) -> bool:
+        """根据源画布选区执行软件区域放大。"""
+        full_roi = self._get_full_view_roi()
+        if full_roi is None:
+            return False
+
+        _, _, full_w, full_h = full_roi
+        width = max(min_size, width)
+        height = max(min_size, height)
+
+        source_x = max(0, min(source_x, full_w - 1))
+        source_y = max(0, min(source_y, full_h - 1))
+        width = min(width, full_w - source_x)
+        height = min(height, full_h - source_y)
+        width, height = self._constrain_view_size_to_max_zoom(width, height)
+
+        if width <= 0 or height <= 0:
+            return False
+
+        self._software_view_roi = (source_x, source_y, width, height)
+        self.refresh_current_image()
+        return True
+
     def show_image(self, image: np.ndarray):
         """外部图像显示接口
         
@@ -259,11 +478,17 @@ class ImageDisplay(QtWidgets.QWidget):
             
         # 保存原始图像的副本
         self.current_images = [image.copy()] if isinstance(image, np.ndarray) else []
+        self._display_content_kind = 'single'
+        self._quad_titles = []
+        self._quad_gray_mode = False
+        self.quad_positions = []
+        self.quad_size = None
         # 保存当前画布
         self._current_canvas = image.copy()
+        self._software_view_roi = self._get_full_view_roi()
         
         # 显示图像
-        self._show_canvas(self._current_canvas)
+        self._render_current_view()
 
     def to_grayscale(self, image: np.ndarray) -> np.ndarray:
         """将彩色图像转换为灰度图像"""
@@ -275,19 +500,22 @@ class ImageDisplay(QtWidgets.QWidget):
         """四角度视图显示接口"""
         # 保存原始图像列表的副本
         self.current_images = [img.copy() for img in images if img is not None]
+        self._display_content_kind = 'quad'
+        self._quad_titles = ['0 deg', '45 deg', '90 deg', '135 deg']
+        self._quad_gray_mode = gray
         
         if gray:
             images = [self.to_grayscale(img) for img in images]
             images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
                 
-        titles = ['0 deg', '45 deg', '90 deg', '135 deg']
-        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, titles)
+        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, self._quad_titles)
         
         # 更新画布缓存
         self._current_canvas = canvas.copy()
+        self._software_view_roi = self._get_full_view_roi()
         
         # 显示画布
-        self._show_canvas(self._current_canvas)
+        self._render_current_view()
 
     def show_polarization_quad_view(self, image: np.ndarray, 
                                   dolp: np.ndarray, aolp: np.ndarray, 
@@ -295,20 +523,23 @@ class ImageDisplay(QtWidgets.QWidget):
         """显示偏振分析的四视图"""
         # 保存原始图像列表的副本
         self.current_images = [img.copy() for img in [image, dolp, aolp, docp] if img is not None]
+        self._display_content_kind = 'polarization'
+        self._quad_titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
+        self._quad_gray_mode = False
         
         dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
             dolp, aolp, docp)
             
         images = [image, dolp_colored, aolp_colored, docp_colored]
         
-        titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
-        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, titles)
+        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(images, self._quad_titles)
         
         # 更新画布缓存
         self._current_canvas = canvas.copy()
+        self._software_view_roi = self._get_full_view_roi()
         
         # 显示画布
-        self._show_canvas(self._current_canvas)
+        self._render_current_view()
 
     def show_default_image(self):
         """显示默认的帮助图像"""
@@ -407,6 +638,9 @@ class ImageDisplay(QtWidgets.QWidget):
         Returns:
             (sensor_x, sensor_y) 或 None（坐标在图像外且 clamp=False）
         """
+        if self._zoom_coordinate_space == 'canvas':
+            return self._display_to_source_coords(display_x, display_y, clamp=clamp)
+
         geom = self._get_display_geometry()
         if geom is None or self._current_roi is None:
             return None
@@ -459,6 +693,66 @@ class ImageDisplay(QtWidgets.QWidget):
 
         return (sensor_x, sensor_y)
 
+    def _display_to_source_coords(self, display_x: int, display_y: int,
+                                  clamp: bool = False) -> Optional[Tuple[int, int]]:
+        """将 QLabel 显示坐标映射到当前源画布坐标。"""
+        geom = self._get_display_geometry()
+        view_roi = self._get_current_view_roi()
+        if geom is None or view_roi is None:
+            return None
+
+        x_offset, y_offset, display_width, display_height = geom
+        mouse_x = display_x - x_offset
+        mouse_y = display_y - y_offset
+
+        if mouse_x < 0 or mouse_x >= display_width or mouse_y < 0 or mouse_y >= display_height:
+            if not clamp:
+                return None
+            mouse_x = max(0.0, min(mouse_x, display_width))
+            mouse_y = max(0.0, min(mouse_y, display_height))
+
+        view_x, view_y, view_w, view_h = view_roi
+
+        if self.is_quad_view_mode() and self.quad_size and self.quad_positions:
+            rendered_canvas = self._compose_current_view_canvas()
+            if rendered_canvas is None:
+                return None
+
+            rendered_canvas_h, rendered_canvas_w = rendered_canvas.shape[:2]
+            rendered_x = int(mouse_x * rendered_canvas_w / display_width)
+            rendered_y = int(mouse_y * rendered_canvas_h / display_height)
+            rendered_x = max(0, min(rendered_x, rendered_canvas_w - 1))
+            rendered_y = max(0, min(rendered_y, rendered_canvas_h - 1))
+
+            quad_index = self.get_quad_index(rendered_x, rendered_y)
+            if quad_index is None:
+                return None
+
+            quad_y, quad_x = self.quad_positions[quad_index]
+            quad_h, quad_w = self.quad_size
+            rel_x = rendered_x - quad_x
+            rel_y = rendered_y - quad_y
+            norm_x = rel_x / quad_w if quad_w else 0.0
+            norm_y = rel_y / quad_h if quad_h else 0.0
+            source_x = int(view_x + norm_x * view_w)
+            source_y = int(view_y + norm_y * view_h)
+            canvas_h, canvas_w = self.current_images[0].shape[:2]
+        else:
+            norm_x = mouse_x / display_width if display_width else 0.0
+            norm_y = mouse_y / display_height if display_height else 0.0
+            source_x = int(view_x + norm_x * view_w)
+            source_y = int(view_y + norm_y * view_h)
+            canvas_h, canvas_w = self._current_canvas.shape[:2]
+
+        if clamp:
+            source_x = max(0, min(source_x, canvas_w))
+            source_y = max(0, min(source_y, canvas_h))
+        else:
+            source_x = max(0, min(source_x, canvas_w - 1))
+            source_y = max(0, min(source_y, canvas_h - 1))
+
+        return (source_x, source_y)
+
     def _get_quad_display_rect(self, display_x: int, display_y: int) -> Optional[QtCore.QRect]:
         """返回给定显示坐标所在子图的显示空间 QRect
 
@@ -470,11 +764,15 @@ class ImageDisplay(QtWidgets.QWidget):
             该子图在 QLabel 中的 QRect，或 None
         """
         geom = self._get_display_geometry()
-        if geom is None or self._current_canvas is None or not self.quad_size:
+        if geom is None or not self.quad_size:
+            return None
+
+        rendered_canvas = self._compose_current_view_canvas()
+        if rendered_canvas is None:
             return None
 
         x_offset, y_offset, display_width, display_height = geom
-        canvas_h, canvas_w = self._current_canvas.shape[:2]
+        canvas_h, canvas_w = rendered_canvas.shape[:2]
 
         mouse_x = display_x - x_offset
         mouse_y = display_y - y_offset
@@ -593,91 +891,58 @@ class ImageDisplay(QtWidgets.QWidget):
         """处理鼠标移动事件"""
         if not self.cursor_enabled or not self.current_images:  # 修改判断条件
             return
-            
-        # 获取图像实际显示区域
-        pixmap = self.image_label.pixmap()
-        if not pixmap:
+
+        source_coords = self._display_to_source_coords(event.x(), event.y())
+        if source_coords is None:
             return
-            
-        # 计算图像显示区域
-        label_size = self.image_label.size()
-        pixmap_size = pixmap.size()
-        
-        # 计算图像在标签中的实际位置和大小
-        if label_size.width() / label_size.height() > pixmap_size.width() / pixmap_size.height():
-            # 高度适配
-            display_height = label_size.height()
-            display_width = pixmap_size.width() * display_height / pixmap_size.height()
-            x_offset = (label_size.width() - display_width) / 2
-            y_offset = 0
-        else:
-            # 宽度适配
-            display_width = label_size.width()
-            display_height = pixmap_size.height() * display_width / pixmap_size.width()
-            x_offset = 0
-            y_offset = (label_size.height() - display_height) / 2
-            
-        # 计算鼠标在图像上的实际位置
-        mouse_x = event.x() - x_offset
-        mouse_y = event.y() - y_offset
-        
-        if (mouse_x < 0 or mouse_x >= display_width or 
-            mouse_y < 0 or mouse_y >= display_height):
-            return
-            
-        # 转换为原始图像坐标
-        img_x = int(mouse_x * self._current_canvas.shape[1] / display_width)
-        img_y = int(mouse_y * self._current_canvas.shape[0] / display_height)
-        
-        # 确保坐标在图像范围内
-        img_x = max(0, min(img_x, self._current_canvas.shape[1] - 1))
-        img_y = max(0, min(img_y, self._current_canvas.shape[0] - 1))
+
+        img_x, img_y = source_coords
         
         # 获取像素值
         if self.is_quad_view_mode():
-            # 四分图模式处理
-            quad_index = self.get_quad_index(img_x, img_y)
-            if quad_index is not None and quad_index < len(self.current_images):
-                # 获取当前区域的图像
-                current_image = self.current_images[quad_index]
-                
-                # 计算在四分区中的相对位置
-                quad_y, quad_x = self.quad_positions[quad_index]
-                cursor_quad_position = (img_x - quad_x, img_y - quad_y)
-                
-                # 获取所有区域相同位置的像素值
-                pixel_values = []
-                rel_x, rel_y = cursor_quad_position
-                for img in self.current_images:
-                    if len(img.shape) == 3:
-                        b, g, r = img[rel_y, rel_x]
-                        pixel_values.append((r, g, b))
-                    else:
-                        gray = img[rel_y, rel_x]
-                        pixel_values.append(gray)
-                
-                # 根据显示模式决定像素信息键名
-                mode = self.get_current_processing_mode()
-                if mode == ProcessingMode.POLARIZATION:
-                    info_key = 'quad_pol_values'
-                elif mode == ProcessingMode.QUAD_COLOR:
-                    info_key = 'quad_rgb_values'
-                else:
-                    info_key = 'quad_gray_values'
-                    
-                # 构建像素信息
-                pixel_info = {info_key: pixel_values}
-                
-                # 游标信息
-                self.cursor_info = {
-                    'position': (img_x, img_y),
-                    'mode': 'quad',
-                    'quad_index': quad_index,
-                    'cursor_quad_position': cursor_quad_position,
-                    **pixel_info
-                }
-            else:
+            rendered_coords = self._display_to_render_canvas_coords(event.x(), event.y())
+            if rendered_coords is None:
                 return
+
+            rendered_x, rendered_y = rendered_coords
+            quad_index = self.get_quad_index(rendered_x, rendered_y)
+            if quad_index is None or quad_index >= len(self.current_images):
+                return
+
+            # 四分图模式处理
+            cursor_quad_position = (img_x, img_y)
+
+            # 获取所有区域相同位置的像素值
+            pixel_values = []
+            rel_x, rel_y = cursor_quad_position
+            for img in self.current_images:
+                if len(img.shape) == 3:
+                    b, g, r = img[rel_y, rel_x]
+                    pixel_values.append((r, g, b))
+                else:
+                    gray = img[rel_y, rel_x]
+                    pixel_values.append(gray)
+
+            # 根据显示模式决定像素信息键名
+            mode = self.get_current_processing_mode()
+            if mode == ProcessingMode.POLARIZATION:
+                info_key = 'quad_pol_values'
+            elif mode == ProcessingMode.QUAD_COLOR:
+                info_key = 'quad_rgb_values'
+            else:
+                info_key = 'quad_gray_values'
+
+            # 构建像素信息
+            pixel_info = {info_key: pixel_values}
+
+            # 游标信息
+            self.cursor_info = {
+                'position': cursor_quad_position,
+                'mode': 'quad',
+                'quad_index': quad_index,
+                'cursor_quad_position': cursor_quad_position,
+                **pixel_info
+            }
                 
         else:
             # 单图模式处理
@@ -700,14 +965,14 @@ class ImageDisplay(QtWidgets.QWidget):
         
         # 四分图模式下绘制游标
         if self.is_quad_view_mode():
-            if self._current_canvas is not None:
-                canvas = self._current_canvas.copy()
+            canvas = self._compose_current_view_canvas()
+            if canvas is not None:
                 display_size = (self.image_label.width(), self.image_label.height())
                 canvas = ImagePlotter.draw_quad_cursors(
                     canvas, self.cursor_info, self.quad_positions, 
                     self.quad_size, display_size
                 )
-                self._show_canvas(canvas)  # 使用_show_canvas替代show_image
+                self._render_canvas(canvas)
         
         # 发送信号
         self.cursorPositionChanged.emit(self.cursor_info)
@@ -750,7 +1015,30 @@ class ImageDisplay(QtWidgets.QWidget):
         """刷新当前显示"""
         if self._current_canvas is not None:
             # 优先使用当前画布进行刷新
-            self._show_canvas(self._current_canvas)
+            self._render_current_view()
         elif self.current_images:  # 修改判断条件
             # 如果没有画布缓存，使用第一张原始图像
             self.show_image(self.current_images[0])
+
+    def _display_to_render_canvas_coords(self, display_x: int, display_y: int) -> Optional[Tuple[int, int]]:
+        """将显示坐标映射到当前渲染画布坐标。"""
+        geom = self._get_display_geometry()
+        if geom is None:
+            return None
+
+        x_offset, y_offset, display_width, display_height = geom
+        mouse_x = display_x - x_offset
+        mouse_y = display_y - y_offset
+        if mouse_x < 0 or mouse_x >= display_width or mouse_y < 0 or mouse_y >= display_height:
+            return None
+
+        composed_canvas = self._compose_current_view_canvas()
+        if composed_canvas is None:
+            return None
+
+        canvas_h, canvas_w = composed_canvas.shape[:2]
+        canvas_x = int(mouse_x * canvas_w / display_width)
+        canvas_y = int(mouse_y * canvas_h / display_height)
+        canvas_x = max(0, min(canvas_x, canvas_w - 1))
+        canvas_y = max(0, min(canvas_y, canvas_h - 1))
+        return (canvas_x, canvas_y)

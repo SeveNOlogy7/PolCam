@@ -12,6 +12,7 @@ from polcam.gui.main_window import MainWindow
 from polcam.gui.camera_control import CameraControl
 from polcam.gui.image_display import ImageDisplay
 from polcam.gui.styles import Styles
+from polcam.core.processing_module import ProcessingMode
 import numpy as np
 
 @pytest.fixture
@@ -182,6 +183,188 @@ def test_image_display_resize(qapp):
     # 验证图像标签大小
     assert display.image_label.width() <= 800
     assert display.image_label.height() <= 600
+
+def test_image_display_software_zoom_persists_across_refresh_and_resize(qapp):
+    """测试静态图像的软件缩放在刷新和调整尺寸后保持不变。"""
+    display = ImageDisplay()
+    test_image = np.zeros((120, 160, 3), dtype=np.uint8)
+
+    display.show_image(test_image)
+    assert not display.is_software_zoom_active()
+
+    assert display.apply_software_zoom_click(80, 60, 'zoom_in')
+    zoomed_roi = display._get_current_view_roi()
+
+    display.refresh_current_image()
+    assert display._get_current_view_roi() == zoomed_roi
+
+    display.resize(900, 700)
+    assert display._get_current_view_roi() == zoomed_roi
+
+    assert display.reset_software_view()
+    assert not display.is_software_zoom_active()
+
+def test_image_display_cropped_canvas_is_contiguous(qapp):
+    """测试软件缩放后的显示画布使用连续内存。"""
+    display = ImageDisplay()
+    test_image = np.zeros((120, 160, 3), dtype=np.uint8)
+
+    display.show_image(test_image)
+    assert display.apply_software_zoom_click(80, 60, 'zoom_in')
+
+    cropped = display._compose_current_view_canvas()
+    assert cropped.flags['C_CONTIGUOUS']
+
+
+def test_image_display_software_zoom_respects_configured_max_zoom(qapp):
+    """测试静态软件缩放遵守可配置的最大放大倍率。"""
+    display = ImageDisplay()
+    display.set_max_zoom(4.0)
+    test_image = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    display.show_image(test_image)
+    assert display.apply_software_zoom_area(40, 40, 5, 5)
+
+    assert display.get_software_zoom_ratio() == pytest.approx(4.0, rel=0.05)
+
+def test_image_display_quad_software_zoom_preserves_quad_layout(qapp):
+    """测试静态四分图缩放时保持四分图布局，只缩放子图 ROI。"""
+    display = ImageDisplay()
+    images = [np.full((80, 80), fill_value=index, dtype=np.uint8) for index in range(4)]
+
+    display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+    display.show_quad_view(images, gray=True)
+    full_canvas = display._compose_current_view_canvas()
+    assert full_canvas.shape[:2] == (160, 160)
+
+    assert display.apply_software_zoom_click(40, 40, 'zoom_in')
+
+    zoomed_canvas = display._compose_current_view_canvas()
+    assert display.is_quad_view_mode()
+    assert display.quad_size == (53, 53)
+    assert zoomed_canvas.shape[:2] == (106, 106)
+    assert len(display.quad_positions) == 4
+
+def test_image_display_static_quad_zoom_maps_rendered_quad_center_to_view_roi_center(qapp):
+    """测试静态四分图软件缩放后，左上子图中心映射回当前 view_roi 中心。"""
+    display = ImageDisplay()
+    images = [np.full((80, 80), fill_value=index, dtype=np.uint8) for index in range(4)]
+
+    display.resize(800, 600)
+    display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+    display.show_quad_view(images, gray=True)
+    display.show()
+    qapp.processEvents()
+
+    assert display.apply_software_zoom_click(40, 40, 'zoom_in')
+
+    rendered_canvas = display._compose_current_view_canvas()
+    geom = display._get_display_geometry()
+    view_roi = display._get_current_view_roi()
+
+    assert rendered_canvas is not None
+    assert geom is not None
+    assert view_roi is not None
+
+    x_offset, y_offset, display_width, display_height = geom
+    canvas_h, canvas_w = rendered_canvas.shape[:2]
+    quad_y, quad_x = display.quad_positions[0]
+    quad_h, quad_w = display.quad_size
+
+    display_x = int(x_offset + (quad_x + quad_w / 2) * display_width / canvas_w)
+    display_y = int(y_offset + (quad_y + quad_h / 2) * display_height / canvas_h)
+
+    source_x, source_y = display._display_to_source_coords(display_x, display_y)
+    view_x, view_y, view_w, view_h = view_roi
+
+    expected_x = int(view_x + view_w / 2)
+    expected_y = int(view_y + view_h / 2)
+
+    assert abs(source_x - expected_x) <= 1
+    assert abs(source_y - expected_y) <= 1
+
+def test_image_display_resize_does_not_crash_with_single_image_in_quad_mode(qapp):
+    """测试四分图模式下只有单图缓存时，resize 刷新不会触发四分图重组异常。"""
+    display = ImageDisplay()
+    image = np.zeros((120, 160, 3), dtype=np.uint8)
+
+    display.show_image(image)
+    display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+
+    display.resize(900, 700)
+    display.refresh_current_image()
+
+    assert display.image_label.pixmap() is not None
+    assert display.quad_size is None
+    assert display.quad_positions == []
+
+def test_image_toolbar_controller_uses_software_zoom_for_static_image(qapp):
+    """测试非连续采集时工具栏缩放走显示层软件缩放而非相机 ROI。"""
+    display = ImageDisplay()
+    display.show_image(np.zeros((100, 100, 3), dtype=np.uint8))
+
+    mock_camera = MagicMock()
+    mock_camera.is_connected.return_value = True
+    mock_camera.is_streaming.return_value = False
+    display.toolbar_controller.set_camera_module(mock_camera)
+
+    with patch.object(display, 'apply_software_zoom_click', wraps=display.apply_software_zoom_click) as software_zoom:
+        display.toolbar_controller._handle_zoom_in(True)
+        display.toolbar_controller._handle_zoom_click(50, 50)
+
+    software_zoom.assert_called_once_with(50, 50, 'zoom_in', zoom_factor=display.toolbar_controller.ZOOM_FACTOR)
+    mock_camera.set_roi.assert_not_called()
+
+
+def test_image_toolbar_controller_max_zoom_defaults_to_1000(qapp):
+    """测试图像工具栏默认最大放大倍率为 1000x。"""
+    display = ImageDisplay()
+
+    assert display.toolbar_controller.get_max_zoom() == 1000.0
+    assert display.get_max_zoom() == 1000.0
+
+
+def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qapp):
+    """测试连续采集硬件 ROI 路径也受最大放大倍率约束。"""
+    display = ImageDisplay()
+    display.toolbar_controller.set_max_zoom(1000.0)
+
+    mock_camera = MagicMock()
+    mock_camera.is_connected.return_value = True
+    mock_camera.is_streaming.return_value = True
+    mock_camera.get_roi.return_value = (0, 0, 10, 10)
+    mock_camera.get_sensor_size.return_value = (1000, 1000)
+    mock_camera.set_roi.return_value = True
+    mock_camera.get_roi.side_effect = [
+        (0, 0, 10, 10),
+        (0, 0, 31, 31),
+        (0, 0, 31, 31),
+    ]
+    display.toolbar_controller.set_camera_module(mock_camera)
+
+    display.toolbar_controller._handle_zoom_in(True)
+    display.toolbar_controller._handle_zoom_click(5, 5)
+
+    mock_camera.set_roi.assert_called_once()
+    _, _, new_w, new_h = mock_camera.set_roi.call_args.args
+    assert new_w == 31
+    assert new_h == 31
+
+def test_image_toolbar_controller_reset_view_uses_software_path_for_static_image(qapp):
+    """测试静态图像重置视图不会修改相机 ROI。"""
+    display = ImageDisplay()
+    display.show_image(np.zeros((120, 160, 3), dtype=np.uint8))
+    display.apply_software_zoom_click(60, 40, 'zoom_in')
+
+    mock_camera = MagicMock()
+    mock_camera.is_connected.return_value = True
+    mock_camera.is_streaming.return_value = False
+    display.toolbar_controller.set_camera_module(mock_camera)
+
+    display.toolbar_controller._handle_reset_view()
+
+    assert not display.is_software_zoom_active()
+    mock_camera.reset_roi.assert_not_called()
 
 @pytest.mark.parametrize("button_name", ["capture_btn", "stream_btn"])
 def test_camera_control_buttons(qapp, button_name):

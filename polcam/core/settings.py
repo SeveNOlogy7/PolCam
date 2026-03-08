@@ -22,6 +22,7 @@ class UISettings:
     display_mode: ProcessingMode = ProcessingMode.RAW
     last_directory: str = ""
     auto_save_directory: str = ""
+    max_zoom: float = 1000.0
 
 
 @dataclass
@@ -94,12 +95,14 @@ class SettingsService:
             display_mode=self._parse_processing_mode(display_mode_name),
             last_directory=str(last_directory or ""),
             auto_save_directory=str(auto_save_directory or ""),
+            max_zoom=self._to_float(self._settings.value("ui/max_zoom", UISettings().max_zoom), UISettings().max_zoom),
         )
 
     def save_ui_settings(self, ui_settings: UISettings):
         self._settings.setValue("ui/display_mode", ui_settings.display_mode.name)
         self._settings.setValue("ui/last_directory", self._normalize_directory(ui_settings.last_directory))
         self._settings.setValue("ui/auto_save_directory", self._normalize_directory(ui_settings.auto_save_directory))
+        self._settings.setValue("ui/max_zoom", max(1.0, float(ui_settings.max_zoom)))
 
     def load_processing_settings(self) -> ProcessingSettings:
         defaults = ProcessingSettings()

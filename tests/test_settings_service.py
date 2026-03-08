@@ -36,3 +36,15 @@ def test_auto_save_directory_is_independent_from_manual_directory(tmp_path: Path
 
     assert Path(service.get_auto_save_directory()) == auto_dir
     assert Path(service.get_last_directory()) == manual_dir
+
+
+def test_max_zoom_setting_round_trips(tmp_path: Path):
+    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    service = SettingsService(settings)
+
+    app_settings = service.load()
+    app_settings.ui.max_zoom = 2500.0
+    service.save(app_settings)
+
+    loaded = service.load()
+    assert loaded.ui.max_zoom == 2500.0

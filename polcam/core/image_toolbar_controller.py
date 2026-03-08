@@ -13,7 +13,7 @@ class ImageToolbarController(BaseModule):
     """图像工具栏控制器"""
 
     ZOOM_FACTOR = 1.5  # 放大/缩小倍率
-    MAX_ZOOM = 100.0   # 最大放大倍率
+    DEFAULT_MAX_ZOOM = 1000.0   # 最大放大倍率
 
     def __init__(self, toolbar, image_display=None):
         super().__init__("ImageToolbarController")
@@ -22,6 +22,7 @@ class ImageToolbarController(BaseModule):
         self._cursor_mode = False
         self._zoom_mode = None  # 'zoom_in' | 'zoom_out' | 'zoom_area' | None
         self._camera_module = None
+        self._max_zoom = self.DEFAULT_MAX_ZOOM
 
     def set_camera_module(self, camera_module):
         """设置相机模块引用，用于 ROI 控制
@@ -30,6 +31,24 @@ class ImageToolbarController(BaseModule):
             camera_module: CameraModule 实例
         """
         self._camera_module = camera_module
+
+    def set_max_zoom(self, max_zoom: float):
+        """设置硬件/软件统一使用的最大放大倍率。"""
+        self._max_zoom = max(1.0, float(max_zoom))
+        if self.image_display:
+            self.image_display.set_max_zoom(self._max_zoom)
+
+    def get_max_zoom(self) -> float:
+        """获取当前最大放大倍率配置。"""
+        return self._max_zoom
+
+    def sync_zoom_coordinate_space(self):
+        """同步图像显示组件当前应使用的缩放坐标空间。"""
+        if not self.image_display:
+            return
+
+        coordinate_space = 'canvas' if self._should_use_software_zoom() else 'hardware'
+        self.image_display.set_zoom_coordinate_space(coordinate_space)
 
     def _do_initialize(self) -> bool:
         """初始化工具栏控制器"""
@@ -51,6 +70,7 @@ class ImageToolbarController(BaseModule):
             # 初始化时确保所有模式都是关闭状态
             self._cursor_mode = False
             if self.image_display:
+                self.image_display.set_max_zoom(self._max_zoom)
                 self.image_display.set_cursor_mode(False)
 
             return True
@@ -156,6 +176,7 @@ class ImageToolbarController(BaseModule):
             self._cursor_mode = True
             self._zoom_mode = None
             if self.image_display:
+                self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('cursor')
             self._show_status_message("游标模式已开启")
         else:
@@ -173,6 +194,7 @@ class ImageToolbarController(BaseModule):
             self._zoom_mode = 'zoom_in'
             self._cursor_mode = False
             if self.image_display:
+                self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('zoom_in')
             self._show_status_message("放大模式：点击图像进行放大")
         else:
@@ -187,6 +209,7 @@ class ImageToolbarController(BaseModule):
             self._zoom_mode = 'zoom_out'
             self._cursor_mode = False
             if self.image_display:
+                self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('zoom_out')
             self._show_status_message("缩小模式：点击图像进行缩小")
         else:
@@ -201,6 +224,7 @@ class ImageToolbarController(BaseModule):
             self._zoom_mode = 'zoom_area'
             self._cursor_mode = False
             if self.image_display:
+                self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('zoom_area')
             self._show_status_message("区域放大模式：拖拽选择放大区域")
         else:
@@ -211,7 +235,13 @@ class ImageToolbarController(BaseModule):
 
     def _handle_reset_view(self):
         """处理视图复原 — 重置 ROI 为全传感器尺寸"""
-        if self._camera_module and self._camera_module.is_connected():
+        self.sync_zoom_coordinate_space()
+        if self._should_use_software_zoom():
+            if self.image_display and self.image_display.reset_software_view():
+                self._show_status_message("视图已重置")
+            else:
+                self._show_status_message("当前无可重置的图像视图")
+        elif self._camera_module and self._camera_module.is_connected():
             success = self._camera_module.reset_roi()
             if success:
                 self._update_roi_cache()
@@ -228,6 +258,25 @@ class ImageToolbarController(BaseModule):
         Args:
             sensor_x, sensor_y: 传感器坐标
         """
+        self.sync_zoom_coordinate_space()
+        if self._should_use_software_zoom():
+            if not self.image_display:
+                return
+
+            success = self.image_display.apply_software_zoom_click(
+                sensor_x,
+                sensor_y,
+                self._zoom_mode,
+                zoom_factor=self.ZOOM_FACTOR,
+            )
+            if success:
+                zoom_ratio = self.image_display.get_software_zoom_ratio()
+                if zoom_ratio >= self._max_zoom - 0.1:
+                    self._show_status_message(f"已达最大放大倍率 {zoom_ratio:.1f}x")
+                else:
+                    self._show_status_message(f"缩放: {zoom_ratio:.1f}x")
+            return
+
         if not self._camera_module or not self._camera_module.is_connected():
             self._show_status_message("相机未连接")
             return
@@ -242,8 +291,8 @@ class ImageToolbarController(BaseModule):
         if self._zoom_mode == 'zoom_in':
             new_w = int(w / self.ZOOM_FACTOR)
             new_h = int(h / self.ZOOM_FACTOR)
-            # 超过最大放大倍率时，自适应调节到恰好 MAX_ZOOM
-            min_area = (sensor_w * sensor_h) / self.MAX_ZOOM
+            # 超过最大放大倍率时，自适应调节到恰好最大倍率
+            min_area = (sensor_w * sensor_h) / self._max_zoom
             if new_w > 0 and new_h > 0 and new_w * new_h < min_area:
                 scale = (min_area / (new_w * new_h)) ** 0.5
                 new_w = int(new_w * scale)
@@ -270,7 +319,7 @@ class ImageToolbarController(BaseModule):
             actual_roi = self._camera_module.get_roi()
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
-                if zoom_pct >= self.MAX_ZOOM - 0.1:
+                if zoom_pct >= self._max_zoom - 0.1:
                     self._show_status_message(f"已达最大放大倍率 {zoom_pct:.1f}x")
                 else:
                     self._show_status_message(f"缩放: {zoom_pct:.1f}x")
@@ -283,14 +332,28 @@ class ImageToolbarController(BaseModule):
             sensor_x, sensor_y: 选区左上角传感器坐标
             width, height: 选区尺寸
         """
+        self.sync_zoom_coordinate_space()
+        if self._should_use_software_zoom():
+            if not self.image_display:
+                return
+
+            success = self.image_display.apply_software_zoom_area(sensor_x, sensor_y, width, height)
+            if success:
+                zoom_ratio = self.image_display.get_software_zoom_ratio()
+                if zoom_ratio >= self._max_zoom - 0.1:
+                    self._show_status_message(f"选区已调整到最大放大倍率 {zoom_ratio:.1f}x")
+                else:
+                    self._show_status_message(f"区域放大: {zoom_ratio:.1f}x")
+            return
+
         if not self._camera_module or not self._camera_module.is_connected():
             self._show_status_message("相机未连接")
             return
 
-        # 超过最大放大倍率时，自适应扩大选区到恰好 MAX_ZOOM，保持中心不变
+        # 超过最大放大倍率时，自适应扩大选区到恰好最大倍率，保持中心不变
         sensor_w, sensor_h = self._camera_module.get_sensor_size()
         if width > 0 and height > 0:
-            min_area = (sensor_w * sensor_h) / self.MAX_ZOOM
+            min_area = (sensor_w * sensor_h) / self._max_zoom
             if width * height < min_area:
                 scale = (min_area / (width * height)) ** 0.5
                 new_w = int(width * scale)
@@ -309,7 +372,7 @@ class ImageToolbarController(BaseModule):
             sensor_w, sensor_h = self._camera_module.get_sensor_size()
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
-                if zoom_pct >= self.MAX_ZOOM - 0.1:
+                if zoom_pct >= self._max_zoom - 0.1:
                     self._show_status_message(f"选区已调整到最大放大倍率 {zoom_pct:.1f}x")
                 else:
                     self._show_status_message(f"区域放大: {zoom_pct:.1f}x")
@@ -327,6 +390,16 @@ class ImageToolbarController(BaseModule):
             roi = self._camera_module.get_roi()
             sensor = self._camera_module.get_sensor_size()
             self.image_display.update_roi_info(roi, sensor)
+
+    def _should_use_software_zoom(self) -> bool:
+        """判断当前缩放请求是否应走显示层软件缩放。"""
+        if not self.image_display or not self.image_display.has_display_image():
+            return False
+
+        if not self._camera_module or not self._camera_module.is_connected():
+            return True
+
+        return not self._camera_module.is_streaming()
 
     def _get_quad_titles(self, info: dict) -> List[str]:
         """根据不同的四分图模式返回对应的标题列表"""

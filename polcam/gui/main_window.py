@@ -319,6 +319,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._continuous_mode = True
             self.status_indicator.setProcessing(True)
             self.status_label.setText("连续采集中...")
+            self.image_display.toolbar_controller.sync_zoom_coordinate_space()
         else:
             # 停止连续采集
             self.camera.stop_streaming()
@@ -330,6 +331,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._continuous_mode = False
             self.status_indicator.setProcessing(False)
             self.status_label.setText("就绪")
+            self.image_display.toolbar_controller.sync_zoom_coordinate_space()
             
             # 停止连续采集时，检查是否有可用数据并启用保存原始图像按钮
             if self.current_frame is not None:
@@ -425,6 +427,8 @@ class MainWindow(QtWidgets.QMainWindow):
         elif mode == ProcessingMode.POLARIZATION:
             self.image_display.show_polarization_quad_view(*images)
 
+        self.image_display.toolbar_controller.sync_zoom_coordinate_space()
+
     def _reprocessing_from_current_frame(self):
         """重新处理当前帧
         清空所有待处理任务，在非连续采集模式下，如果存在当前帧则重新进行处理
@@ -519,6 +523,7 @@ class MainWindow(QtWidgets.QMainWindow):
         roi = self.camera.get_roi()
         sensor = self.camera.get_sensor_size()
         self.image_display.update_roi_info(roi, sensor)
+        self.image_display.toolbar_controller.sync_zoom_coordinate_space()
 
     def _on_camera_disconnected(self, event):
         """处理相机断开事件"""
@@ -533,6 +538,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 禁用保存按钮
         self.toolbar_controller.enable_save_raw(False)
         self.toolbar_controller.enable_save_result(False)
+        self.image_display.toolbar_controller.sync_zoom_coordinate_space()
 
     def _update_frame_and_display(self, frame: np.ndarray, timestamp=None):
         """更新帧数据并显示
@@ -556,6 +562,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # 根据模式更新显示或后处理图像
             if current_mode == ProcessingMode.RAW:
                 self.image_display.show_image(frame)
+                self.image_display.toolbar_controller.sync_zoom_coordinate_space()
             else:
                 # 确保处理模块没有待处理任务时才发送新任务
                 if self.processor.get_task_count() == 0 and not self.processor.is_processing():
@@ -748,6 +755,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 display_mode=self.image_display.get_current_processing_mode(),
                 last_directory=self.settings_service.get_last_directory(),
                 auto_save_directory=self.settings_service.get_auto_save_directory(),
+                max_zoom=self.image_display.toolbar_controller.get_max_zoom(),
             ),
             processing=ProcessingSettings.from_params(self.processor.get_parameters()),
         )
@@ -756,6 +764,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """应用设置到界面和处理模块。"""
         self._current_settings = settings
         self._preferred_display_mode = settings.ui.display_mode
+        self.image_display.toolbar_controller.set_max_zoom(settings.ui.max_zoom)
 
         self.camera_control.set_wb_auto(settings.processing.wb_auto)
         self.camera_control.set_selected_angle(settings.processing.selected_angle)
