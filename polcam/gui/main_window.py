@@ -110,6 +110,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_capture_time = 0.0  # 添加采集时间缓存
         self._last_process_time = 0.0  # 添加处理时间缓存
         self._continuous_mode = False  # 添加连续采集模式标志
+        self._single_capture_requested = False  # 标记显式单帧采集请求
         self._current_frame_timestamp = None  # 添加时间戳属性
         self._camera_type = None  # 相机类型（彩色/黑白）
 
@@ -309,9 +310,11 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
         self._set_capture_buttons_enabled(False)
+        self._single_capture_requested = True
         try:
             self.camera.get_frame() # 采集一帧图像，后续通过事件处理显示
         except Exception as e:
+            self._single_capture_requested = False
             QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {str(e)}")
             self.status_indicator.setProcessing(False) 
         finally:
@@ -348,6 +351,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
         if start:
             # 开始连续采集时禁用单帧采集和保存按钮
+            self._single_capture_requested = False
             self.camera_control.capture_btn.setEnabled(False)
             self.toolbar_controller.enable_save_raw(False)
             self.toolbar_controller.enable_save_result(False)
@@ -360,6 +364,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.image_display.toolbar_controller.sync_zoom_coordinate_space()
         else:
             # 停止连续采集
+            self._single_capture_requested = False
             self.camera.stop_streaming()
             self.camera_control.capture_btn.setEnabled(True)
             self.camera_control.stream_btn.setText("连续采集")
@@ -626,8 +631,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_auto_parameters()
             # 更新保存按钮状态
             self.toolbar_controller.enable_save_raw(not self._continuous_mode)
-            if not self._continuous_mode:
+            if self._single_capture_requested:
                 self._auto_save_captured_frame(frame, timestamp)
+                self._single_capture_requested = False
             # 更新帧和显示
             self._update_frame_and_display(frame, timestamp)
 

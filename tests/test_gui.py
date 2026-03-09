@@ -570,3 +570,36 @@ def test_gui_error_handling(main_window):
     # 测试无效的显示模式
     main_window.image_display.display_mode.setCurrentIndex(0)
     main_window._update_frame_and_display(None)  # 应该优雅地处理空帧
+
+
+def test_frame_captured_does_not_auto_save_after_continuous_capture_stops(main_window):
+    """测试停止连续采集后的尾帧不会被误当作单帧自动保存。"""
+    frame = np.zeros((8, 8), dtype=np.uint8)
+    main_window._continuous_mode = False
+    main_window._single_capture_requested = False
+
+    with patch.object(main_window, '_auto_save_captured_frame') as auto_save:
+        main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+            'frame': frame,
+            'capture_time': 0.01,
+            'timestamp': 123.0,
+        }))
+
+    auto_save.assert_not_called()
+
+
+def test_frame_captured_auto_saves_only_for_explicit_single_capture(main_window):
+    """测试只有显式单帧采集完成时才会自动保存一次。"""
+    frame = np.zeros((8, 8), dtype=np.uint8)
+    main_window._continuous_mode = False
+    main_window._single_capture_requested = True
+
+    with patch.object(main_window, '_auto_save_captured_frame') as auto_save:
+        main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+            'frame': frame,
+            'capture_time': 0.01,
+            'timestamp': 456.0,
+        }))
+
+    auto_save.assert_called_once_with(frame, 456.0)
+    assert main_window._single_capture_requested is False
