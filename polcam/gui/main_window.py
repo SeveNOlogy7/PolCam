@@ -14,6 +14,7 @@ from .widgets.gallery_panel import GalleryPanel
 from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
 import logging
+import time
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
 from ..core.gallery_service import GalleryService
@@ -28,6 +29,9 @@ class _MainThreadEventBridge(QtCore.QObject):
     dispatch_event = QtCore.Signal(object)
 
 class MainWindow(QtWidgets.QMainWindow):
+    CONTINUOUS_CAPTURE_METRICS_INTERVAL_S = 0.10
+    CONTINUOUS_AUTO_PARAMS_INTERVAL_S = 0.25
+
     def __init__(self):
         super().__init__()
         
@@ -113,6 +117,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._single_capture_requested = False  # 标记显式单帧采集请求
         self._current_frame_timestamp = None  # 添加时间戳属性
         self._camera_type = None  # 相机类型（彩色/黑白）
+        self._last_capture_metrics_update_at = 0.0
+        self._last_auto_params_update_at = 0.0
 
         self.restore_settings()
 
@@ -343,6 +349,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_process_time = t_proc
         self._update_timing_display()
 
+    def _should_refresh_continuous_ui(self, timestamp_attr: str, interval_s: float) -> bool:
+        """控制连续采集期间高频 UI 刷新节奏。"""
+        now = time.perf_counter()
+        last_value = getattr(self, timestamp_attr, 0.0)
+        if now - last_value >= interval_s:
+            setattr(self, timestamp_attr, now)
+            return True
+        return False
+
     def handle_stream(self, start: bool):
         """处理连续采集开关"""
         # 如果程序正在关闭，不允许开始新的采集
@@ -352,6 +367,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if start:
             # 开始连续采集时禁用单帧采集和保存按钮
             self._single_capture_requested = False
+            self._last_capture_metrics_update_at = 0.0
+            self._last_auto_params_update_at = 0.0
             self.camera_control.capture_btn.setEnabled(False)
             self.toolbar_controller.enable_save_raw(False)
             self.toolbar_controller.enable_save_result(False)
@@ -378,6 +395,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # 停止连续采集时，检查是否有可用数据并启用保存原始图像按钮
             if self.current_frame is not None:
+                self.toolbar_controller.update_current_frame(self.current_frame, self._current_frame_timestamp)
                 self.toolbar_controller.enable_save_raw(True)
             # 不启用保存当前结果按钮，手动切换显示模式后会自动启用
 
@@ -624,13 +642,26 @@ class MainWindow(QtWidgets.QMainWindow):
         timestamp = event.data.get("timestamp")
         
         if frame is not None:
-            # 更新工具栏控制器中的当前帧和时间戳
-            self.toolbar_controller.update_current_frame(frame, timestamp)
-            self._update_capture_time(capture_time)
-            # 更新自动参数显示
-            self._update_auto_parameters()
-            # 更新保存按钮状态
-            self.toolbar_controller.enable_save_raw(not self._continuous_mode)
+            if self._continuous_mode:
+                if self._should_refresh_continuous_ui(
+                    '_last_capture_metrics_update_at',
+                    self.CONTINUOUS_CAPTURE_METRICS_INTERVAL_S,
+                ):
+                    self._update_capture_time(capture_time)
+                if self._should_refresh_continuous_ui(
+                    '_last_auto_params_update_at',
+                    self.CONTINUOUS_AUTO_PARAMS_INTERVAL_S,
+                ):
+                    self._update_auto_parameters()
+            else:
+                # 更新工具栏控制器中的当前帧和时间戳
+                self.toolbar_controller.update_current_frame(frame, timestamp)
+                self._update_capture_time(capture_time)
+                # 更新自动参数显示
+                self._update_auto_parameters()
+                # 更新保存按钮状态
+                self.toolbar_controller.enable_save_raw(True)
+
             if self._single_capture_requested:
                 self._auto_save_captured_frame(frame, timestamp)
                 self._single_capture_requested = False

@@ -15,6 +15,7 @@ from polcam.gui.main_window import MainWindow
 from polcam.gui.camera_control import CameraControl
 from polcam.gui.image_display import ImageDisplay
 from polcam.gui.styles import Styles
+from polcam.core.image_plotter import ImagePlotter
 from polcam.core.events import Event, EventType
 from polcam.core.processing_module import ProcessingMode
 import numpy as np
@@ -503,6 +504,21 @@ def test_show_quad_view_reuses_prebuilt_canvas(qapp):
     assert len(display.quad_positions) == 4
 
 
+def test_resize_refresh_reuses_cached_quad_canvas_without_software_zoom(qapp):
+    """测试四分图在无软件缩放时 resize 只重缩放当前画布，不重新组装。"""
+    display = ImageDisplay()
+    images = [np.full((80, 80), fill_value=index, dtype=np.uint8) for index in range(4)]
+
+    display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+    display.show_quad_view(images, gray=True)
+
+    with patch.object(display, '_compose_current_view_canvas', side_effect=AssertionError('should not recompose')), \
+         patch.object(display, '_render_canvas', wraps=display._render_canvas) as render_canvas:
+        display._refresh_after_resize()
+
+    render_canvas.assert_called_once_with(display._current_canvas)
+
+
 def test_quad_cursor_overlay_does_not_rerender_canvas_on_mouse_move(qapp):
     """测试四分图游标移动时不再重绘整张画布。"""
     display = ImageDisplay()
@@ -562,6 +578,60 @@ def test_quad_roi_mapping_uses_cached_render_shape(qapp):
     assert render_coords is not None
     assert quad_rect is not None
 
+
+@pytest.mark.parametrize(
+    ('height', 'width', 'expected_factor', 'expected_quad_size'),
+    [
+        (3000, 16, 2, (1500, 8)),
+        (5000, 16, 4, (1250, 4)),
+    ],
+)
+def test_create_quad_canvas_downsamples_large_tiles_for_display(height, width, expected_factor, expected_quad_size):
+    """测试超大四分图分块会按 1/2 或 1/4 进行显示降采样。"""
+    images = [np.zeros((height, width, 3), dtype=np.uint8) for _ in range(4)]
+
+    factor = ImagePlotter.get_quad_downsample_factor(images[0].shape, ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE)
+    canvas, _, quad_size = ImagePlotter.create_quad_canvas(
+        images,
+        ['0 deg', '45 deg', '90 deg', '135 deg'],
+        draw_titles=False,
+        max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
+    )
+
+    assert factor == expected_factor
+    assert quad_size == expected_quad_size
+    assert canvas.shape[:2] == (expected_quad_size[0] * 2, expected_quad_size[1] * 2)
+
+
+def test_large_canvas_uses_fast_scaling_mode(qapp):
+    """测试大图刷新使用更轻的快速缩放模式。"""
+    display = ImageDisplay()
+
+    mode = display._get_scaling_transformation_mode((2048, 2448))
+
+    assert mode == QtCore.Qt.FastTransformation
+
+
+def test_small_canvas_keeps_smooth_scaling_mode(qapp):
+    """测试普通尺寸图像仍使用平滑缩放。"""
+    display = ImageDisplay()
+
+    mode = display._get_scaling_transformation_mode((800, 800))
+
+    assert mode == QtCore.Qt.SmoothTransformation
+
+
+@pytest.mark.skipif(getattr(QtGui.QImage, 'Format_BGR888', None) is None, reason='Qt backend does not expose Format_BGR888')
+def test_show_canvas_skips_bgr_to_rgb_conversion_when_direct_bgr_supported(qapp):
+    """测试支持 BGR888 时不再调用 cvtColor 做整图颜色转换。"""
+    display = ImageDisplay()
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+
+    with patch('polcam.gui.image_display.cv2.cvtColor', side_effect=AssertionError('cvtColor should not be called')):
+        display._show_canvas(image)
+
+    assert display.image_label.pixmap() is not None
+
 def test_gui_error_handling(main_window):
     """测试GUI错误处理"""
     # 测试未连接相机时的错误处理
@@ -603,3 +673,46 @@ def test_frame_captured_auto_saves_only_for_explicit_single_capture(main_window)
 
     auto_save.assert_called_once_with(frame, 456.0)
     assert main_window._single_capture_requested is False
+
+
+def test_continuous_capture_throttles_nonessential_ui_updates(main_window):
+    """测试连续采集时跳过高频工具栏和状态刷新热路径。"""
+    frame = np.zeros((8, 8), dtype=np.uint8)
+    main_window._continuous_mode = True
+
+    with patch.object(main_window, '_should_refresh_continuous_ui', side_effect=[False, False]) as should_refresh, \
+         patch.object(main_window, '_update_capture_time') as update_capture_time, \
+         patch.object(main_window, '_update_auto_parameters') as update_auto_parameters, \
+         patch.object(main_window.toolbar_controller, 'update_current_frame') as update_current_frame, \
+         patch.object(main_window.toolbar_controller, 'enable_save_raw') as enable_save_raw:
+        main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+            'frame': frame,
+            'capture_time': 0.01,
+            'timestamp': 789.0,
+        }))
+
+    assert should_refresh.call_count == 2
+    update_capture_time.assert_not_called()
+    update_auto_parameters.assert_not_called()
+    update_current_frame.assert_not_called()
+    enable_save_raw.assert_not_called()
+
+
+def test_stop_streaming_updates_toolbar_with_latest_frame(main_window):
+    """测试停止连续采集后会同步最新帧到工具栏缓存。"""
+    frame = np.zeros((8, 8), dtype=np.uint8)
+    main_window.current_frame = frame
+    main_window._current_frame_timestamp = 123.0
+    main_window._continuous_mode = True
+
+    with patch.object(main_window.camera, 'stop_streaming') as stop_streaming, \
+         patch.object(main_window.processor, 'cancel_all_tasks') as cancel_all_tasks, \
+         patch.object(main_window.toolbar_controller, 'update_current_frame') as update_current_frame, \
+         patch.object(main_window.toolbar_controller, 'enable_save_raw') as enable_save_raw, \
+         patch.object(main_window.image_display.toolbar_controller, 'sync_zoom_coordinate_space'):
+        main_window.handle_stream(False)
+
+    stop_streaming.assert_called_once()
+    cancel_all_tasks.assert_called_once()
+    update_current_frame.assert_called_once_with(frame, 123.0)
+    enable_save_raw.assert_called_once_with(True)

@@ -481,6 +481,7 @@ class ProcessingModule(BaseModule):
                     canvas_images,
                     metadata['quad_titles'],
                     draw_titles=False,
+                    max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
                 )
             elif task.mode == ProcessingMode.POLARIZATION:
                 precolored = [images[0], *ImageProcessor.colormap_polarization(images[1], images[2], images[3])]
@@ -489,6 +490,7 @@ class ProcessingModule(BaseModule):
                     precolored,
                     metadata['quad_titles'],
                     draw_titles=False,
+                    max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
                 )
                 
             # 创建结果对象

@@ -16,6 +16,21 @@ from ..gui.styles import Styles
 class ImagePlotter:
     """图像绘制工具类，负责所有的图像绘制操作"""
 
+    MAX_DISPLAY_QUAD_TILE_SIZE = 2448
+
+    @classmethod
+    def get_quad_downsample_factor(cls, image_shape: Tuple[int, ...], max_tile_size: int | None = None) -> int:
+        """根据单个分图尺寸计算显示降采样倍率。"""
+        if max_tile_size is None or max_tile_size <= 0:
+            return 1
+
+        max_dim = max(image_shape[:2])
+        if max_dim > max_tile_size * 2:
+            return 4
+        if max_dim > max_tile_size:
+            return 2
+        return 1
+
     @staticmethod
     def draw_quad_titles(canvas: np.ndarray,
                          titles: List[str],
@@ -138,12 +153,18 @@ class ImagePlotter:
     @staticmethod
     def create_quad_canvas(images: List[np.ndarray],
                           titles: List[str],
-                          draw_titles: bool = True) -> Tuple[np.ndarray, List[Tuple[int, int]], Tuple[int, int]]:
+                          draw_titles: bool = True,
+                          max_tile_size: int | None = None) -> Tuple[np.ndarray, List[Tuple[int, int]], Tuple[int, int]]:
         """创建四分图画布"""
         if len(images) != 4 or len(titles) != 4:
             raise ValueError("必须提供4张图像和4个标题")
-            
+
+        downsample_factor = ImagePlotter.get_quad_downsample_factor(images[0].shape, max_tile_size)
         h, w = images[0].shape[:2]
+        if downsample_factor > 1:
+            h = max(1, h // downsample_factor)
+            w = max(1, w // downsample_factor)
+
         canvas = np.zeros((h*2, w*2, 3), dtype=np.uint8)
         
         # 计算布局信息
@@ -155,6 +176,8 @@ class ImagePlotter:
         for img in images:
             if len(img.shape) == 2:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            if downsample_factor > 1:
+                img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
             processed_images.append(img)
         
         for img, (y, x), title in zip(processed_images, quad_positions, titles):

@@ -45,6 +45,9 @@ MODE_LABELS = {
 }
 
 class ImageDisplay(QtWidgets.QWidget):
+    FAST_SCALE_PIXEL_THRESHOLD = 3_000_000
+    RESIZE_REFRESH_DELAY_MS = 16
+
     # 添加鼠标位置信号
     cursorPositionChanged = QtCore.Signal(dict)
     # 缩放交互信号
@@ -80,6 +83,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self._sensor_size = None            # 传感器尺寸: (width, height)
         self._rubber_band_clamp_rect = None # QRect: 四分图模式下橡皮筋的显示空间钳位边界
         self._rendered_canvas_shape = None  # 当前渲染画布尺寸缓存: (h, w)
+        self._resize_refresh_timer = None
 
         self.setup_ui()
         # 初始化时禁用控件
@@ -102,6 +106,9 @@ class ImageDisplay(QtWidgets.QWidget):
         self._cursor_overlay = _QuadCursorOverlay(self.image_label, self)
         self._cursor_overlay.hide()
         self._create_quad_title_labels()
+        self._resize_refresh_timer = QtCore.QTimer(self)
+        self._resize_refresh_timer.setSingleShot(True)
+        self._resize_refresh_timer.timeout.connect(self._refresh_after_resize)
         
         # 显示模式选择
         self.display_mode = QtWidgets.QComboBox()
@@ -258,8 +265,8 @@ class ImageDisplay(QtWidgets.QWidget):
         """窗口大小变化时重新显示图像"""
         super().resizeEvent(event)
         self._update_cursor_overlay_geometry()
-        # 如果有当前图像，则重新显示
-        self.refresh_current_image()
+        # 合并连续 resize 事件，避免拖动窗口时反复重组大画布
+        self._resize_refresh_timer.start(self.RESIZE_REFRESH_DELAY_MS)
 
     def _update_cursor_overlay_geometry(self):
         """同步游标叠加层几何。"""
@@ -278,20 +285,8 @@ class ImageDisplay(QtWidgets.QWidget):
                 return
 
             image = np.ascontiguousarray(image)
-                
-            # 转换为QImage
-            if len(image.shape) == 2:
-                h, w = image.shape
-                bytes_per_line = w
-                qt_image = QtGui.QImage(image.data, w, h, 
-                                      bytes_per_line, QtGui.QImage.Format_Grayscale8)
-            else:
-                # 只在这里转换为RGB用于显示
-                display_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                h, w = display_image.shape[:2]
-                bytes_per_line = 3 * w
-                qt_image = QtGui.QImage(display_image.data.tobytes(), w, h, 
-                                      bytes_per_line, QtGui.QImage.Format_RGB888)
+            h, w = image.shape[:2]
+            qt_image = self._create_qimage(image)
             
             # 获取显示区域大小
             label_size = self.image_label.size()
@@ -316,7 +311,7 @@ class ImageDisplay(QtWidgets.QWidget):
             scaled_pixmap = pixmap.scaled(
                 new_w, new_h,
                 QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation
+                self._get_scaling_transformation_mode((h, w))
             )
             
             # 更新显示
@@ -324,6 +319,42 @@ class ImageDisplay(QtWidgets.QWidget):
             
         except Exception as e:
             print(f"图像显示错误: {e}")
+
+    def _create_qimage(self, image: np.ndarray) -> QtGui.QImage:
+        """从 numpy 图像构建 QImage，优先避免大块颜色转换拷贝。"""
+        if len(image.shape) == 2:
+            h, w = image.shape
+            bytes_per_line = w
+            return QtGui.QImage(
+                image.data,
+                w,
+                h,
+                bytes_per_line,
+                QtGui.QImage.Format_Grayscale8,
+            )
+
+        h, w = image.shape[:2]
+        bytes_per_line = 3 * w
+        bgr_format = getattr(QtGui.QImage, 'Format_BGR888', None)
+        if bgr_format is not None:
+            return QtGui.QImage(image.data, w, h, bytes_per_line, bgr_format)
+
+        display_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        return QtGui.QImage(
+            display_image.data.tobytes(),
+            w,
+            h,
+            bytes_per_line,
+            QtGui.QImage.Format_RGB888,
+        )
+
+    def _get_scaling_transformation_mode(self, image_shape: Tuple[int, int]):
+        """大图显示时使用较轻的缩放策略，减少刷新峰值卡顿。"""
+        image_h, image_w = image_shape
+        pixel_count = image_h * image_w
+        if pixel_count >= self.FAST_SCALE_PIXEL_THRESHOLD:
+            return QtCore.Qt.FastTransformation
+        return QtCore.Qt.SmoothTransformation
 
     def has_display_image(self) -> bool:
         """当前是否有可用于显示或软件缩放的图像。"""
@@ -446,6 +477,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 images,
                 self._quad_titles,
                 draw_titles=False,
+                max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
             )
             return canvas
 
@@ -471,6 +503,17 @@ class ImageDisplay(QtWidgets.QWidget):
         canvas = self._compose_current_view_canvas()
         if canvas is not None:
             self._render_canvas(canvas)
+
+    def _refresh_after_resize(self):
+        """窗口 resize 结束后的延迟刷新。"""
+        if self._current_canvas is None:
+            return
+
+        if self.is_quad_view_mode() and not self.is_software_zoom_active():
+            self._render_canvas(self._current_canvas)
+            return
+
+        self.refresh_current_image()
 
     def reset_software_view(self, refresh: bool = True) -> bool:
         """重置软件缩放视图到完整画布。"""
@@ -597,7 +640,7 @@ class ImageDisplay(QtWidgets.QWidget):
             self.quad_size = (quad_h, quad_w)
         
         # 更新画布缓存
-        self._current_canvas = canvas.copy()
+        self._current_canvas = np.ascontiguousarray(canvas)
         self._software_view_roi = self._get_full_view_roi()
         
         # 显示画布
@@ -625,6 +668,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 precolored,
                 self._quad_titles,
                 draw_titles=False,
+                max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
             )
         else:
             canvas = np.ascontiguousarray(canvas)
@@ -635,7 +679,7 @@ class ImageDisplay(QtWidgets.QWidget):
             self.quad_size = (quad_h, quad_w)
         
         # 更新画布缓存
-        self._current_canvas = canvas.copy()
+        self._current_canvas = np.ascontiguousarray(canvas)
         self._software_view_roi = self._get_full_view_roi()
         
         # 显示画布
