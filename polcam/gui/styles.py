@@ -6,6 +6,7 @@ See LICENSE file for full license details.
 
 from qtpy.QtGui import QFont, QFontDatabase
 from qtpy.QtCore import QSize
+from qtpy import QtWidgets
 
 class Styles:
     """统一管理GUI样式的类"""
@@ -101,5 +102,41 @@ class Styles:
             }
             QToolButton {
                 padding: 6px;
+            }
+        """)
+
+    @classmethod
+    def apply_splitter_style(cls, splitter: QtWidgets.QSplitter):
+        """统一分割器样式，使面板边界更清晰且便于拖动。"""
+        splitter.setHandleWidth(3)
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: transparent;
+            }
+            QSplitter::handle:hover {
+                background-color: transparent;
+            }
+            QSplitter::handle:pressed {
+                background-color: transparent;
+            }
+            QSplitter::handle:horizontal {
+                margin: 0;
+                border-left: 1px solid #aeb6c1;
+            }
+            QSplitter::handle:vertical {
+                margin: 0;
+                border-top: 1px solid #aeb6c1;
+            }
+            QSplitter::handle:horizontal:hover {
+                border-left-color: #7f95ac;
+            }
+            QSplitter::handle:vertical:hover {
+                border-top-color: #7f95ac;
+            }
+            QSplitter::handle:horizontal:pressed {
+                border-left-color: #667c94;
+            }
+            QSplitter::handle:vertical:pressed {
+                border-top-color: #667c94;
             }
         """)

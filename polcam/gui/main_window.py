@@ -121,30 +121,32 @@ class MainWindow(QtWidgets.QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
 
         self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        Styles.apply_splitter_style(self.main_splitter)
+        self.main_splitter.setChildrenCollapsible(False)
         root_layout.addWidget(self.main_splitter)
 
-        top_widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(top_widget)
+        self.top_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        Styles.apply_splitter_style(self.top_splitter)
+        self.top_splitter.setChildrenCollapsible(False)
 
         # 左侧控制面板
         self.camera_control = CameraControl()
         self.camera_control.setMinimumWidth(300)  # 设置最小宽度
         self.camera_control.setMaximumWidth(400)  # 设置最大宽度
-        layout.addWidget(self.camera_control, 1)  # 比例因子为1
+        self.top_splitter.addWidget(self.camera_control)
         
         # 右侧图像显示
         self.image_display = ImageDisplay()
         self.image_display.setMinimumWidth(640)  # 设置最小宽度
-        layout.addWidget(self.image_display, 4)  # 比例因子为4
-        
-        # 设置布局的边距和控件之间的间距
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        self.top_splitter.addWidget(self.image_display)
+        self.top_splitter.setStretchFactor(0, 1)
+        self.top_splitter.setStretchFactor(1, 4)
+        self.top_splitter.setSizes([320, 880])
 
         self.gallery_panel = GalleryPanel()
         self.gallery_panel.setMinimumHeight(180)
 
-        self.main_splitter.addWidget(top_widget)
+        self.main_splitter.addWidget(self.top_splitter)
         self.main_splitter.addWidget(self.gallery_panel)
         self.main_splitter.setStretchFactor(0, 5)
         self.main_splitter.setStretchFactor(1, 2)
