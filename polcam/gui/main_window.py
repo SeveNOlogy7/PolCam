@@ -21,6 +21,12 @@ import os
 from ..core.toolbar_controller import ToolbarController
 from .widgets.tool_bar import ToolBar
 
+
+class _MainThreadEventBridge(QtCore.QObject):
+    """将后台事件安全转发到 Qt 主线程。"""
+
+    dispatch_event = QtCore.Signal(object)
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -31,6 +37,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gallery_service = GalleryService()
         self._preferred_display_mode = ProcessingMode.RAW
         self._current_settings = AppSettings()
+        self.close_flag = False
+        self._event_bridge = _MainThreadEventBridge(self)
+        self._event_bridge.dispatch_event.connect(
+            self._dispatch_gui_event,
+            QtCore.Qt.QueuedConnection,
+        )
+        self._gui_event_handlers = {
+            EventType.FRAME_PROCESSED: self._on_frame_processed,
+            EventType.ERROR_OCCURRED: self._on_error,
+            EventType.PROCESSING_STARTED: self._on_processing_started,
+            EventType.PROCESSING_COMPLETED: self._on_processing_completed,
+            EventType.CAMERA_CONNECTED: self._on_camera_connected,
+            EventType.CAMERA_DISCONNECTED: self._on_camera_disconnected,
+            EventType.FRAME_CAPTURED: self._on_frame_captured,
+            EventType.PARAMETER_CHANGED: self._on_parameter_changed,
+            EventType.RAW_FILE_LOADED: self._on_raw_file_loaded,
+            EventType.STATUS_MESSAGE_UPDATE: self._on_status_message_update,
+            EventType.STATUS_MESSAGE_CLEAR: self._on_status_message_clear,
+            EventType.ROI_CHANGED: self._on_roi_changed,
+        }
         
         # 设置全局字体
         app = QtWidgets.QApplication.instance()
@@ -76,24 +102,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.processor.initialize()
         
         event_manager = EventManager()
-        # 订阅处理模块事件
-        event_manager.subscribe(EventType.FRAME_PROCESSED, self._on_frame_processed)
-        event_manager.subscribe(EventType.ERROR_OCCURRED, self._on_error)
-        event_manager.subscribe(EventType.PROCESSING_STARTED, self._on_processing_started)
-        event_manager.subscribe(EventType.PROCESSING_COMPLETED, self._on_processing_completed)
+        self._subscribe_gui_events(event_manager)
         
         # 更新显示模式改变的连接
         self.image_display.display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
-        
-        # 设置关闭事件处理标志
-        self.close_flag = False
-
-        # 订阅相机事件
-        event_manager.subscribe(EventType.CAMERA_CONNECTED, self._on_camera_connected)
-        event_manager.subscribe(EventType.CAMERA_DISCONNECTED, self._on_camera_disconnected)
-        event_manager.subscribe(EventType.FRAME_CAPTURED, self._on_frame_captured)
-        event_manager.subscribe(EventType.ERROR_OCCURRED, self._on_error)
-        event_manager.subscribe(EventType.PARAMETER_CHANGED, self._on_parameter_changed)
 
         self._last_capture_time = 0.0  # 添加采集时间缓存
         self._last_process_time = 0.0  # 添加处理时间缓存
@@ -101,17 +113,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_frame_timestamp = None  # 添加时间戳属性
         self._camera_type = None  # 相机类型（彩色/黑白）
 
-        # 订阅RAW_FILE_LOADED事件
-        event_manager.subscribe(EventType.RAW_FILE_LOADED, self._on_raw_file_loaded)
-
-        # 订阅状态栏消息事件
-        event_manager.subscribe(EventType.STATUS_MESSAGE_UPDATE, self._on_status_message_update)
-        event_manager.subscribe(EventType.STATUS_MESSAGE_CLEAR, self._on_status_message_clear)
-
-        # 订阅 ROI 变更事件
-        event_manager.subscribe(EventType.ROI_CHANGED, self._on_roi_changed)
-
         self.restore_settings()
+
+    def _subscribe_gui_events(self, event_manager: EventManager):
+        """将 GUI 相关事件统一转发回主线程。"""
+        for event_type in self._gui_event_handlers:
+            event_manager.subscribe(event_type, self._event_bridge.dispatch_event.emit)
+
+    @QtCore.Slot(object)
+    def _dispatch_gui_event(self, event: Event):
+        """在 Qt 主线程中分发事件，避免后台线程直接操作控件。"""
+        if self.close_flag:
+            return
+
+        handler = self._gui_event_handlers.get(event.type)
+        if handler is not None:
+            handler(event)
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -442,11 +459,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.image_display.show_image(images[0])
         elif mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
             self.image_display.show_quad_view(
-                images, 
-                gray=(mode == ProcessingMode.QUAD_GRAY)
+                images,
+                gray=(mode == ProcessingMode.QUAD_GRAY),
+                canvas=result.display_canvas,
+                titles=result.metadata.get('quad_titles'),
             )
         elif mode == ProcessingMode.POLARIZATION:
-            self.image_display.show_polarization_quad_view(*images)
+            self.image_display.show_polarization_quad_view(
+                *images,
+                precolored=result.metadata.get('precolored_polarization'),
+                canvas=result.display_canvas,
+            )
 
         self.image_display.toolbar_controller.sync_zoom_coordinate_space()
 

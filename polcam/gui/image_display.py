@@ -79,6 +79,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self._current_roi = None            # 当前 ROI: (offset_x, offset_y, width, height)
         self._sensor_size = None            # 传感器尺寸: (width, height)
         self._rubber_band_clamp_rect = None # QRect: 四分图模式下橡皮筋的显示空间钳位边界
+        self._rendered_canvas_shape = None  # 当前渲染画布尺寸缓存: (h, w)
 
         self.setup_ui()
         # 初始化时禁用控件
@@ -98,6 +99,8 @@ class ImageDisplay(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding
         )
+        self._cursor_overlay = _QuadCursorOverlay(self.image_label, self)
+        self._cursor_overlay.hide()
         self._create_quad_title_labels()
         
         # 显示模式选择
@@ -254,8 +257,14 @@ class ImageDisplay(QtWidgets.QWidget):
     def resizeEvent(self, event: QtGui.QResizeEvent):
         """窗口大小变化时重新显示图像"""
         super().resizeEvent(event)
+        self._update_cursor_overlay_geometry()
         # 如果有当前图像，则重新显示
         self.refresh_current_image()
+
+    def _update_cursor_overlay_geometry(self):
+        """同步游标叠加层几何。"""
+        if hasattr(self, '_cursor_overlay') and self._cursor_overlay is not None:
+            self._cursor_overlay.setGeometry(self.image_label.rect())
 
     def _show_canvas(self, image: np.ndarray):
         """底层显示接口，处理图像缩放和实际显示
@@ -452,8 +461,10 @@ class ImageDisplay(QtWidgets.QWidget):
     def _render_canvas(self, canvas: np.ndarray):
         """渲染已经组装完成的显示画布。"""
         if canvas is not None:
+            self._rendered_canvas_shape = canvas.shape[:2]
             self._show_canvas(canvas)
             self._update_quad_title_labels(canvas)
+            self._update_cursor_overlay()
 
     def _render_current_view(self):
         """渲染当前软件视图。"""
@@ -557,23 +568,33 @@ class ImageDisplay(QtWidgets.QWidget):
             return image
         return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    def show_quad_view(self, images: List[np.ndarray], gray: bool = False):
+    def show_quad_view(self, images: List[np.ndarray], gray: bool = False,
+                       canvas: Optional[np.ndarray] = None,
+                       titles: Optional[List[str]] = None):
         """四角度视图显示接口"""
         # 保存原始图像列表的副本
         self.current_images = [img.copy() for img in images if img is not None]
         self._display_content_kind = 'quad'
-        self._quad_titles = ['0 deg', '45 deg', '90 deg', '135 deg']
+        self._quad_titles = list(titles) if titles is not None else ['0 deg', '45 deg', '90 deg', '135 deg']
         self._quad_gray_mode = gray
-        
-        if gray:
-            images = [self.to_grayscale(img) for img in images]
-            images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
-                
-        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
-            images,
-            self._quad_titles,
-            draw_titles=False,
-        )
+
+        if canvas is None:
+            if gray:
+                images = [self.to_grayscale(img) for img in images]
+                images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
+
+            canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
+                images,
+                self._quad_titles,
+                draw_titles=False,
+            )
+        else:
+            canvas = np.ascontiguousarray(canvas)
+            canvas_h, canvas_w = canvas.shape[:2]
+            quad_h = canvas_h // 2
+            quad_w = canvas_w // 2
+            self.quad_positions = [(0, 0), (0, quad_w), (quad_h, 0), (quad_h, quad_w)]
+            self.quad_size = (quad_h, quad_w)
         
         # 更新画布缓存
         self._current_canvas = canvas.copy()
@@ -582,26 +603,36 @@ class ImageDisplay(QtWidgets.QWidget):
         # 显示画布
         self._render_current_view()
 
-    def show_polarization_quad_view(self, image: np.ndarray, 
-                                  dolp: np.ndarray, aolp: np.ndarray, 
-                                  docp: np.ndarray):
+    def show_polarization_quad_view(self, image: np.ndarray,
+                                  dolp: np.ndarray, aolp: np.ndarray,
+                                  docp: np.ndarray,
+                                  precolored: Optional[List[np.ndarray]] = None,
+                                  canvas: Optional[np.ndarray] = None):
         """显示偏振分析的四视图"""
         # 保存原始图像列表的副本
         self.current_images = [img.copy() for img in [image, dolp, aolp, docp] if img is not None]
         self._display_content_kind = 'polarization'
         self._quad_titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
         self._quad_gray_mode = False
-        
-        dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
-            dolp, aolp, docp)
-            
-        images = [image, dolp_colored, aolp_colored, docp_colored]
-        
-        canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
-            images,
-            self._quad_titles,
-            draw_titles=False,
-        )
+
+        if precolored is None:
+            dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
+                dolp, aolp, docp)
+            precolored = [image, dolp_colored, aolp_colored, docp_colored]
+
+        if canvas is None:
+            canvas, self.quad_positions, self.quad_size = ImagePlotter.create_quad_canvas(
+                precolored,
+                self._quad_titles,
+                draw_titles=False,
+            )
+        else:
+            canvas = np.ascontiguousarray(canvas)
+            canvas_h, canvas_w = canvas.shape[:2]
+            quad_h = canvas_h // 2
+            quad_w = canvas_w // 2
+            self.quad_positions = [(0, 0), (0, quad_w), (quad_h, 0), (quad_h, quad_w)]
+            self.quad_size = (quad_h, quad_w)
         
         # 更新画布缓存
         self._current_canvas = canvas.copy()
@@ -628,6 +659,7 @@ class ImageDisplay(QtWidgets.QWidget):
             self.image_label.setMouseTracking(False)
             self.image_label.mouseMoveEvent = None
             self.cursor_info = None
+            self._update_cursor_overlay()
 
     # ==================== 缩放交互 ====================
 
@@ -783,11 +815,11 @@ class ImageDisplay(QtWidgets.QWidget):
         view_x, view_y, view_w, view_h = view_roi
 
         if self.is_quad_view_mode() and self.quad_size and self.quad_positions:
-            rendered_canvas = self._compose_current_view_canvas()
-            if rendered_canvas is None:
+            rendered_shape = self._rendered_canvas_shape
+            if rendered_shape is None:
                 return None
 
-            rendered_canvas_h, rendered_canvas_w = rendered_canvas.shape[:2]
+            rendered_canvas_h, rendered_canvas_w = rendered_shape
             rendered_x = int(mouse_x * rendered_canvas_w / display_width)
             rendered_y = int(mouse_y * rendered_canvas_h / display_height)
             rendered_x = max(0, min(rendered_x, rendered_canvas_w - 1))
@@ -836,12 +868,12 @@ class ImageDisplay(QtWidgets.QWidget):
         if geom is None or not self.quad_size:
             return None
 
-        rendered_canvas = self._compose_current_view_canvas()
-        if rendered_canvas is None:
+        rendered_shape = self._rendered_canvas_shape
+        if rendered_shape is None:
             return None
 
         x_offset, y_offset, display_width, display_height = geom
-        canvas_h, canvas_w = rendered_canvas.shape[:2]
+        canvas_h, canvas_w = rendered_shape
 
         mouse_x = display_x - x_offset
         mouse_y = display_y - y_offset
@@ -1032,16 +1064,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 **pixel_info
             }
         
-        # 四分图模式下绘制游标
-        if self.is_quad_view_mode():
-            canvas = self._compose_current_view_canvas()
-            if canvas is not None:
-                display_size = (self.image_label.width(), self.image_label.height())
-                canvas = ImagePlotter.draw_quad_cursors(
-                    canvas, self.cursor_info, self.quad_positions, 
-                    self.quad_size, display_size
-                )
-                self._render_canvas(canvas)
+        self._update_cursor_overlay()
         
         # 发送信号
         self.cursorPositionChanged.emit(self.cursor_info)
@@ -1101,13 +1124,122 @@ class ImageDisplay(QtWidgets.QWidget):
         if mouse_x < 0 or mouse_x >= display_width or mouse_y < 0 or mouse_y >= display_height:
             return None
 
-        composed_canvas = self._compose_current_view_canvas()
-        if composed_canvas is None:
+        rendered_shape = self._rendered_canvas_shape
+        if rendered_shape is None:
             return None
 
-        canvas_h, canvas_w = composed_canvas.shape[:2]
+        canvas_h, canvas_w = rendered_shape
         canvas_x = int(mouse_x * canvas_w / display_width)
         canvas_y = int(mouse_y * canvas_h / display_height)
         canvas_x = max(0, min(canvas_x, canvas_w - 1))
         canvas_y = max(0, min(canvas_y, canvas_h - 1))
         return (canvas_x, canvas_y)
+
+    def _update_cursor_overlay(self):
+        """更新四分图游标叠加层。"""
+        if not hasattr(self, '_cursor_overlay') or self._cursor_overlay is None:
+            return
+
+        show_overlay = (
+            self.cursor_enabled
+            and self.is_quad_view_mode()
+            and self.cursor_info is not None
+            and self.quad_size is not None
+            and bool(self.quad_positions)
+            and self._rendered_canvas_shape is not None
+        )
+
+        if not show_overlay:
+            self._cursor_overlay.clear_cursor()
+            return
+
+        self._update_cursor_overlay_geometry()
+        self._cursor_overlay.set_cursor_info(self.cursor_info)
+
+
+class _QuadCursorOverlay(QtWidgets.QWidget):
+    """在四分图上以叠加层方式绘制游标，避免重绘整张图像。"""
+
+    def __init__(self, parent: QtWidgets.QWidget, image_display: 'ImageDisplay'):
+        super().__init__(parent)
+        self._image_display = image_display
+        self._cursor_info = None
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
+        self.setAttribute(QtCore.Qt.WA_AlwaysStackOnTop, True)
+
+    def set_cursor_info(self, cursor_info: Optional[dict]):
+        self._cursor_info = cursor_info
+        if cursor_info is None:
+            self.hide()
+        else:
+            self.show()
+            self.raise_()
+        self.update()
+
+    def clear_cursor(self):
+        self.set_cursor_info(None)
+
+    def paintEvent(self, event: QtGui.QPaintEvent):
+        super().paintEvent(event)
+        if self._cursor_info is None:
+            return
+
+        display = self._image_display
+        geom = display._get_display_geometry()
+        rendered_shape = display._rendered_canvas_shape
+        if geom is None or rendered_shape is None or not display.quad_positions or not display.quad_size:
+            return
+
+        cursor_pos = self._cursor_info.get('cursor_quad_position')
+        if cursor_pos is None:
+            return
+
+        x_offset, y_offset, display_width, display_height = geom
+        canvas_h, canvas_w = rendered_shape
+        quad_h, quad_w = display.quad_size
+        rel_x, rel_y = cursor_pos
+
+        scale_x = display_width / canvas_w if canvas_w else 1.0
+        scale_y = display_height / canvas_h if canvas_h else 1.0
+        scale = min(scale_x, scale_y)
+        cursor_size = 20
+        line_thickness = 2
+        dot_radius = 3
+        dash_length = 5
+
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, False)
+
+        green_pen = QtGui.QPen(QtGui.QColor(0, 255, 0), line_thickness)
+        white_pen = QtGui.QPen(QtGui.QColor(255, 255, 255), 1)
+        white_pen.setStyle(QtCore.Qt.DashLine)
+        painter.setPen(green_pen)
+        painter.setBrush(QtGui.QColor(0, 255, 0))
+
+        for quad_y, quad_x in display.quad_positions:
+            center_x = x_offset + (quad_x + rel_x) * scale_x
+            center_y = y_offset + (quad_y + rel_y) * scale_y
+            left = x_offset + quad_x * scale_x
+            right = x_offset + (quad_x + quad_w) * scale_x
+            top = y_offset + quad_y * scale_y
+            bottom = y_offset + (quad_y + quad_h) * scale_y
+
+            painter.setPen(green_pen)
+            painter.drawLine(
+                QtCore.QPointF(center_x - cursor_size, center_y),
+                QtCore.QPointF(center_x + cursor_size, center_y),
+            )
+            painter.drawLine(
+                QtCore.QPointF(center_x, center_y - cursor_size),
+                QtCore.QPointF(center_x, center_y + cursor_size),
+            )
+            painter.drawEllipse(QtCore.QPointF(center_x, center_y), dot_radius, dot_radius)
+
+            painter.setPen(white_pen)
+            painter.drawLine(QtCore.QPointF(left, center_y), QtCore.QPointF(center_x - cursor_size, center_y))
+            painter.drawLine(QtCore.QPointF(center_x + cursor_size, center_y), QtCore.QPointF(right, center_y))
+            painter.drawLine(QtCore.QPointF(center_x, top), QtCore.QPointF(center_x, center_y - cursor_size))
+            painter.drawLine(QtCore.QPointF(center_x, center_y + cursor_size), QtCore.QPointF(center_x, bottom))
+
+        painter.end()

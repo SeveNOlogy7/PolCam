@@ -5,6 +5,9 @@ See LICENSE file for full license details.
 """
 
 import pytest
+import threading
+import time
+from qtpy import QtCore, QtGui
 from qtpy.QtCore import Qt, QSize
 from qtpy.QtWidgets import QApplication
 from unittest.mock import MagicMock, patch
@@ -12,6 +15,7 @@ from polcam.gui.main_window import MainWindow
 from polcam.gui.camera_control import CameraControl
 from polcam.gui.image_display import ImageDisplay
 from polcam.gui.styles import Styles
+from polcam.core.events import Event, EventType
 from polcam.core.processing_module import ProcessingMode
 import numpy as np
 
@@ -420,6 +424,143 @@ def test_style_application(qapp):
     # 测试下拉框样式
     assert window.image_display.display_mode.font().pointSize() == Styles.FONT_MEDIUM
     assert window.image_display.display_mode.minimumHeight() == Styles.HEIGHT_MEDIUM
+
+
+def test_main_window_dispatches_gui_events_on_main_thread(main_window, qapp):
+    """测试后台线程发出的 GUI 事件会排队切回主线程执行。"""
+
+    class EventThreadRecorder(QtCore.QObject):
+        def __init__(self):
+            super().__init__()
+            self.gui_thread = None
+            self.python_thread_id = None
+
+        def record(self, _event):
+            self.gui_thread = QtCore.QThread.currentThread()
+            self.python_thread_id = threading.get_ident()
+
+    recorder = EventThreadRecorder()
+    main_window._event_bridge.dispatch_event.connect(
+        recorder.record,
+        QtCore.Qt.ConnectionType.QueuedConnection,
+    )
+
+    def emit_from_worker():
+        main_window._event_bridge.dispatch_event.emit(
+            Event(EventType.STATUS_MESSAGE_UPDATE, {"message": "后台线程消息"})
+        )
+
+    worker = threading.Thread(target=emit_from_worker)
+    worker.start()
+    worker.join()
+
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        qapp.processEvents()
+        if main_window.status_label.text() == "后台线程消息" and recorder.gui_thread is not None:
+            break
+        time.sleep(0.01)
+
+    assert main_window.status_label.text() == "后台线程消息"
+    assert recorder.gui_thread == qapp.thread()
+    assert recorder.python_thread_id == threading.main_thread().ident
+
+
+def test_show_polarization_quad_view_reuses_precolored_canvas(qapp):
+    """测试预计算偏振画布时不会在主线程重复做伪彩映射。"""
+    display = ImageDisplay()
+    image = np.zeros((40, 40, 3), dtype=np.uint8)
+    scalar = np.zeros((40, 40), dtype=np.float32)
+    precolored = [np.zeros((40, 40, 3), dtype=np.uint8) for _ in range(4)]
+    canvas = np.zeros((80, 80, 3), dtype=np.uint8)
+
+    with patch('polcam.gui.image_display.ImageProcessor.colormap_polarization') as colormap:
+        display.show_polarization_quad_view(
+            image,
+            scalar,
+            scalar,
+            scalar,
+            precolored=precolored,
+            canvas=canvas,
+        )
+
+    colormap.assert_not_called()
+    assert display.quad_size == (40, 40)
+    assert len(display.quad_positions) == 4
+
+
+def test_show_quad_view_reuses_prebuilt_canvas(qapp):
+    """测试预计算四分图画布时主线程不会重新组装画布。"""
+    display = ImageDisplay()
+    images = [np.zeros((30, 30), dtype=np.uint8) for _ in range(4)]
+    canvas = np.zeros((60, 60, 3), dtype=np.uint8)
+
+    with patch('polcam.gui.image_display.ImagePlotter.create_quad_canvas') as create_canvas:
+        display.show_quad_view(images, gray=True, canvas=canvas)
+
+    create_canvas.assert_not_called()
+    assert display.quad_size == (30, 30)
+    assert len(display.quad_positions) == 4
+
+
+def test_quad_cursor_overlay_does_not_rerender_canvas_on_mouse_move(qapp):
+    """测试四分图游标移动时不再重绘整张画布。"""
+    display = ImageDisplay()
+    images = [np.full((80, 80), fill_value=index, dtype=np.uint8) for index in range(4)]
+
+    display.resize(800, 600)
+    display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+    display.show_quad_view(images, gray=True)
+    display.show()
+    qapp.processEvents()
+    display.set_cursor_mode(True)
+
+    geom = display._get_display_geometry()
+    assert geom is not None
+    x_offset, y_offset, display_width, display_height = geom
+    event_x = int(x_offset + display_width * 0.25)
+    event_y = int(y_offset + display_height * 0.25)
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(event_x, event_y),
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.KeyboardModifier.NoModifier,
+    )
+
+    with patch.object(display, '_render_canvas') as render_canvas:
+        display._on_mouse_move(event)
+
+    render_canvas.assert_not_called()
+    assert display.cursor_info is not None
+    assert display._cursor_overlay.isVisible()
+
+
+def test_quad_roi_mapping_uses_cached_render_shape(qapp):
+    """测试四分图交互坐标映射使用缓存尺寸而不是重组画布。"""
+    display = ImageDisplay()
+    images = [np.full((80, 80), fill_value=index, dtype=np.uint8) for index in range(4)]
+
+    display.resize(800, 600)
+    display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+    display.show_quad_view(images, gray=True)
+    display.show()
+    qapp.processEvents()
+
+    geom = display._get_display_geometry()
+    assert geom is not None
+    x_offset, y_offset, display_width, display_height = geom
+    event_x = int(x_offset + display_width * 0.25)
+    event_y = int(y_offset + display_height * 0.25)
+
+    with patch.object(display, '_compose_current_view_canvas', side_effect=AssertionError('should not recompose')):
+        source_coords = display._display_to_source_coords(event_x, event_y)
+        render_coords = display._display_to_render_canvas_coords(event_x, event_y)
+        quad_rect = display._get_quad_display_rect(event_x, event_y)
+
+    assert source_coords is not None
+    assert render_coords is not None
+    assert quad_rect is not None
 
 def test_gui_error_handling(main_window):
     """测试GUI错误处理"""

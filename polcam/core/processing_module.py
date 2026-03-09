@@ -20,6 +20,7 @@ from .events import EventType, Event
 from .image_processor import ImageProcessor
 from .caching import WhiteBalanceCache
 from .camera_module import CameraType
+from .image_plotter import ImagePlotter
 
 from gxipy.ImageFormatConvert import ImageFormatConvert
 from gxipy.gxidef import GxPixelFormatEntry, DxValidBit
@@ -104,6 +105,7 @@ class ProcessingResult:
     images: List[np.ndarray]
     metadata: Dict[str, Any]
     timestamp: float
+    display_canvas: Optional[np.ndarray] = None
 
 class ProcessingTask:
     """处理任务类"""
@@ -327,6 +329,8 @@ class ProcessingModule(BaseModule):
     def _process_task(self, task: ProcessingTask) -> Optional[ProcessingResult]:
         """处理单个任务"""
         try:
+            display_canvas = None
+
             # 安全防护：黑白相机不支持彩色模式，回退到RAW
             if self._is_mono and task.mode in [
                 ProcessingMode.SINGLE_COLOR,
@@ -426,7 +430,8 @@ class ProcessingModule(BaseModule):
                     images = [self._processor.to_grayscale(img) for img in images]
                 metadata = {
                     'angles': [0, 45, 90, 135],
-                    'wb_enabled': wb_applied
+                    'wb_enabled': wb_applied,
+                    'quad_titles': ['0 deg', '45 deg', '90 deg', '135 deg'],
                 }
                 
             elif task.mode == ProcessingMode.POLARIZATION:
@@ -458,7 +463,8 @@ class ProcessingModule(BaseModule):
                 metadata = {
                     'type': ['merged', 'dolp', 'aolp', 'docp'],
                     'is_color': is_color,
-                    'pol_wb_enabled': wb_enabled
+                    'pol_wb_enabled': wb_enabled,
+                    'quad_titles': ['IMAGE', 'DOLP', 'AOLP', 'DOCP'],
                 }
                 
             else:
@@ -466,13 +472,32 @@ class ProcessingModule(BaseModule):
                 
             # 应用图像增强，对所有可增强的图像进行处理
             images = self._enhance_images(images, task.params)
+
+            if task.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
+                canvas_images = images
+                if task.mode == ProcessingMode.QUAD_GRAY:
+                    canvas_images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in images]
+                display_canvas, _, _ = ImagePlotter.create_quad_canvas(
+                    canvas_images,
+                    metadata['quad_titles'],
+                    draw_titles=False,
+                )
+            elif task.mode == ProcessingMode.POLARIZATION:
+                precolored = [images[0], *ImageProcessor.colormap_polarization(images[1], images[2], images[3])]
+                metadata['precolored_polarization'] = precolored
+                display_canvas, _, _ = ImagePlotter.create_quad_canvas(
+                    precolored,
+                    metadata['quad_titles'],
+                    draw_titles=False,
+                )
                 
             # 创建结果对象
             result = ProcessingResult(
                 mode=task.mode,
                 images=images,
                 metadata=metadata,
-                timestamp=time.time()
+                timestamp=time.time(),
+                display_canvas=display_canvas,
             )
             
             return result
