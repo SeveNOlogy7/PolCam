@@ -14,7 +14,8 @@ class ToolBar(QtWidgets.QToolBar):
         self.setMovable(False)
         # 应用样式
         Styles.apply_toolbar_style(self)
-        self.setIconSize(QtCore.QSize(24, 24))
+        self.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.setIconSize(Styles.TOOLBAR_ICON_SIZE)
         self.setup_actions()
 
     def setup_actions(self):
@@ -46,5 +47,23 @@ class ToolBar(QtWidgets.QToolBar):
         """加载图标"""
         icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "resources", "icon", filename)
         if os.path.exists(icon_path):
-            return QtGui.QIcon(icon_path)
+            icon = QtGui.QIcon(icon_path)
+            if not icon.isNull():
+                return icon
+
+            # Some environments do not provide a working SVG icon engine for QIcon.
+            # Fall back to rendering the SVG into a pixmap explicitly.
+            try:
+                from qtpy import QtSvg
+
+                renderer = QtSvg.QSvgRenderer(icon_path)
+                if renderer.isValid():
+                    pixmap = QtGui.QPixmap(Styles.TOOLBAR_ICON_SIZE)
+                    pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+                    painter = QtGui.QPainter(pixmap)
+                    renderer.render(painter)
+                    painter.end()
+                    return QtGui.QIcon(pixmap)
+            except Exception:
+                pass
         return QtGui.QIcon()

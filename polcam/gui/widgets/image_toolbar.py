@@ -99,13 +99,34 @@ class ImageToolbar(QtWidgets.QWidget):
         )
         
         if os.path.exists(icon_path):
-            icon = QtGui.QIcon(icon_path)
+            icon = self._load_icon(icon_path)
             btn.setIcon(icon)
             # 设置图标大小为按钮大小的85%
             icon_size = btn_size * 0.85
             btn.setIconSize(icon_size)
         
         return btn
+
+    def _load_icon(self, icon_path: str) -> QtGui.QIcon:
+        icon = QtGui.QIcon(icon_path)
+        if not icon.isNull():
+            return icon
+
+        try:
+            from qtpy import QtSvg
+
+            renderer = QtSvg.QSvgRenderer(icon_path)
+            if renderer.isValid():
+                pixmap = QtGui.QPixmap(Styles.TOOLBAR_ICON_SIZE)
+                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+                painter = QtGui.QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                return QtGui.QIcon(pixmap)
+        except Exception:
+            pass
+
+        return QtGui.QIcon()
     
     def _on_button_group_clicked(self, clicked_button: QtWidgets.QPushButton):
         """处理按钮组点击事件"""
