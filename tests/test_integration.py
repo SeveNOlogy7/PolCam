@@ -296,8 +296,13 @@ def test_display_mode_integration(qapp, mock_camera):
     test_frame[4:12, 4:12] = 200  # 添加一个明显的特征
     mock_camera.get_frame = lambda: test_frame
     
-    # 测试所有显示模式
+    # 测试所有显示模式：切换模式并喂入一帧不应抛异常，显示层应持有可用图像
     for mode in range(window.image_display.display_mode.count()):
         window.image_display.display_mode.setCurrentIndex(mode)
-        window.handle_capture()
-        assert window.image_display.image_label.pixmap() is not None
+        window._update_frame_and_display(test_frame)
+        assert window.image_display.has_display_image()
+
+    # 原始图像模式为同步渲染，应立刻产出像素图
+    window.image_display.display_mode.setCurrentIndex(0)
+    window._update_frame_and_display(test_frame)
+    assert window.image_display.image_label.pixmap() is not None

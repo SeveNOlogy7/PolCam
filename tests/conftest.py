@@ -5,9 +5,23 @@ See LICENSE file for full license details.
 """
 
 import pytest
-from qtpy import QtWidgets
 import sys
 from unittest.mock import MagicMock
+
+try:  # 真实 SDK 可用时不干预，保证有相机/驱动的机器上测的是真代码
+    import gxipy  # noqa: F401
+except Exception:  # 未安装大恒 Galaxy 驱动时 gxipy 在 import 阶段就会抛错
+    for _gxipy_module in (
+        "gxipy",
+        "gxipy.gxiapi",
+        "gxipy.gxwrapper",
+        "gxipy.ImageFormatConvert",
+        "gxipy.ImageProc",
+        "gxipy.gxidef",
+    ):
+        sys.modules[_gxipy_module] = MagicMock()
+
+from qtpy import QtWidgets
 
 
 def _make_mock_camera():

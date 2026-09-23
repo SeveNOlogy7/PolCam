@@ -634,9 +634,12 @@ def test_show_canvas_skips_bgr_to_rgb_conversion_when_direct_bgr_supported(qapp)
 
 def test_gui_error_handling(main_window):
     """测试GUI错误处理"""
-    # 测试未连接相机时的错误处理
-    main_window.handle_capture()  # 应该显示错误消息而不是崩溃
-    
+    # 测试未连接相机时的错误处理（断言弹框，而不是真的弹出模态框阻塞测试）
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as mock_warning:
+        main_window.handle_capture()  # 应该显示错误消息而不是崩溃
+        assert mock_warning.called
+        assert "相机未连接" in mock_warning.call_args[0][2]
+
     # 测试无效的显示模式
     main_window.image_display.display_mode.setCurrentIndex(0)
     main_window._update_frame_and_display(None)  # 应该优雅地处理空帧
