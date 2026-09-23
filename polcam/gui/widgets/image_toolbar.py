@@ -29,16 +29,15 @@ class ImageToolbar(QtWidgets.QWidget):
         layout.setSpacing(2)
         
         # 创建工具按钮
-        self.cursor_btn = self._create_tool_button("cursor", "选择")
-        self.zoom_in_btn = self._create_tool_button("zoom-in", "放大")
-        self.zoom_out_btn = self._create_tool_button("zoom-out", "缩小")
-        self.zoom_area_btn = self._create_tool_button("zoom-area", "区域放大")
-        self.reset_btn = self._create_tool_button("reset", "复原")
+        self.cursor_btn = self._create_tool_button("cursor", "游标", "悬停查看像素数值，再次点击退出")
+        self.zoom_in_btn = self._create_tool_button("zoom-in", "放大", "点击图像中心区域放大")
+        self.zoom_out_btn = self._create_tool_button("zoom-out", "缩小", "点击图像区域缩小")
+        self.zoom_area_btn = self._create_tool_button("zoom-area", "区域放大", "拖拽框选要放大的区域")
+        self.reset_btn = self._create_tool_button("reset", "复原", "恢复整幅图像的原始显示")
         
         # 统一设置按钮属性
         for btn in [self.cursor_btn, self.zoom_in_btn, self.zoom_out_btn, 
                    self.zoom_area_btn, self.reset_btn]:
-            btn.setFocusPolicy(QtCore.Qt.NoFocus)  # 禁用焦点
             btn.setCursor(QtCore.Qt.PointingHandCursor)  # 设置鼠标指针
         
         # 设置按钮为可选中状态
@@ -75,14 +74,25 @@ class ImageToolbar(QtWidgets.QWidget):
         # 固定高度
         self.setFixedHeight(Styles.TOOLBAR_HEIGHT)
         
-        # 设置固定宽度为工具栏高度乘以按钮数量
+        # 按按钮实际尺寸排布宽度，避免留出无内容空隙
         button_count = layout.count()
-        self.setFixedWidth(Styles.TOOLBAR_HEIGHT * button_count)
+        margins = layout.contentsMargins()
+        self.setFixedWidth(
+            Styles.TOOLBAR_ICON_SIZE.width() * button_count
+            + layout.spacing() * max(0, button_count - 1)
+            + margins.left() + margins.right()
+        )
         
-    def _create_tool_button(self, icon_name: str, tooltip: str) -> QtWidgets.QPushButton:
+    def _create_tool_button(
+        self, icon_name: str, name: str, description: str
+    ) -> QtWidgets.QPushButton:
         """创建工具按钮"""
         btn = QtWidgets.QPushButton()
-        btn.setToolTip(tooltip)
+        btn.setToolTip(f"{name}：{description}")
+        # 纯图标按钮必须自带无障碍名称，否则读屏软件读不出内容
+        btn.setAccessibleName(name)
+        btn.setFocusPolicy(QtCore.Qt.StrongFocus)
+        btn.setAutoDefault(False)
         
         # 使用Styles中定义的工具栏按钮尺寸
         btn_size = Styles.TOOLBAR_ICON_SIZE

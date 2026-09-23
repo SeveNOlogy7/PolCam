@@ -88,7 +88,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self.setup_ui()
         # 初始化时禁用控件
         self.enable_display_controls(False)
-        self.show_default_image()
+        self.show_help_view()
         
     def setup_ui(self):
         # 创建主布局
@@ -106,6 +106,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self._cursor_overlay = _QuadCursorOverlay(self.image_label, self)
         self._cursor_overlay.hide()
         self._create_quad_title_labels()
+        self._create_help_overlay()
         self._resize_refresh_timer = QtCore.QTimer(self)
         self._resize_refresh_timer.setSingleShot(True)
         self._resize_refresh_timer.timeout.connect(self._refresh_after_resize)
@@ -113,8 +114,6 @@ class ImageDisplay(QtWidgets.QWidget):
         # 显示模式选择
         self.display_mode = QtWidgets.QComboBox()
         Styles.apply_combobox_style(self.display_mode)
-        self.display_mode.setFont(QtGui.QFont("", 11))
-        self.display_mode.setMinimumHeight(30)
         self._populate_display_modes(COLOR_MODES)
         
         # 创建工具栏和控制器
@@ -270,6 +269,7 @@ class ImageDisplay(QtWidgets.QWidget):
 
     def _update_cursor_overlay_geometry(self):
         """同步游标叠加层几何。"""
+        self._sync_help_overlay_geometry()
         if hasattr(self, '_cursor_overlay') and self._cursor_overlay is not None:
             self._cursor_overlay.setGeometry(self.image_label.rect())
 
@@ -493,6 +493,7 @@ class ImageDisplay(QtWidgets.QWidget):
     def _render_canvas(self, canvas: np.ndarray):
         """渲染已经组装完成的显示画布。"""
         if canvas is not None:
+            self.show_image_view()
             self._rendered_canvas_shape = canvas.shape[:2]
             self._show_canvas(canvas)
             self._update_quad_title_labels(canvas)
@@ -685,12 +686,97 @@ class ImageDisplay(QtWidgets.QWidget):
         # 显示画布
         self._render_current_view()
 
-    def show_default_image(self):
-        """显示默认的帮助图像"""
-        default_image = ImagePlotter.get_default_image()
-        if default_image is not None:
-            self.show_image(default_image)
-            
+    HELP_SECTIONS = (
+        ("基本操作", (
+            "连接相机：点击左侧“连接相机”按钮",
+            "调节图像：使用曝光和增益控制",
+            "采集图像：选择“单帧采集”或“连续采集”",
+            "显示模式：在顶部下拉框切换显示方式",
+        )),
+        ("图像工具", (
+            "游标：查看图像像素信息",
+            "缩放：放大、缩小，或框选区域放大",
+            "复原：恢复原始显示",
+        )),
+        ("图像处理", (
+            "白平衡：彩色模式下可开启自动白平衡",
+            "偏振分析：查看 DOLP、AOLP 等偏振信息",
+            "保存：导出原始图像和处理结果",
+            "读取：载入已保存的原始图像",
+        )),
+    )
+
+    def _create_help_overlay(self):
+        """在图像区上构建引导页覆盖控件，替代原先烤进位图里的使用说明。
+
+        作为 image_label 的子控件而不是布局里的兄弟控件，避免改变图像区
+        已有的控件所有权链。
+        """
+        page = _HelpOverlay(self, self.image_label)
+        page.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding
+        )
+
+        vertical = QtWidgets.QVBoxLayout(page)
+        vertical.addStretch(1)
+
+        content = QtWidgets.QWidget(page)
+        content.setMaximumWidth(460)
+        vertical.addWidget(content)
+        vertical.setAlignment(content, QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        vertical.addStretch(1)
+
+        column = QtWidgets.QVBoxLayout(content)
+        column.setSpacing(Styles.SPACING_MEDIUM)
+
+        title = QtWidgets.QLabel("偏振相机控制系统", content)
+        title.setFont(Styles.get_bold_font(Styles.FONT_XL))
+        title.setAlignment(QtCore.Qt.AlignHCenter)
+        column.addWidget(title)
+
+        subtitle = QtWidgets.QLabel("尚未载入图像，可按下面的步骤开始", content)
+        subtitle.setFont(Styles.get_font(Styles.FONT_MEDIUM))
+        subtitle.setAlignment(QtCore.Qt.AlignHCenter)
+        column.addWidget(subtitle)
+
+        for heading, lines in self.HELP_SECTIONS:
+            column.addSpacing(Styles.SPACING_MEDIUM)
+
+            section_title = QtWidgets.QLabel(heading, content)
+            section_title.setFont(Styles.get_bold_font(Styles.FONT_LARGE))
+            column.addWidget(section_title)
+
+            for line in lines:
+                item = QtWidgets.QLabel(f"· {line}", content)
+                item.setFont(Styles.get_font(Styles.FONT_MEDIUM))
+                item.setIndent(Styles.SPACING_MEDIUM)
+                column.addWidget(item)
+
+        hint = QtWidgets.QLabel("点击任意处返回图像", content)
+        hint.setFont(Styles.get_font(Styles.FONT_SMALL))
+        hint.setAlignment(QtCore.Qt.AlignHCenter)
+        column.addSpacing(Styles.SPACING_LARGE)
+        column.addWidget(hint)
+
+        page.hide()
+        self.help_view = page
+
+    def show_help_view(self):
+        """显示引导页。引导页不是图像数据，因此不会影响 has_display_image()。"""
+        self._sync_help_overlay_geometry()
+        self.help_view.show()
+        self.help_view.raise_()
+
+    def show_image_view(self):
+        """隐藏引导页，露出图像。"""
+        self.help_view.hide()
+
+    def _sync_help_overlay_geometry(self):
+        """让引导页铺满图像区。"""
+        if hasattr(self, 'help_view'):
+            self.help_view.setGeometry(self.image_label.rect())
+
     def set_cursor_mode(self, enabled: bool):
         """设置游标模式"""
         self.cursor_enabled = enabled
@@ -1287,3 +1373,19 @@ class _QuadCursorOverlay(QtWidgets.QWidget):
             painter.drawLine(QtCore.QPointF(center_x, center_y + cursor_size), QtCore.QPointF(center_x, bottom))
 
         painter.end()
+
+
+class _HelpOverlay(QtWidgets.QWidget):
+    """引导页覆盖层，点击任意处退回图像视图。"""
+
+    def __init__(self, image_display: 'ImageDisplay', parent: QtWidgets.QWidget):
+        super().__init__(parent)
+        self._image_display = image_display
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
+        if event.button() == QtCore.Qt.LeftButton:
+            self._image_display.show_image_view()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)

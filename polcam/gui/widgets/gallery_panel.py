@@ -41,10 +41,9 @@ class GalleryPanel(QtWidgets.QWidget):
         layout.setSpacing(6)
 
         header_layout = QtWidgets.QHBoxLayout()
+        header_layout.setSpacing(Styles.SPACING_MEDIUM)
         title_label = QtWidgets.QLabel("图库")
-        title_font = title_label.font()
-        title_font.setBold(True)
-        title_label.setFont(title_font)
+        title_label.setFont(Styles.get_bold_font(Styles.FONT_LARGE))
         header_layout.addWidget(title_label)
 
         header_layout.addStretch(1)
@@ -60,16 +59,22 @@ class GalleryPanel(QtWidgets.QWidget):
         header_layout.addWidget(self.view_mode_combo)
 
         self.open_button = QtWidgets.QPushButton("读取")
+        self.open_button.setToolTip("在上方图像区中查看选中的图像")
         self.open_button.clicked.connect(self._open_selected_item)
         header_layout.addWidget(self.open_button)
 
         self.delete_button = QtWidgets.QPushButton("删除")
+        self.delete_button.setToolTip("删除选中的图像文件及图库记录")
         self.delete_button.clicked.connect(self._delete_selected_item)
         header_layout.addWidget(self.delete_button)
 
         self.refresh_button = QtWidgets.QPushButton("刷新")
+        self.refresh_button.setToolTip("重新扫描自动保存目录")
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         header_layout.addWidget(self.refresh_button)
+
+        for button in (self.open_button, self.delete_button, self.refresh_button):
+            Styles.apply_button_style(button)
 
         layout.addLayout(header_layout)
 
@@ -105,8 +110,13 @@ class GalleryPanel(QtWidgets.QWidget):
 
         self.empty_label = QtWidgets.QLabel("暂无自动保存图像")
         self.empty_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setStyleSheet("color: #666666;")
-        layout.addWidget(self.empty_label)
+        empty_palette = self.empty_label.palette()
+        empty_palette.setColor(
+            QtGui.QPalette.WindowText,
+            empty_palette.color(QtGui.QPalette.PlaceholderText),
+        )
+        self.empty_label.setPalette(empty_palette)
+        layout.addWidget(self.empty_label, 1)
 
         self._set_empty_state(True)
         self._update_action_state()
@@ -156,7 +166,8 @@ class GalleryPanel(QtWidgets.QWidget):
     def _create_thumbnail_icon(self, file_path: str) -> QtGui.QIcon:
         image = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
         if image is None:
-            return self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxWarning)
+            # 预览读不出属于缺图而非错误，用中性文件图标，避免整排警告三角
+            return self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileIcon)
 
         height, width = image.shape
         qimage = QtGui.QImage(

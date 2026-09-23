@@ -541,6 +541,6 @@ class ToolbarController(BaseModule):
 
     def _handle_help(self):
         """处理帮助按钮点击事件"""
-        # 显示默认的帮助图像
-        self._main_window.image_display.show_default_image()
+        # 显示引导页
+        self._main_window.image_display.show_help_view()
         self._main_window.status_label.setText("显示帮助信息")

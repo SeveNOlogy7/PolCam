@@ -6,7 +6,7 @@ See LICENSE file for full license details.
 白平衡控制组组件
 """
 
-from qtpy import QtWidgets, QtCore, QtGui
+from qtpy import QtWidgets, QtCore
 from .control_group import ControlGroup
 from ..styles import Styles
 
@@ -23,12 +23,10 @@ class WhiteBalance(ControlGroup):
         wb_layout = QtWidgets.QHBoxLayout()
         
         self.auto_check = QtWidgets.QCheckBox("自动")
-        self.auto_check.setFont(QtGui.QFont("", 11))
         Styles.apply_checkbox_style(self.auto_check)
         
         self.once_btn = QtWidgets.QPushButton("单次")
-        self.once_btn.setFont(QtGui.QFont("", 11))
-        self.once_btn.setMinimumHeight(30)
+        self.once_btn.setToolTip("执行一次自动白平衡后停止")
         Styles.apply_button_style(self.once_btn)
         
         wb_layout.addWidget(self.auto_check)

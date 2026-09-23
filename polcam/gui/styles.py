@@ -12,13 +12,19 @@ class Styles:
     """统一管理GUI样式的类"""
     
     # 字体大小定义
-    FONT_LARGE = 12    # 大号字体
-    FONT_MEDIUM = 11   # 中号字体
-    FONT_SMALL = 10    # 小号字体
+    FONT_XL = 14     # 特大号字体（引导页标题）
+    FONT_LARGE = 12  # 大号字体
+    FONT_MEDIUM = 11 # 中号字体
+    FONT_SMALL = 10  # 小号字体
     
     # 字体族定义
     FONT_FAMILIES = ["Microsoft YaHei", "SimHei", "sans-serif"]
     
+    # 间距定义
+    SPACING_SMALL = 4
+    SPACING_MEDIUM = 8
+    SPACING_LARGE = 16
+
     # 控件高度定义
     HEIGHT_LARGE = 32  # 大号高度
     HEIGHT_MEDIUM = 30 # 中号高度
@@ -56,6 +62,13 @@ class Styles:
         font.setPointSize(size)
         return font
     
+    @classmethod
+    def get_bold_font(cls, size: int) -> QFont:
+        """获取指定大小的粗体字体"""
+        font = cls.get_font(size)
+        font.setBold(True)
+        return font
+
     @classmethod
     def setup_application_font(cls, app):
         """设置应用程序全局字体"""

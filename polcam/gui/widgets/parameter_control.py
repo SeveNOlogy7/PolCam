@@ -26,7 +26,11 @@ class ParameterControl(ControlGroup):
     def _setup_parameter_ui(self):
         # 参数值控制
         value_layout = QtWidgets.QHBoxLayout()
-        value_layout.addWidget(QtWidgets.QLabel(f"{self.param_name} ({self.unit}):" if self.unit else f"{self.param_name}:"))
+        value_label = QtWidgets.QLabel(
+            f"{self.param_name} ({self.unit}):" if self.unit else f"{self.param_name}:"
+        )
+        value_label.setFont(Styles.get_font(Styles.FONT_MEDIUM))
+        value_layout.addWidget(value_label)
         
         self.value_spin = QtWidgets.QDoubleSpinBox()
         self.value_spin.setDecimals(1)
@@ -39,9 +43,11 @@ class ParameterControl(ControlGroup):
         # 自动控制
         auto_layout = QtWidgets.QHBoxLayout()
         self.auto_check = QtWidgets.QCheckBox("自动")
+        self.auto_check.setToolTip("持续自动调整，期间数值框只读")
         Styles.apply_checkbox_style(self.auto_check)
         
         self.once_btn = QtWidgets.QPushButton("单次")
+        self.once_btn.setToolTip("执行一次自动调整后停止")
         Styles.apply_button_style(self.once_btn)
         
         auto_layout.addWidget(self.auto_check)
@@ -58,6 +64,11 @@ class ParameterControl(ControlGroup):
     def _handle_auto_changed(self, checked: bool):
         self.value_spin.setReadOnly(checked)
         self.value_spin.setEnabled(True)
+        # 自动模式下去掉调节箭头，让只读状态在视觉上可辨
+        self.value_spin.setButtonSymbols(
+            QtWidgets.QAbstractSpinBox.NoButtons if checked
+            else QtWidgets.QAbstractSpinBox.UpDownArrows
+        )
         self.once_btn.setEnabled(not checked)
         self.auto_changed.emit(checked)
         

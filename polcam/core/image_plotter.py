@@ -8,8 +8,6 @@ See LICENSE file for full license details.
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-import os
 from typing import List, Tuple
 from ..gui.styles import Styles
 
@@ -187,60 +185,3 @@ class ImagePlotter:
             ImagePlotter.draw_quad_titles(canvas, titles, quad_positions, quad_size)
         
         return canvas, quad_positions, quad_size
-
-    @staticmethod
-    def get_default_image() -> np.ndarray:
-        """创建默认的帮助图像"""
-        pil_image = Image.new('RGB', (1920, 1440), color='black')
-        draw = ImageDraw.Draw(pil_image)
-        
-        # 加载中文字体
-        try:
-            font_path = "C:/Windows/Fonts/msyh.ttc"
-            if not os.path.exists(font_path):
-                font_path = "C:/Windows/Fonts/simhei.ttf"
-            title_font = ImageFont.truetype(font_path, 48)
-            text_font = ImageFont.truetype(font_path, 36)
-        except Exception as e:
-            print(f"加载字体失败: {e}")
-            return None
-        
-        guide_text = [
-            "偏振相机控制系统使用说明", 
-            "",
-            "基本操作：",
-            "1. 连接相机：点击左侧'连接相机'按钮",
-            "2. 调节图像：使用曝光和增益控制",
-            "3. 采集图像：可选择'单帧采集'或'连续采集'", 
-            "4. 显示模式：在顶部下拉框选择不同显示方式",
-            "",
-            "图像工具：",
-            "- 游标：选择图像工具栏中的游标按钮，查看图像像素信息", 
-            "- 复原：点击图像工具栏复原按钮恢复原始显示",
-            "",
-            "图像处理：",
-            "- 白平衡：彩色模式下可开启自动白平衡",
-            "- 偏振分析：可查看DOLP、AOLP等偏振信息", 
-            "- 图像保存：工具栏中的保存按钮可保存原始图像和处理结果",
-            "- 图像保存：工具栏中的读取按钮可读取原始图像"
-        ]
-        
-        # 计算文本总高度
-        text_height = 70
-        total_height = len(guide_text) * text_height
-        
-        # 垂直居中的起始y坐标
-        start_y = (1440 - total_height) // 2
-        
-        for i, text in enumerate(guide_text):
-            font = title_font if i == 0 else text_font
-            color = (100, 200, 255) if i == 0 else (200, 200, 200)
-            
-            # 计算每行文本宽度并水平居中
-            text_width = font.getlength(text)
-            x = (1920 - text_width) // 2
-            y = start_y + i * text_height
-            
-            draw.text((x, y), text, font=font, fill=color)
-        
-        return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)

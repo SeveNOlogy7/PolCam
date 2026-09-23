@@ -6,7 +6,7 @@ See LICENSE file for full license details.
 偏振分析控制组组件
 """
 
-from qtpy import QtWidgets, QtCore, QtGui
+from qtpy import QtWidgets, QtCore
 from .control_group import ControlGroup
 from .white_balance import WhiteBalance
 from ..styles import Styles
@@ -25,8 +25,7 @@ class PolarizationControl(ControlGroup):
         # 添加彩色/灰度选择
         self.color_mode_combo = QtWidgets.QComboBox()
         self.color_mode_combo.addItems(["灰度图像", "彩色图像"])
-        self.color_mode_combo.setFont(QtGui.QFont("", 11))
-        self.color_mode_combo.setMinimumHeight(30)
+        self.color_mode_combo.setToolTip("选择偏振分析结果的合成方式")
         Styles.apply_combobox_style(self.color_mode_combo)
         self.layout.addWidget(self.color_mode_combo)
         

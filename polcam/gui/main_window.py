@@ -218,9 +218,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().addWidget(self.status_indicator)
         
         # 添加分隔线
-        separator = QtWidgets.QFrame()
-        separator.setFrameShape(QtWidgets.QFrame.VLine)
-        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+        separator = self._create_status_separator()
         self.statusBar().addWidget(separator)
         
         # 添加状态文本
@@ -233,8 +231,27 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # 添加处理时间信息
         self.time_label = QtWidgets.QLabel()
-        self.statusBar().addPermanentWidget(QtWidgets.QLabel("|"))  # 分隔符
+        self.metrics_separator = self._create_status_separator()
+        self.statusBar().addPermanentWidget(self.metrics_separator)
         self.statusBar().addPermanentWidget(self.time_label)
+        self._update_metrics_separator()
+
+    @staticmethod
+    def _create_status_separator() -> QtWidgets.QFrame:
+        """创建状态栏分隔线，避免用文本竖线充当图形元素。"""
+        frame = QtWidgets.QFrame()
+        frame.setFrameShape(QtWidgets.QFrame.VLine)
+        frame.setFrameShadow(QtWidgets.QFrame.Sunken)
+        frame.setFixedHeight(16)
+        return frame
+
+    def _update_metrics_separator(self):
+        """无内容时不占位，避免状态栏角落只剩几条孤立竖线。"""
+        has_camera_info = bool(self.camera_info.text())
+        has_timing = bool(self.time_label.text())
+        self.camera_info.setVisible(has_camera_info)
+        self.time_label.setVisible(has_timing)
+        self.metrics_separator.setVisible(has_camera_info and has_timing)
 
     def handle_connect(self, connect: bool):
         if connect:
@@ -338,6 +355,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_label.setText(
             f"采集: {self._last_capture_time*1000:.1f}ms | 处理: {self._last_process_time*1000:.1f}ms"
         )
+        self._update_metrics_separator()
 
     def _update_capture_time(self, t_capture: float):
         """更新采集时间"""
@@ -563,6 +581,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_camera_connected(self, event):
         """处理相机连接事件"""
         self.camera_info.setText(event.data.get("device_info", ""))
+        self._update_metrics_separator()
         self.status_label.setText("相机已连接")
 
         # 获取相机类型和 Bayer 排列
@@ -596,6 +615,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理相机断开事件"""
         self.status_label.setText("相机已断开")
         self.camera_info.clear()
+        self._update_metrics_separator()
         self._camera_type = None
 
         # 恢复全部8个显示模式
