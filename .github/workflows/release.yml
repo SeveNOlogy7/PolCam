@@ -106,9 +106,21 @@ jobs:
       - name: Build installer
         run: |
           set -euo pipefail
-          iscc="$(find "/c/Program Files (x86)/Inno Setup 6" "/c/Program Files/Inno Setup 6" -maxdepth 1 -iname 'ISCC.exe' 2>/dev/null | head -1)"
-          test -n "$iscc" || { echo "::error::choco 装完仍找不到 ISCC.exe"; exit 1; }
-          "$iscc" "/DMyAppVersion=${{ steps.ver.outputs.version }}" packaging/PolCam.iss
+          # choco 装到 Program Files (x86)，但非管理员安装会落到 %LOCALAPPDATA%\Programs。
+          # 用 PowerShell 探测而不是 find：LOCALAPPDATA 是反斜杠路径，Git Bash 的
+          # find 吃不下。
+          iscc_win="$(powershell -NoProfile -Command '
+            $dirs = @("${env:ProgramFiles(x86)}", $env:ProgramFiles, "$env:LOCALAPPDATA\Programs") | Where-Object { $_ }
+            foreach ($d in $dirs) {
+              $f = Join-Path $d "Inno Setup 6\ISCC.exe"
+              if (Test-Path $f) { (Resolve-Path $f).Path; break }
+            }' | tr -d '\r\n')"
+          test -n "$iscc_win" || { echo "::error::找不到 ISCC.exe（choco 安装后仍探测失败）"; exit 1; }
+          iscc="$(cygpath -u "$iscc_win")"
+          echo "ISCC: $iscc"
+          # MSYS_NO_PATHCONV 是必需的：/DMyAppVersion=x 会被 Git Bash 当成 Unix
+          # 绝对路径改写，Inno 收到的是被破坏的参数。本地已踩过这个坑。
+          MSYS_NO_PATHCONV=1 "$iscc" "/DMyAppVersion=${{ steps.ver.outputs.version }}" packaging/PolCam.iss
           installer="dist/installer/${APP_NAME}-${{ steps.ver.outputs.version }}-win64.exe"
           test -f "$installer" || { echo "::error::安装包未生成：$installer"; exit 1; }
           cp "$installer" dist/artifacts/
