@@ -155,13 +155,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 左侧控制面板
         self.camera_control = CameraControl()
-        self.camera_control.setMinimumWidth(300)  # 设置最小宽度
-        self.camera_control.setMaximumWidth(400)  # 设置最大宽度
+        self.camera_control.setMinimumWidth(Styles.CONTROL_PANEL_MIN_WIDTH)
+        self.camera_control.setMaximumWidth(Styles.CONTROL_PANEL_MAX_WIDTH)
         self.top_splitter.addWidget(self.camera_control)
         
         # 右侧图像显示
         self.image_display = ImageDisplay()
-        self.image_display.setMinimumWidth(640)  # 设置最小宽度
+        self.image_display.setMinimumWidth(Styles.IMAGE_PANEL_MIN_WIDTH)
         self.top_splitter.addWidget(self.image_display)
         self.top_splitter.setStretchFactor(0, 1)
         self.top_splitter.setStretchFactor(1, 4)

@@ -30,6 +30,15 @@ class Styles:
     HEIGHT_MEDIUM = 30 # 中号高度
     HEIGHT_SMALL = 26  # 小号高度
 
+    # 布局下限。图像区是等比适配的预览，最小值只需保证还能看清构图，
+    # 不需要按传感器尺寸来；这两个值直接决定窗口能缩到多小。
+    # 控制面板取 281（8 个显示模式下实测的 minimumSizeHint 宽度）之上，
+    # 低于它会让分割条给出比内容所需更窄的空间。
+    IMAGE_VIEW_MIN_SIZE = QSize(520, 360)
+    IMAGE_PANEL_MIN_WIDTH = 560
+    CONTROL_PANEL_MIN_WIDTH = 290
+    CONTROL_PANEL_MAX_WIDTH = 400
+
     # 工具栏样式定义
     TOOLBAR_ICON_SIZE = QSize(32, 32)  # 工具栏图标尺寸
     TOOLBAR_HEIGHT = 48                 # 工具栏高度

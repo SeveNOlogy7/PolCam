@@ -97,7 +97,7 @@ class ImageDisplay(QtWidgets.QWidget):
         
         # 先创建图像显示区域（确保image_label最先创建）
         self.image_label = QtWidgets.QLabel()
-        self.image_label.setMinimumSize(640, 480)
+        self.image_label.setMinimumSize(Styles.IMAGE_VIEW_MIN_SIZE)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)  # 居中对齐
         self.image_label.setSizePolicy(                       # 设置大小策略
             QtWidgets.QSizePolicy.Expanding,
