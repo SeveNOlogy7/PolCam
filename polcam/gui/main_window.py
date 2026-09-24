@@ -255,6 +255,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def handle_connect(self, connect: bool):
         if connect:
+            if not self.camera.sdk_available:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "未找到相机驱动",
+                    "未检测到大恒 Galaxy SDK，相机连接与采集不可用。\n"
+                    "仍可通过工具栏的读取按钮处理已保存的原始图像。",
+                )
+                self.camera_control.connect_btn.setChecked(False)
+                self.camera_control.set_connected(False)
+                self.status_indicator.setEnabled(False)
+                self.status_indicator.setStatus(False)
+                self.status_label.setText("未检测到相机驱动")
+                return
+
             # 枚举设备
             try:
                 device_count, device_list = self.camera.enumerate_devices()

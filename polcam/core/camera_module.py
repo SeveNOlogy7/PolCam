@@ -7,7 +7,17 @@ See LICENSE file for full license details.
 提供相机控制和图像采集功能
 """
 
-import gxipy as gx
+try:
+    import gxipy as gx
+except Exception as _gxipy_error:
+    # 未安装大恒 Galaxy 驱动时 gxipy 在 import 阶段就会抛错（GALAXY_GENICAM_ROOT
+    # 缺失是 KeyError，不是它只捕获的 OSError）。此时相机功能整体降级，但应用
+    # 仍应能启动并读取已保存的原始图像。
+    gx = None
+    GXIPY_IMPORT_ERROR = str(_gxipy_error)
+else:
+    GXIPY_IMPORT_ERROR = ""
+
 import numpy as np
 import threading
 from typing import Optional, Tuple, Dict, Any
@@ -44,7 +54,7 @@ class CameraModule(BaseModule):
     
     def __init__(self):
         super().__init__("Camera")
-        self.device_manager = gx.DeviceManager()
+        self.device_manager = gx.DeviceManager() if gx is not None else None
         self._camera = None
         self._remote_feature = None
         self._is_streaming = False
@@ -66,6 +76,9 @@ class CameraModule(BaseModule):
 
     def _do_initialize(self) -> bool:
         """初始化相机设备管理器"""
+        if self.device_manager is None:
+            self._logger.warning(f"Galaxy SDK 不可用，相机功能已降级: {GXIPY_IMPORT_ERROR}")
+            return False
         try:
             device_count, _ = self.device_manager.update_all_device_list()
             if device_count == 0:
@@ -106,12 +119,20 @@ class CameraModule(BaseModule):
             self._logger.error(f"销毁相机模块失败: {str(e)}")
             return False
 
+    @property
+    def sdk_available(self) -> bool:
+        """大恒 Galaxy SDK 是否可用。不可用时相机相关功能整体降级。"""
+        return self.device_manager is not None
+
     def enumerate_devices(self) -> tuple:
         """枚举可用设备
 
         Returns:
             (device_count, device_info_list) tuple
         """
+        if self.device_manager is None:
+            self._logger.warning("Galaxy SDK 不可用，跳过设备枚举")
+            return 0, []
         try:
             return self.device_manager.update_all_device_list()
         except Exception as e:
@@ -176,6 +197,10 @@ class CameraModule(BaseModule):
     def connect(self) -> bool:
         """连接相机"""
         try:
+            if self.device_manager is None:
+                self._logger.error("Galaxy SDK 不可用，无法连接相机")
+                return False
+
             # 检查设备列表
             device_count, device_list = self.device_manager.update_all_device_list()
             if device_count == 0:

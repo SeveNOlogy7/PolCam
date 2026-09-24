@@ -22,8 +22,15 @@ from .caching import WhiteBalanceCache
 from .camera_module import CameraType
 from .image_plotter import ImagePlotter
 
-from gxipy.ImageFormatConvert import ImageFormatConvert
-from gxipy.gxidef import GxPixelFormatEntry, DxValidBit
+try:
+    from gxipy.ImageFormatConvert import ImageFormatConvert
+    from gxipy.gxidef import GxPixelFormatEntry, DxValidBit
+except Exception:
+    # 没有 Galaxy SDK 时这些只影响普通彩色相机的 Bayer 转换路径，该路径需要先连上
+    # 相机才能走到；置空只为保证模块可导入、应用可启动。
+    ImageFormatConvert = None
+    GxPixelFormatEntry = None
+    DxValidBit = None
 
 
 def get_best_valid_bits(pixel_format):
@@ -250,11 +257,14 @@ class ProcessingModule(BaseModule):
         self._image_format_convert = None
         self._pixel_format = None
         if self._is_normal_color and pixel_format is not None:
-            self._pixel_format = pixel_format
-            self._image_format_convert = ImageFormatConvert()
-            self._image_format_convert.set_dest_format(GxPixelFormatEntry.BGR8)
-            valid_bits = get_best_valid_bits(pixel_format)
-            self._image_format_convert.set_valid_bits(valid_bits)
+            if ImageFormatConvert is None:
+                self._logger.error("Galaxy SDK 不可用，无法为普通彩色相机建立格式转换")
+            else:
+                self._pixel_format = pixel_format
+                self._image_format_convert = ImageFormatConvert()
+                self._image_format_convert.set_dest_format(GxPixelFormatEntry.BGR8)
+                valid_bits = get_best_valid_bits(pixel_format)
+                self._image_format_convert.set_valid_bits(valid_bits)
 
         self.clear_cache()
 

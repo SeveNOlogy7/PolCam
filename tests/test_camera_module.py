@@ -491,3 +491,16 @@ def test_streaming_events(camera_module):
     
     # 清理
     camera_module.destroy()
+
+
+def test_camera_module_degrades_without_galaxy_sdk():
+    """缺少 Galaxy SDK 时相机模块应整体降级而不是抛错，保证应用仍可启动使用。"""
+    module = CameraModule()
+    module.device_manager = None
+
+    assert module.sdk_available is False
+    assert module.initialize() is False
+    assert module.enumerate_devices() == (0, [])
+    assert module.connect() is False
+    assert module.is_connected() is False
+    assert module.start() is False
