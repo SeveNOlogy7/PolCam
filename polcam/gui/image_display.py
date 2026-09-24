@@ -710,60 +710,77 @@ class ImageDisplay(QtWidgets.QWidget):
         """在图像区上构建引导页覆盖控件，替代原先烤进位图里的使用说明。
 
         作为 image_label 的子控件而不是布局里的兄弟控件，避免改变图像区
-        已有的控件所有权链。
+        已有的控件所有权链。内容包在 QScrollArea 里：窗口小时滚动，而不是
+        让布局把标签压到高度不足、字形被裁切。
         """
         page = _HelpOverlay(self, self.image_label)
-        page.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,
-            QtWidgets.QSizePolicy.Expanding
-        )
 
-        vertical = QtWidgets.QVBoxLayout(page)
-        vertical.addStretch(1)
+        page_layout = QtWidgets.QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
 
-        content = QtWidgets.QWidget(page)
+        scroller = QtWidgets.QScrollArea(page)
+        scroller.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroller.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        scroller.setWidgetResizable(True)
+        page_layout.addWidget(scroller)
+
+        container = QtWidgets.QWidget()
+        scroller.setWidget(container)
+
+        horizontal = QtWidgets.QHBoxLayout(container)
+        horizontal.setContentsMargins(Styles.SPACING_MEDIUM, Styles.SPACING_MEDIUM,
+                                      Styles.SPACING_MEDIUM, Styles.SPACING_MEDIUM)
+        horizontal.addStretch(1)
+
+        content = QtWidgets.QWidget(container)
         content.setMaximumWidth(460)
-        vertical.addWidget(content)
-        vertical.setAlignment(content, QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
-        vertical.addStretch(1)
+        horizontal.addWidget(content)
+        horizontal.addStretch(1)
 
         column = QtWidgets.QVBoxLayout(content)
-        column.setSpacing(Styles.SPACING_MEDIUM)
+        column.setSpacing(Styles.SPACING_SMALL)
 
-        title = QtWidgets.QLabel("偏振相机控制系统", content)
-        title.setFont(Styles.get_bold_font(Styles.FONT_XL))
+        def make_label(text: str, font: QtGui.QFont) -> QtWidgets.QLabel:
+            label = QtWidgets.QLabel(text, content)
+            label.setFont(font)
+            # 高度不可压缩，否则字形会被裁切成重影
+            label.setMinimumHeight(label.sizeHint().height())
+            return label
+
+        title = make_label("偏振相机控制系统", Styles.get_bold_font(Styles.FONT_XL))
         title.setAlignment(QtCore.Qt.AlignHCenter)
         column.addWidget(title)
 
-        subtitle = QtWidgets.QLabel("尚未载入图像，可按下面的步骤开始", content)
-        subtitle.setFont(Styles.get_font(Styles.FONT_MEDIUM))
+        subtitle = make_label("尚未载入图像，可按下面的步骤开始", Styles.get_font(Styles.FONT_MEDIUM))
         subtitle.setAlignment(QtCore.Qt.AlignHCenter)
         column.addWidget(subtitle)
 
         for heading, lines in self.HELP_SECTIONS:
             column.addSpacing(Styles.SPACING_MEDIUM)
 
-            section_title = QtWidgets.QLabel(heading, content)
-            section_title.setFont(Styles.get_bold_font(Styles.FONT_LARGE))
+            section_title = make_label(heading, Styles.get_bold_font(Styles.FONT_LARGE))
             column.addWidget(section_title)
 
             for line in lines:
-                item = QtWidgets.QLabel(f"· {line}", content)
-                item.setFont(Styles.get_font(Styles.FONT_MEDIUM))
+                item = make_label(f"· {line}", Styles.get_font(Styles.FONT_MEDIUM))
                 item.setIndent(Styles.SPACING_MEDIUM)
                 column.addWidget(item)
 
-        hint = QtWidgets.QLabel("点击任意处返回图像", content)
-        hint.setFont(Styles.get_font(Styles.FONT_SMALL))
+        hint = make_label("点击任意处返回图像", Styles.get_font(Styles.FONT_SMALL))
         hint.setAlignment(QtCore.Qt.AlignHCenter)
-        column.addSpacing(Styles.SPACING_LARGE)
+        column.addSpacing(Styles.SPACING_MEDIUM)
         column.addWidget(hint)
+        self._help_hint = hint
+
+        column.addStretch(1)
 
         page.hide()
         self.help_view = page
 
     def show_help_view(self):
         """显示引导页。引导页不是图像数据，因此不会影响 has_display_image()。"""
+        # 「返回图像」只在引导覆盖已有图像时才成立
+        self._help_hint.setVisible(self.has_display_image())
         self._sync_help_overlay_geometry()
         self.help_view.show()
         self.help_view.raise_()
