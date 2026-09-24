@@ -17,6 +17,7 @@ from ..core.processing_module import ProcessingMode
 from ..core.events import Event, EventType
 from ..gui.settings_dialog import SettingsDialog
 from .raw_image_service import RawImageService
+from .. import __version__ as POLCAM_VERSION
 
 class ToolbarController(BaseModule):
     def __init__(self, main_window):
@@ -528,9 +529,9 @@ class ToolbarController(BaseModule):
 
     def _handle_about(self):
         """处理关于事件"""
-        about_text = """
+        about_text = f"""
         <h3>PolCam</h3>
-        <p>版本: 1.0.0</p>
+        <p>版本: {POLCAM_VERSION}</p>
         <p>偏振相机采集和处理软件</p>
         <p>作者: Junhao Cai</p>
         <p>项目主页: <a href="https://github.com/SeveNOlogy7/PolCam">Github</a></p>
