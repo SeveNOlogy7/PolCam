@@ -1,0 +1,149 @@
+name: Release
+
+# 版本真相只在 pyproject.toml。tag 只负责触发并做校对：
+# tag 必须等于 v<pyproject 里的 version>，否则构建直接失败。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# 同一 ref 上不允许并发发布。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: build Windows package
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      APP_NAME: PolCam
+      CLIFF_VERSION: 2.14.2   # 与本地验证过的 git-cliff 版本保持一致
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # git-cliff 需要完整历史来分组，浅克隆会让 changelog 只剩最近几个提交。
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      - name: Resolve version from pyproject.toml and cross-check the tag
+        id: ver
+        run: |
+          set -euo pipefail
+          version="$(uv run python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          # 发布说明的参数：tag 触发取该 tag 段落，手动触发取未发布段落。
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            if [[ "$tag" != "v$version" ]]; then
+              echo "::error::tag '$tag' 与 pyproject.toml 的 'v$version' 不一致。改 pyproject 版本或重打 tag。"
+              exit 1
+            fi
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "notes_args=--latest --strip header" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "notes_args=--unreleased --strip header" >> "$GITHUB_OUTPUT"
+            echo "手动触发：只构建产物，不建 Release、不建 tag"
+          fi
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run test suite as a release gate
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest -q --no-cov
+
+      - name: Build executable
+        run: uv run pyinstaller --noconfirm PolCam.spec
+
+      - name: Verify build output and embedded version
+        run: |
+          set -euo pipefail
+          test -f "dist/${APP_NAME}/${APP_NAME}.exe" || { echo "::error::缺少 dist/${APP_NAME}/${APP_NAME}.exe"; exit 1; }
+          test -d "dist/${APP_NAME}/_internal/polcam/resources/icon" || { echo "::error::图标资源没进包"; exit 1; }
+          test -f "dist/${APP_NAME}/_internal/pyproject.toml" || { echo "::error::pyproject.toml 没进包，About 会退化成 0.0.0+unknown"; exit 1; }
+
+          filever="$(powershell -NoProfile -Command "(Get-Item 'dist/${APP_NAME}/${APP_NAME}.exe').VersionInfo.FileVersion" | tr -d '\r\n')"
+          echo "exe 内嵌版本: [$filever]  期望: [${{ steps.ver.outputs.version }}]"
+          if [[ "$filever" != "${{ steps.ver.outputs.version }}" ]]; then
+            echo "::error::exe 文件版本与 pyproject.toml 不一致"
+            exit 1
+          fi
+
+      - name: Package portable zip
+        run: |
+          set -euo pipefail
+          mkdir -p dist/artifacts
+          zip="dist/artifacts/${APP_NAME}-${{ steps.ver.outputs.version }}-win64-portable.zip"
+          # 打包 PolCam 目录本身，zip 顶层就是 PolCam/，解压即用。
+          powershell -NoProfile -Command "Compress-Archive -Path 'dist/${APP_NAME}' -DestinationPath '$zip' -Force"
+          test -f "$zip" || { echo "::error::便携 zip 未生成"; exit 1; }
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build installer
+        run: |
+          set -euo pipefail
+          iscc="$(find "/c/Program Files (x86)/Inno Setup 6" "/c/Program Files/Inno Setup 6" -maxdepth 1 -iname 'ISCC.exe' 2>/dev/null | head -1)"
+          test -n "$iscc" || { echo "::error::choco 装完仍找不到 ISCC.exe"; exit 1; }
+          "$iscc" "/DMyAppVersion=${{ steps.ver.outputs.version }}" packaging/PolCam.iss
+          installer="dist/installer/${APP_NAME}-${{ steps.ver.outputs.version }}-win64.exe"
+          test -f "$installer" || { echo "::error::安装包未生成：$installer"; exit 1; }
+          cp "$installer" dist/artifacts/
+
+      - name: Install git-cliff
+        run: |
+          set -euo pipefail
+          url="https://github.com/orhun/git-cliff/releases/download/v${CLIFF_VERSION}/git-cliff-${CLIFF_VERSION}-x86_64-pc-windows-msvc.zip"
+          curl -sSL --max-time 180 -o "$RUNNER_TEMP/cliff.zip" "$url"
+          unzip -o -q "$RUNNER_TEMP/cliff.zip" -d "$RUNNER_TEMP/cliff"
+          echo "$RUNNER_TEMP/cliff/git-cliff-${CLIFF_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Generate release notes and CHANGELOG
+        run: |
+          set -euo pipefail
+          git-cliff --version
+          git-cliff --config cliff.toml ${{ steps.ver.outputs.notes_args }} --output "$RUNNER_TEMP/RELEASE_NOTES.md"
+          git-cliff --config cliff.toml --output dist/artifacts/CHANGELOG.md
+          echo "--- 本次发布说明 ---"
+          cat "$RUNNER_TEMP/RELEASE_NOTES.md"
+
+      - name: Publish draft GitHub Release
+        if: steps.ver.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          draft: true
+          prerelease: false
+          name: "${{ env.APP_NAME }} ${{ steps.ver.outputs.version }}"
+          body_path: ${{ runner.temp }}/RELEASE_NOTES.md
+          files: |
+            dist/artifacts/*.zip
+            dist/artifacts/*.exe
+            dist/artifacts/CHANGELOG.md
+
+      - name: List artifacts (manual run has no release to attach to)
+        if: steps.ver.outputs.is_release != 'true'
+        run: ls -la dist/artifacts

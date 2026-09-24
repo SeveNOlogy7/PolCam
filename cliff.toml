@@ -1,0 +1,48 @@
+# git-cliff 配置：从提交历史生成 CHANGELOG 与 Release 说明。
+# 组名前的 <!-- n --> 只用来控制分组顺序，渲染时被 striptags 吃掉。
+
+[changelog]
+header = "# Changelog\n\n本文件由 git-cliff 从提交历史生成，请勿手工编辑。\n\n"
+body = """
+{% if version %}\
+## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## 未发布
+{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}\
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | trim | upper_first }}（{{ commit.id | truncate(length=7, end="") }}）
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+
+[git]
+# 仓库里有大量非 conventional 的历史提交（如 "Use uv for project manage"）。
+# 设成 true 会让它们从 changelog 里静默消失。
+filter_unconventional = false
+conventional_commits = true
+filter_commits = false
+topo_order = true
+sort_commits = "oldest"
+tag_pattern = "v[0-9]*"
+
+# 只压行内多余空格。不要在这里压掉换行：模板靠换行取主题行，
+# 压掉之后长 body 的提交会被渲染成一整条 run-on 长句。
+commit_preprocessors = [
+  { pattern = ' {2,}', replace = " " },
+]
+
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->新功能" },
+  { message = "^fix", group = "<!-- 1 -->修复" },
+  { message = "^perf", group = "<!-- 2 -->性能" },
+  { message = "^refactor", group = "<!-- 2 -->性能" },
+  { message = "^test", group = "<!-- 5 -->测试" },
+  { message = "^ci", group = "<!-- 6 -->构建与发布" },
+  { message = "^build", group = "<!-- 6 -->构建与发布" },
+  { message = "^docs", group = "<!-- 7 -->文档" },
+  { message = "^chore", group = "<!-- 8 -->杂项" },
+  { message = ".*", group = "<!-- 9 -->其他" },
+]
