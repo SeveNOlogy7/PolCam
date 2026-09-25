@@ -50,4 +50,6 @@ jobs:
         run: uv sync --frozen
 
       - name: Run test suite
-        run: uv run pytest
+        # 每个测试文件单独起一个进程，避免未释放的 Qt 对象在同一次运行里攒到
+        # 触发 0xc0000374。详见 tools/run_tests.py。
+        run: uv run python tools/run_tests.py -q

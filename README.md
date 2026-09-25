@@ -102,6 +102,8 @@ PolCam/
 │   ├── resources/          # 图标等资源
 │   └── utils/              # 日志等工具
 ├── gxipy/                  # DAHENG 相机 Python SDK 封装
+├── tools/
+│   └── run_tests.py        # 按测试文件分进程跑整套测试
 └── tests/                  # 测试代码
 ```
 
@@ -109,13 +111,13 @@ PolCam/
 
 #### 使用 uv
 
-- 运行测试：`uv run pytest`
+- 运行测试：`uv run python tools/run_tests.py`（一个测试文件一个进程；整套塞进一次 `uv run pytest` 会偶发 0xc0000374 / 段错误）
 - 代码风格检查：`uv run flake8`
 - 类型检查：`uv run mypy .`
 
 #### 使用 Conda
 
-- 运行测试：`pytest`
+- 运行测试：`python tools/run_tests.py`
 - 代码风格检查：`flake8`
 - 类型检查：`mypy .`
 
@@ -254,13 +256,13 @@ PolCam/
 
 #### Use uv
 
-- Run tests: `uv run pytest`
+- Run tests: `uv run python tools/run_tests.py` (one process per test file; a single `uv run pytest` run intermittently dies with 0xc0000374 / segfault)
 - Style check: `uv run flake8`
 - Type check: `uv run mypy .`
 
 #### Use Conda
 
-- Run tests: `pytest`
+- Run tests: `python tools/run_tests.py`
 - Style check: `flake8`
 - Type check: `mypy .`
 

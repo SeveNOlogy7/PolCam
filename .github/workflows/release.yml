@@ -74,11 +74,10 @@ jobs:
       - name: Run test suite as a release gate
         env:
           QT_QPA_PLATFORM: offscreen
-        # 必须与 ci.yml 用的命令逐字一致。上一次发布运行里这里是
-        # `uv run pytest -q --no-cov`，同一 commit 的 ci.yml 用 `uv run pytest`
-        # 是绿的，只有这个变体在会话收尾处退出 127 —— 无谓的差异不该成为
-        # 发布路径上的变量。
-        run: uv run pytest
+        # 必须与 ci.yml 的测试步骤逐字一致：曾经这里是 `uv run pytest -q --no-cov`
+        # 而 ci.yml 是 `uv run pytest`，同一 commit 只有这个变体在会话收尾处退出
+        # 127 —— 发布路径上不该有无谓的差异。
+        run: uv run python tools/run_tests.py -q
 
       - name: Build executable
         run: uv run pyinstaller --noconfirm PolCam.spec
