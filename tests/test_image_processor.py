@@ -124,6 +124,26 @@ def test_calculate_polarization_parameters(image_processor, polarization_images)
     dolp_same, _, _ = image_processor.calculate_polarization_parameters(same_images)
     assert np.allclose(dolp_same, 0)  # 完全相同的图像应该没有偏振度
 
+def test_polarization_parameters_do_not_wrap_on_bright_scene(image_processor):
+    """高亮度场景下的偏振度仍然准确。
+
+    四张角度图是 uint8，Stokes 的加减和平方必须在足够宽的有符号域里做，否则会按
+    256 回绕：这里的解析值 0.632 会被算成 0.1 左右。
+    """
+    i_000 = np.full((8, 8), 200, dtype=np.uint8)
+    i_045 = np.full((8, 8), 150, dtype=np.uint8)
+    i_090 = np.full((8, 8), 50, dtype=np.uint8)
+    i_135 = np.full((8, 8), 100, dtype=np.uint8)
+
+    dolp, _, docp = image_processor.calculate_polarization_parameters(
+        [i_000, i_045, i_090, i_135]
+    )
+
+    # S0=(200+50+150+100)/2=250, S1=150, S2=50 -> DoLP=sqrt(150^2+50^2)/250
+    assert np.allclose(dolp, np.sqrt(150 ** 2 + 50 ** 2) / 250.0, atol=1e-3)
+    # S3=(150+100)-(200+50)=0 -> 无圆偏振
+    assert np.allclose(docp, 0, atol=1e-3)
+
 def test_error_handling(image_processor):
     """测试错误处理"""
     # 测试输入图像数量不正确

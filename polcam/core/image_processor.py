@@ -93,9 +93,12 @@ class ImageProcessor:
             for img in color_images
         ]
         
-        I_000, I_045, I_090, I_135 = gray_images
-        
+        I_000, I_045, I_090, I_135 = (
+            img.astype(np.float32) for img in gray_images
+        )
+
         # 计算改进的Stokes参数
+        # 输入是 uint8，必须先升到浮点：在 uint8 域里做加减和平方会按 256 回绕
         S0 = (I_000 + I_090 + I_045 + I_135) / 2  # 总强度
         S1 = I_000 - I_090                         # 水平/垂直差异
         S2 = I_045 - I_135                         # 45度差异
