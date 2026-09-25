@@ -42,6 +42,8 @@ commit_parsers = [
   { message = "^test", group = "<!-- 5 -->测试" },
   { message = "^ci", group = "<!-- 6 -->构建与发布" },
   { message = "^build", group = "<!-- 6 -->构建与发布" },
+  # 发版本身是 chore(release)，它该和打包配置放在一起而不是杂项，所以排在 ^chore 之前
+  { message = "^chore\\((release|version)\\)", group = "<!-- 6 -->构建与发布" },
   { message = "^docs", group = "<!-- 7 -->文档" },
   { message = "^chore", group = "<!-- 8 -->杂项" },
   { message = ".*", group = "<!-- 9 -->其他" },
