@@ -42,6 +42,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._preferred_display_mode = ProcessingMode.RAW
         self._current_settings = AppSettings()
         self.close_flag = False
+        self._one_shot_pending = None  # 哪一路单次自动调整在等 PARAMETER_CHANGED 报回
         self._event_bridge = _MainThreadEventBridge(self)
         self._event_bridge.dispatch_event.connect(
             self._dispatch_gui_event,
@@ -192,8 +193,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.wb_control.auto_changed.connect(self._handle_wb_auto_changed)
         
         # 修改单次按钮连接
-        self.camera_control.exposure_control.once_clicked.connect(self.camera.set_exposure_once)
-        self.camera_control.gain_control.once_clicked.connect(self.camera.set_gain_once)
+        self.camera_control.exposure_control.once_clicked.connect(
+            lambda: self._handle_one_shot('exposure', self.camera.set_exposure_once))
+        self.camera_control.gain_control.once_clicked.connect(
+            lambda: self._handle_one_shot('gain', self.camera.set_gain_once))
         self.camera_control.wb_control.once_clicked.connect(self._handle_wb_once)
 
         # 添加角度选择信号处理
@@ -542,6 +545,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._logger.info(f"使用软件白平衡，自动模式: {auto}")
         self._reprocessing_from_current_frame()
 
+    def _handle_one_shot(self, control_type: str, trigger):
+        """发起一次自动调整，并在期间禁用对应的手动控件。
+
+        相机侧的 set_*_once 会阻塞轮询到硬件自动关闭，然后发 PARAMETER_CHANGED；
+        _on_parameter_changed 用 _one_shot_pending 认出那一趟并把控件放回来。
+        """
+        self._one_shot_pending = control_type
+        self.camera_control.handle_one_shot_auto(control_type)
+        trigger()
+
     def _handle_wb_once(self):
         """处理白平衡一次性调整"""
         self.status_label.setText("单次白平衡未实现")
@@ -716,6 +729,12 @@ class MainWindow(QtWidgets.QMainWindow):
         param_name = param_data.get("parameter")
         param_value = param_data.get("value")
         
+        if param_name == self._one_shot_pending:
+            # 单次自动调整报回来了：恢复控件并显示测得的值
+            self._one_shot_pending = None
+            self.camera_control.handle_one_shot_complete(param_name, param_value)
+            return
+
         if param_name == "exposure":
             self.camera_control.update_exposure_value(param_value)
         elif param_name == "gain":

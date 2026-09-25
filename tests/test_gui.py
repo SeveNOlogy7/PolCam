@@ -742,3 +742,33 @@ def test_visibility_setters_tolerate_a_parentless_widget(qapp):
 
     control.set_wb_controls_visible(True)
     control.set_angle_controls_visible(True)
+
+def test_one_shot_exposure_restores_the_manual_control(main_window):
+    """单次自动曝光：期间禁用手动滑块，SDK 报回结果时恢复。
+
+    handle_one_shot_auto / handle_one_shot_complete 之前没有任何调用方，
+    所以按下去只有一段静默的阻塞式轮询，界面上毫无反馈。
+    """
+    main_window.camera = MagicMock()
+    exposure = main_window.camera_control.exposure_control
+    assert exposure.value_spin.isEnabled()
+
+    exposure.once_clicked.emit()
+    assert not exposure.value_spin.isEnabled(), "单次自动曝光期间没有禁用手动控件"
+
+    main_window._on_parameter_changed(
+        Event(EventType.PARAMETER_CHANGED, {"parameter": "exposure", "value": 4321.0}))
+    assert exposure.value_spin.isEnabled(), "单次完成后没有恢复手动控件"
+
+def test_one_shot_gain_restores_the_manual_control(main_window):
+    """增益的那半程和曝光一样要接上。"""
+    main_window.camera = MagicMock()
+    gain = main_window.camera_control.gain_control
+    assert gain.value_spin.isEnabled()
+
+    gain.once_clicked.emit()
+    assert not gain.value_spin.isEnabled(), "单次自动增益期间没有禁用手动控件"
+
+    main_window._on_parameter_changed(
+        Event(EventType.PARAMETER_CHANGED, {"parameter": "gain", "value": 3.5}))
+    assert gain.value_spin.isEnabled(), "单次完成后没有恢复手动控件"
