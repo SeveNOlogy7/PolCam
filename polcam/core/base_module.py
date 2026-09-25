@@ -8,7 +8,7 @@ See LICENSE file for full license details.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import logging
 from .events import EventManager, EventType, Event
 
@@ -34,6 +34,7 @@ class BaseModule(ABC):
         self._initialized = False
         self._running = False
         self._subscribed_events: Set[EventType] = set()
+        self._subscribed_callbacks: List[Tuple[EventType, Callable]] = []
         self._state: Dict[str, Any] = {}
         
     def initialize(self) -> bool:
@@ -149,11 +150,16 @@ class BaseModule(ABC):
         """
         self._event_manager.subscribe(event_type, callback, is_async)
         self._subscribed_events.add(event_type)
+        self._subscribed_callbacks.append((event_type, callback))
         
     def _unsubscribe_all(self):
-        """取消所有事件订阅"""
-        for event_type in self._subscribed_events:
-            self._event_manager.unsubscribe(event_type, None)
+        """取消本模块登记过的全部订阅。
+
+        EventManager 按回调身份移除，所以必须把当初传进去的那个回调原样还回去。
+        """
+        for event_type, callback in self._subscribed_callbacks:
+            self._event_manager.unsubscribe(event_type, callback)
+        self._subscribed_callbacks.clear()
         self._subscribed_events.clear()
         
     def get_state(self, key: str, default: Any = None) -> Any:

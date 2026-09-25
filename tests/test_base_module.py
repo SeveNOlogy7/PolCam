@@ -6,7 +6,7 @@ See LICENSE file for full license details.
 
 import pytest
 from polcam.core.base_module import BaseModule
-from polcam.core.events import EventType
+from polcam.core.events import EventManager, EventType
 
 class TestModule(BaseModule):
     """测试用模块类"""
@@ -99,3 +99,23 @@ def test_error_handling(test_module):
     error_module = ErrorModule()
     assert not error_module.initialize()
     assert not error_module.is_initialized()
+
+def test_destroy_removes_the_module_subscriptions():
+    """destroy() 必须真的把订阅取消掉。
+
+    _unsubscribe_all() 给 EventManager.unsubscribe 传的是 None，而它按回调身份移除，
+    所以那句话永远是 no-op：进程级单例继续握着已销毁模块的绑定方法，模块本体也
+    跟着永远回收不掉。
+    """
+    event_manager = EventManager()
+    event_type = EventType.ROI_CHANGED
+    before = len(event_manager._subscribers.get(event_type, set()))
+
+    module = TestModule()
+    module.initialize()
+    module.subscribe_event(event_type, lambda event: None)
+    assert len(event_manager._subscribers[event_type]) == before + 1
+
+    assert module.destroy() is True
+
+    assert len(event_manager._subscribers.get(event_type, set())) == before
