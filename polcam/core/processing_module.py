@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import threading
 import queue
+import weakref
 from ctypes import c_ubyte, addressof
 from typing import List, Tuple, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
@@ -178,6 +179,7 @@ class ProcessingModule(BaseModule):
             # 启动处理线程
             self._processing_thread = threading.Thread(
                 target=self._processing_loop,
+                args=(weakref.ref(self),),
                 daemon=True
             )
             self._processing_thread.start()
@@ -294,47 +296,77 @@ class ProcessingModule(BaseModule):
             'timestamp': task.timestamp
         })
 
-    def _processing_loop(self):
-        """处理循环"""
-        while not self._stop_flag:
+    @staticmethod
+    def _processing_loop(module_ref: "weakref.ReferenceType[ProcessingModule]") -> None:
+        """处理循环。
+
+        线程持有 module 的弱引用而不是绑定 self：绑定方法本身就是强引用，会让线程
+        反过来把 module 钉在内存里永不回收，并在 module 被丢弃后继续访问已释放的
+        Qt 对象（CI 上表现为 0xc0000374 堆损坏）。
+
+        阻塞进 get() 之前必须先丢掉本帧的强引用，否则等待期间 module 无法被回收，
+        弱引用形同虚设；get() 带超时是同一个原因——不超时就不会醒来重解析引用。
+        """
+        while True:
+            module = module_ref()
+            if module is None or module._stop_flag:
+                return
+            task_queue = module._task_queue
+            del module
+
             try:
-                task = self._task_queue.get()
-                if task is None or self._stop_flag:
-                    break
-                    
-                self._is_processing = True
-                t_start = time.perf_counter()
-                
-                try:
-                    result = self._process_task(task)
-                    t_proc = time.perf_counter() - t_start
-                    
-                    if result:
-                        self.publish_event(EventType.FRAME_PROCESSED, {
-                            'result': result,
-                            'processing_time': t_proc,
-                            'timestamp': time.time()
-                        })
-                        
-                    self._update_cache(task.frame, result)
-                    
-                    # 发送处理完成事件
-                    self.publish_event(EventType.PROCESSING_COMPLETED)
-                    
-                except Exception as e:
-                    self._logger.error(f"处理任务失败: {str(e)}")
-                    self.publish_event(EventType.ERROR_OCCURRED, {
-                        'source': 'processing',
-                        'error': str(e)
-                    })
-                    
-                finally:
-                    self._is_processing = False
-                    self._task_queue.task_done()
-                    
+                task = task_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
             except Exception as e:
-                self._logger.error(f"处理循环错误: {str(e)}")
+                waiter = module_ref()
+                if waiter is not None:
+                    waiter._logger.error(f"处理循环错误: {str(e)}")
                 time.sleep(0.1)
+                continue
+
+            if task is None:
+                return
+
+            module = module_ref()
+            if module is None:
+                return
+            try:
+                module._process_one(task)
+            finally:
+                del module
+
+    def _process_one(self, task: "ProcessingTask") -> None:
+        """处理单个任务并广播结果与错误。"""
+        self._is_processing = True
+        t_start = time.perf_counter()
+
+        try:
+            result = self._process_task(task)
+            t_proc = time.perf_counter() - t_start
+
+            if result:
+                self.publish_event(EventType.FRAME_PROCESSED, {
+                    'result': result,
+                    'processing_time': t_proc,
+                    'timestamp': time.time()
+                })
+
+            self._update_cache(task.frame, result)
+
+            # 发送处理完成事件
+            self.publish_event(EventType.PROCESSING_COMPLETED)
+
+        except Exception as e:
+            self._logger.error(f"处理任务失败: {str(e)}")
+            self.publish_event(EventType.ERROR_OCCURRED, {
+                'source': 'processing',
+                'error': str(e)
+            })
+
+        finally:
+            self._is_processing = False
+            self._task_queue.task_done()
 
     def _process_task(self, task: ProcessingTask) -> Optional[ProcessingResult]:
         """处理单个任务"""
