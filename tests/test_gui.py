@@ -774,3 +774,49 @@ def test_one_shot_gain_restores_the_manual_control(main_window):
     main_window._on_parameter_changed(
         Event(EventType.PARAMETER_CHANGED, {"parameter": "gain", "value": 3.5}))
     assert gain.value_spin.isEnabled(), "单次完成后没有恢复手动控件"
+
+def _wait_until(predicate, timeout=2.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        QApplication.processEvents()
+        time.sleep(0.01)
+    return predicate()
+
+def test_one_shot_polling_leaves_the_gui_thread(main_window):
+    """单次自动调整的阻塞轮询不能占住 GUI 线程。
+
+    相机侧的 set_*_once 会一直轮询硬件到自动关闭（最长 5 秒），它原先是 once_clicked
+    的直接槽函数，那几秒里整个界面是冻住的。
+    """
+    ran_on = []
+
+    def fake_once():
+        ran_on.append(threading.current_thread())
+        time.sleep(0.2)
+
+    main_window.camera.set_exposure_once = fake_once
+
+    main_window.camera_control.exposure_control.once_clicked.emit()
+
+    assert _wait_until(lambda: len(ran_on) == 1)
+    assert threading.main_thread() not in ran_on
+
+def test_one_shot_restores_the_control_even_without_a_result(main_window):
+    """SDK 没给出结果时也要把手动控件放回来。
+
+    超时、相机没连（set_*_once 直接 return）和 SDK 抛错这三条路都不发
+    PARAMETER_CHANGED，只靠那个事件恢复会让控件永久禁用。
+    """
+    def failing_once():
+        raise RuntimeError("ExposureAuto 写不进去")
+
+    main_window.camera.set_exposure_once = failing_once
+    exposure = main_window.camera_control.exposure_control
+    assert exposure.value_spin.isEnabled()
+
+    exposure.once_clicked.emit()
+    assert not exposure.value_spin.isEnabled()
+
+    assert _wait_until(lambda: exposure.value_spin.isEnabled()), "单次失败后控件没有恢复"

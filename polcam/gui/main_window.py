@@ -14,6 +14,7 @@ from .widgets.gallery_panel import GalleryPanel
 from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
 import logging
+import threading
 import time
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
@@ -32,6 +33,9 @@ class MainWindow(QtWidgets.QMainWindow):
     CONTINUOUS_CAPTURE_METRICS_INTERVAL_S = 0.10
     CONTINUOUS_AUTO_PARAMS_INTERVAL_S = 0.25
 
+    # 从单次调整的工作线程发出；跨线程连接会自动排回 GUI 线程
+    _one_shot_finished = QtCore.Signal(str)
+
     def __init__(self):
         super().__init__()
         
@@ -43,6 +47,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_settings = AppSettings()
         self.close_flag = False
         self._one_shot_pending = None  # 哪一路单次自动调整在等 PARAMETER_CHANGED 报回
+        self._one_shot_finished.connect(self._on_one_shot_finished)
         self._event_bridge = _MainThreadEventBridge(self)
         self._event_bridge.dispatch_event.connect(
             self._dispatch_gui_event,
@@ -548,12 +553,38 @@ class MainWindow(QtWidgets.QMainWindow):
     def _handle_one_shot(self, control_type: str, trigger):
         """发起一次自动调整，并在期间禁用对应的手动控件。
 
-        相机侧的 set_*_once 会阻塞轮询到硬件自动关闭，然后发 PARAMETER_CHANGED；
-        _on_parameter_changed 用 _one_shot_pending 认出那一趟并把控件放回来。
+        相机侧的 set_*_once 会一直轮询硬件到自动关闭（最长 5 秒），所以这一下必须离开
+        GUI 线程去做，否则整个界面在那几秒里是冻住的。恢复控件有两条路：正常完成时靠
+        它自己发的 PARAMETER_CHANGED（见 _on_parameter_changed），其余情况靠
+        _on_one_shot_finished 兜底。
         """
         self._one_shot_pending = control_type
         self.camera_control.handle_one_shot_auto(control_type)
-        trigger()
+
+        def run():
+            try:
+                trigger()
+            except Exception as e:
+                self._logger.error(f"单次{control_type}调整失败: {str(e)}")
+            finally:
+                self._one_shot_finished.emit(control_type)
+
+        threading.Thread(
+            target=run,
+            name=f"PolCam-OneShot-{control_type}",
+            daemon=True,
+        ).start()
+
+    def _on_one_shot_finished(self, control_type: str):
+        """单次调整收工，无论它有没有报回结果。
+
+        超时、相机没连（set_*_once 直接 return）和 SDK 抛错这三条路都不会发
+        PARAMETER_CHANGED，只靠那个事件恢复会让控件永久禁用。
+        """
+        if self._one_shot_pending != control_type:
+            return
+        self._one_shot_pending = None
+        self.camera_control.handle_one_shot_complete(control_type)
 
     def _handle_wb_once(self):
         """处理白平衡一次性调整"""
