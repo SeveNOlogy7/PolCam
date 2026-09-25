@@ -86,15 +86,22 @@ python main.py
 ```
 PolCam/
 ├── main.py                 # 程序入口
-├── pyproject.toml          # 项目配置（uv / 构建）
+├── pyproject.toml          # 项目配置（uv / 构建），版本号唯一来源
 ├── environment.yaml        # Conda 环境定义
+├── PolCam.spec             # PyInstaller 打包配置
+├── cliff.toml              # git-cliff 变更日志配置
+├── packaging/
+│   └── PolCam.iss          # Inno Setup 安装脚本
+├── .github/workflows/
+│   ├── ci.yml              # 测试矩阵（Windows / Linux）
+│   └── release.yml         # tag 触发的打包与草稿发布
 ├── polcam/                 # 主应用源码
 │   ├── core/               # 核心模块（相机、处理、事件、工具栏控制）
 │   ├── gui/                # GUI 模块
 │   │   └── widgets/        # GUI 子组件
 │   ├── resources/          # 图标等资源
 │   └── utils/              # 日志等工具
-├── gxipy/                  # 相机 Python SDK 封装
+├── gxipy/                  # DAHENG 相机 Python SDK 封装
 └── tests/                  # 测试代码
 ```
 
@@ -111,6 +118,32 @@ PolCam/
 - 运行测试：`pytest`
 - 代码风格检查：`flake8`
 - 类型检查：`mypy .`
+
+### 发布
+
+版本号**只在 `pyproject.toml` 的 `[project].version` 声明一次**。运行时 `polcam.__version__` 从该文件解析（打包后从包内的 `pyproject.toml` 读，源码运行时从仓库根读），「关于」对话框直接显示它，不再单独维护。
+
+`pyproject.toml` 里写的是**不带前缀的数字版本**（如 `1.0.0`）——PEP 440 不接受 `v` 前缀，加了 uv 会直接报错。但**所有给人看的地方一律带 `v`**：「关于」对话框、产物文件名、Release 标题、changelog 小节、安装包 `AppVersion`、exe 的 `ProductVersion`。exe 的 `FileVersion` 保持数字，那是 Windows 要求用于版本比较的字段。
+
+发布由推 tag 触发，产物先进**草稿 Release**，人工确认后才公开：
+
+1. 改 `pyproject.toml` 里的 `version`，提交并合入 `main`
+2. 打 tag 并推送：`git tag -a v1.0.1 -m "PolCam v1.0.1" && git push origin v1.0.1`
+3. `.github/workflows/release.yml` 在 `windows-latest` 上依次执行：跑测试套件作为门禁 → PyInstaller 打 onedir → 压便携 zip → Inno Setup 编安装包 → git-cliff 生成发布说明与 `CHANGELOG.md` → 建草稿 Release
+4. 到 [Releases](https://github.com/SeveNOlogy7/PolCam/releases) 检查草稿，确认后点 publish
+
+tag 必须是 `v` + `pyproject.toml` 里的版本，两者不一致时门禁直接失败。
+
+产物两个：`PolCam-v<版本>-win64.exe`（安装包，含开始菜单项与卸载器）和 `PolCam-v<版本>-win64-portable.zip`（解压即用）。
+
+发布说明由 [git-cliff](https://git-cliff.org/) 从提交历史生成，因此提交信息请写 conventional 前缀（`feat:` / `fix:` / `perf:` / `test:` / `ci:` / `docs:` / `chore:`，可带 scope）。非 conventional 的提交也不会被丢弃，会归入「其他」。
+
+两个不要踩的点：
+
+- `packaging/PolCam.iss` 里的 `AppId` GUID **发布后绝不能改**。改了以后新版本会被 Windows 当成另一个程序，覆盖不了旧安装、控制面板里会并存两份。
+- `PolCam.spec` 的 `datas` 必须包含 `pyproject.toml`。漏了的话打包出来的应用读不到版本，「关于」会显示 `0.0.0+unknown`。
+
+另外：本机没装大恒 Galaxy 驱动也能启动，此时相机连接与采集不可用，但仍可通过工具栏读取已保存的原始图像做处理。
 
 ### 许可证
 
@@ -198,8 +231,15 @@ python main.py
 ```
 PolCam/
 ├── main.py                 # Application entry point
-├── pyproject.toml          # Project config (uv / build)
+├── pyproject.toml          # Project config (uv / build); single source of the version
 ├── environment.yaml        # Conda environment definition
+├── PolCam.spec             # PyInstaller build specification
+├── cliff.toml              # git-cliff changelog configuration
+├── packaging/
+│   └── PolCam.iss          # Inno Setup installer script
+├── .github/workflows/
+│   ├── ci.yml              # Test matrix (Windows / Linux)
+│   └── release.yml         # Tag-triggered packaging and draft release
 ├── polcam/                 # Main application source
 │   ├── core/               # Core modules (camera, processing, events, toolbar control)
 │   ├── gui/                # GUI modules
@@ -207,7 +247,6 @@ PolCam/
 │   ├── resources/          # Icons and static resources
 │   └── utils/              # Utilities (logging, etc.)
 ├── gxipy/                  # DAHENG camera Python SDK wrapper
-├── gxipy_docs/             # gxipy examples and reference scripts
 └── tests/                  # Test suite
 ```
 
@@ -224,6 +263,52 @@ PolCam/
 - Run tests: `pytest`
 - Style check: `flake8`
 - Type check: `mypy .`
+
+### Release
+
+The version is declared **exactly once**, in `[project].version` of `pyproject.toml`.
+`polcam.__version__` parses that file at runtime (from inside the bundle when frozen,
+from the repository root when running from source), and the About dialog displays it
+rather than keeping its own copy.
+
+`pyproject.toml` holds the **bare numeric version** (e.g. `1.0.0`) — PEP 440 does not
+accept a `v` prefix and uv rejects it. Everything a human sees is **`v`-prefixed**:
+the About dialog, artifact filenames, the release title, changelog headings, the
+installer's `AppVersion`, and the exe's `ProductVersion`. The exe's `FileVersion`
+stays numeric, since Windows uses that field for version comparison.
+
+Releases are triggered by pushing a tag, and the result lands as a **draft release**
+first — nothing is public until a human publishes it:
+
+1. Bump `version` in `pyproject.toml`, commit, merge to `main`
+2. Tag and push: `git tag -a v1.0.1 -m "PolCam v1.0.1" && git push origin v1.0.1`
+3. `.github/workflows/release.yml` runs on `windows-latest`: test suite as a gate →
+   PyInstaller onedir → portable zip → Inno Setup installer → git-cliff release notes
+   and `CHANGELOG.md` → draft release
+4. Review the draft at [Releases](https://github.com/SeveNOlogy7/PolCam/releases) and
+   publish when it looks right
+
+The tag must be `v` plus the `pyproject.toml` version; the gate fails if they disagree.
+
+Two artifacts are produced: `PolCam-v<version>-win64.exe` (installer, with Start Menu
+entry and uninstaller) and `PolCam-v<version>-win64-portable.zip` (extract and run).
+
+Release notes are generated by [git-cliff](https://git-cliff.org/) from commit history,
+so write commit subjects with a conventional prefix (`feat:` / `fix:` / `perf:` /
+`test:` / `ci:` / `docs:` / `chore:`, optionally with a scope). Non-conventional
+commits are kept too, under "其他".
+
+Two things not to change:
+
+- The `AppId` GUID in `packaging/PolCam.iss` must **never change after the first
+  release**. If it does, Windows treats a new build as a different program: it will
+  not upgrade the old install, and both will appear in Add/Remove Programs.
+- `datas` in `PolCam.spec` must include `pyproject.toml`. Without it the frozen app
+  cannot resolve its version and the About dialog shows `0.0.0+unknown`.
+
+The app also starts without the DAHENG Galaxy SDK installed: camera connect and
+capture are unavailable, but saved raw images can still be loaded from the toolbar
+and processed.
 
 ### License
 
