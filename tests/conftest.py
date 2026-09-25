@@ -6,6 +6,7 @@ See LICENSE file for full license details.
 
 import pytest
 import sys
+import threading
 from unittest.mock import MagicMock
 
 try:  # 真实 SDK 可用时不干预，保证有相机/驱动的机器上测的是真代码
@@ -96,3 +97,35 @@ def qapp():
 @pytest.fixture
 def mock_camera():
     return _make_mock_camera()
+
+
+def drain_processing_workers(timeout=5.0):
+    """收掉所有仍在运行的处理线程。
+
+    测试里造出来的 MainWindow 从不 close，它们各自的 ProcessingModule 就一直活着；
+    工作线程只握着 module 的弱引用，那份引用就在 Thread._args[0] 里，取回来 stop() 即可。
+    不 drain 的话这些守护线程每秒醒一次，撞上解释器 finalize 就是 0xc0000374 堆损坏。
+    """
+    workers = [
+        thread for thread in threading.enumerate()
+        if getattr(thread._target, "__name__", "") == "_processing_loop"
+    ]
+
+    # 先让所有线程都看到停止标志再逐个 join：线程最迟一秒后才会醒来，
+    # 边停边等会把 N 个线程的唤醒延迟串起来。用 destroy() 而不是 stop()，因为
+    # 这些模块大多只 initialize() 过，stop() 会 early-return 什么也不做。
+    for thread in workers:
+        args = getattr(thread, "_args", ())
+        module_ref = args[0] if args else None
+        module = module_ref() if module_ref is not None else None
+        if module is not None:
+            module.destroy()
+
+    for thread in workers:
+        thread.join(timeout=timeout)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def drain_processing_workers_at_exit():
+    yield
+    drain_processing_workers()

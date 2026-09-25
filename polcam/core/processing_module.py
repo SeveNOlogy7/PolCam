@@ -129,6 +129,18 @@ class ProcessingTask:
         """优先级比较"""
         return self.priority > other.priority  # 值越大优先级越高
 
+class _StopSignal:
+    """放进 PriorityQueue 的停止信号。
+
+    不能用 None：heapq 会拿它和 ProcessingTask 比较并抛 TypeError。给一个和任务同
+    接口的最小对象，PriorityQueue 的排序规则就仍然成立。
+    """
+    priority = -1  # 值越大优先级越高，所以它永远排在真实任务之后
+
+    def __lt__(self, other):
+        return self.priority > other.priority
+
+
 class ProcessingModule(BaseModule):
     """图像处理模块
     
@@ -170,6 +182,31 @@ class ProcessingModule(BaseModule):
         # 替换原有的白平衡缓存
         self._wb_cache = WhiteBalanceCache(valid_duration=2.0)
         
+    def _worker_ref(self):
+        """指向本模块的弱引用；模块被回收时把停止信号塞进队列。
+
+        回调只允许握着队列——握着 self 就把模块又钉回去了。
+        """
+        def wake(_ref, task_queue=self._task_queue):
+            task_queue.put(_StopSignal())
+
+        return weakref.ref(self, wake)
+
+    def _ensure_worker(self) -> None:
+        """保证有一个活着的处理线程。
+
+        stop() 会让线程退出，而 BaseModule.start() 在 _initialized 为真时短路，
+        所以重新启动必须在这里补上线程，否则 is_running() 为真却没有任何消费者。
+        """
+        if self._processing_thread and self._processing_thread.is_alive():
+            return
+        self._processing_thread = threading.Thread(
+            target=self._processing_loop,
+            args=(self._worker_ref(), self._task_queue),
+            daemon=True
+        )
+        self._processing_thread.start()
+
     def _do_initialize(self) -> bool:
         """初始化处理模块"""
         try:
@@ -177,12 +214,7 @@ class ProcessingModule(BaseModule):
             self._processor = ImageProcessor()
             
             # 启动处理线程
-            self._processing_thread = threading.Thread(
-                target=self._processing_loop,
-                args=(weakref.ref(self),),
-                daemon=True
-            )
-            self._processing_thread.start()
+            self._ensure_worker()
             
             return True
         except Exception as e:
@@ -193,18 +225,26 @@ class ProcessingModule(BaseModule):
         """启动处理模块"""
         try:
             self._stop_flag = False
+            self._ensure_worker()
             return True
         except Exception as e:
             self._logger.error(f"启动处理模块失败: {str(e)}")
             return False
             
+    def _shutdown_worker(self) -> None:
+        """让工作线程退出并等它退出来。"""
+        self._stop_flag = True
+        thread = self._processing_thread
+        if thread:
+            # 线程平时无限阻塞在 get() 上，所以必须显式塞一个停止信号把它唤醒。
+            self._task_queue.put(_StopSignal())
+            thread.join(timeout=2.0)
+        self._processing_thread = None
+
     def _do_stop(self) -> bool:
         """停止处理模块"""
         try:
-            self._stop_flag = True
-            if self._processing_thread:
-                self._task_queue.put(None)  # 发送停止信号
-                self._processing_thread.join(timeout=1.0)
+            self._shutdown_worker()
             return True
         except Exception as e:
             self._logger.error(f"停止处理模块失败: {str(e)}")
@@ -213,6 +253,9 @@ class ProcessingModule(BaseModule):
     def _do_destroy(self) -> bool:
         """销毁处理模块"""
         try:
+            # BaseModule.stop() 在没 start() 过时直接 early-return，而 MainWindow 恰恰
+            # 只用 initialize() 起线程、从不 start()，所以这里必须自己收。
+            self._shutdown_worker()
             self._thread_pool.shutdown(wait=True)
             return True
         except Exception as e:
@@ -297,35 +340,34 @@ class ProcessingModule(BaseModule):
         })
 
     @staticmethod
-    def _processing_loop(module_ref: "weakref.ReferenceType[ProcessingModule]") -> None:
+    def _processing_loop(module_ref: "weakref.ReferenceType[ProcessingModule]",
+                         task_queue: "queue.PriorityQueue") -> None:
         """处理循环。
 
         线程持有 module 的弱引用而不是绑定 self：绑定方法本身就是强引用，会让线程
         反过来把 module 钉在内存里永不回收，并在 module 被丢弃后继续访问已释放的
         Qt 对象（CI 上表现为 0xc0000374 堆损坏）。
 
-        阻塞进 get() 之前必须先丢掉本帧的强引用，否则等待期间 module 无法被回收，
-        弱引用形同虚设；get() 带超时是同一个原因——不超时就不会醒来重解析引用。
+        队列由参数传进来，于是等待期间这一帧不需要任何强引用，get() 可以无限阻塞。
+        不要改成带超时的轮询：每秒醒一次意味着每一个泄漏下来的空闲线程都在执行
+        Python，解释器 finalize 时就会撞上。唤醒由 _StopSignal 负责——module 被回收
+        时弱引用回调塞一个进队列，_shutdown_worker 也塞一个。
         """
         while True:
             module = module_ref()
             if module is None or module._stop_flag:
                 return
-            task_queue = module._task_queue
             del module
 
             try:
-                task = task_queue.get(timeout=1.0)
-            except queue.Empty:
-                continue
+                task = task_queue.get()
             except Exception as e:
                 waiter = module_ref()
                 if waiter is not None:
                     waiter._logger.error(f"处理循环错误: {str(e)}")
-                time.sleep(0.1)
-                continue
+                return
 
-            if task is None:
+            if isinstance(task, _StopSignal):
                 return
 
             module = module_ref()
