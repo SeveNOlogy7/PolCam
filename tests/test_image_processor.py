@@ -144,6 +144,14 @@ def test_polarization_parameters_do_not_wrap_on_bright_scene(image_processor):
     # S3=(150+100)-(200+50)=0 -> 无圆偏振
     assert np.allclose(docp, 0, atol=1e-3)
 
+def test_enhance_image_falls_back_to_the_original(image_processor):
+    """增强失败时按文档返回原图。
+
+    错误处理里写的是 self._logger，而 ImageProcessor 没有这个属性，于是 except 分支
+    自己抛 AttributeError：既盖掉了真实的 cv2 错误，承诺的兜底也永远走不到。
+    """
+    assert image_processor.enhance_image("not-an-image") == "not-an-image"
+
 def test_error_handling(image_processor):
     """测试错误处理"""
     # 测试输入图像数量不正确

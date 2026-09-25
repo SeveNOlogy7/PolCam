@@ -4,6 +4,8 @@ Copyright (c) 2024-2026 Junhao Cai
 See LICENSE file for full license details.
 """
 
+import logging
+
 import numpy as np
 import polanalyser as pa
 import cv2
@@ -11,7 +13,7 @@ from typing import List, Tuple, Union
 
 class ImageProcessor:
     def __init__(self):
-        pass
+        self._logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
 
     @staticmethod
     def demosaic_polarization(raw_image: np.ndarray, mono: bool = False) -> List[np.ndarray]:
