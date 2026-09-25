@@ -131,7 +131,9 @@ def test_event_timestamp(event_manager):
     event_manager.subscribe(EventType.CAMERA_CONNECTED, callback)
     
     # 记录发布时间并发布事件
-    event_manager.publish(Event(EventType.CAMERA_CONNECTED))
+    # 带上真实形状的负载：同一次运行里可能还有没释放的 MainWindow 订阅着这个事件，
+    # 裸 Event(...) 会让它的处理器在 Qt 事件循环里抛错，被 pytest-qt 记到本测试头上
+    event_manager.publish(Event(EventType.CAMERA_CONNECTED, {"device_info": "mock"}))
     
     # 等待处理
     time.sleep(0.1)
@@ -151,7 +153,7 @@ def test_error_handling(event_manager):
     
     # 发布事件 - 不应该抛出异常
     try:
-        event_manager.publish(Event(EventType.ERROR_OCCURRED))
+        event_manager.publish(Event(EventType.ERROR_OCCURRED, {"error": "测试错误"}))
         time.sleep(0.1)
         assert True  # 如果到达这里，说明错误被正确处理
     except Exception:
@@ -237,3 +239,28 @@ def test_concurrent_publish(event_manager):
     assert len(received_events) == 10
     received_ids = {event.data["id"] for event in received_events}
     assert received_ids == set(range(10))
+
+def test_unsubscribing_in_a_callback_does_not_drop_async_deliveries(event_manager):
+    """回调里取消订阅，不能把同一次事件的异步订阅者带走。
+
+    _process_event 直接遍历那个 set；回调把自己摘掉会改动 set 大小，迭代下一个元素时
+    抛 RuntimeError 冲出 _process_event，于是排在同步分支之后的异步订阅那段根本执行不到。
+    """
+    event_type = EventType.PROCESSING_STARTED
+    received = []
+
+    def one_shot_subscriber(event):
+        event_manager.unsubscribe(event_type, one_shot_subscriber)
+
+    event_manager.subscribe(event_type, one_shot_subscriber)
+    event_manager.subscribe(
+        event_type, lambda event: received.append("async"), is_async=True
+    )
+
+    event_manager.publish(Event(event_type, None))
+
+    deadline = time.time() + 2.0
+    while not received and time.time() < deadline:
+        time.sleep(0.02)
+
+    assert received == ["async"]

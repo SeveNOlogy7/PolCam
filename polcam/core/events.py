@@ -113,18 +113,18 @@ class EventManager:
 
     def _process_event(self, event: Event):
         """处理单个事件"""
+        # 两个分支都先快照再遍历：回调里订阅或取消订阅会改动正在迭代的 set，
+        # 直接遍历会抛 RuntimeError 冲出这里，把后面的异步订阅者一起带走。
         # 处理同步回调
-        if event.type in self._subscribers:
-            for callback in self._subscribers[event.type]:
-                try:
-                    callback(event)
-                except Exception as e:
-                    self._logger.error(f"执行同步回调时发生错误: {str(e)}\n{traceback.format_exc()}")
+        for callback in list(self._subscribers.get(event.type, ())):
+            try:
+                callback(event)
+            except Exception as e:
+                self._logger.error(f"执行同步回调时发生错误: {str(e)}\n{traceback.format_exc()}")
 
         # 处理异步回调
-        if event.type in self._async_subscribers:
-            for callback in self._async_subscribers[event.type]:
-                self._thread_pool.submit(self._run_async_callback, callback, event)
+        for callback in list(self._async_subscribers.get(event.type, ())):
+            self._thread_pool.submit(self._run_async_callback, callback, event)
 
     def _run_async_callback(self, callback: Callable, event: Event):
         """在线程池中执行异步回调"""
