@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Iterable, List, Optional
 
 import cv2
+import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
 
 from ...core.gallery_service import GalleryItem
@@ -164,7 +165,8 @@ class GalleryPanel(QtWidgets.QWidget):
             self.table.setItem(row, column, table_item)
 
     def _create_thumbnail_icon(self, file_path: str) -> QtGui.QIcon:
-        image = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+        # cv2.imread 按进程 ANSI 代码页解析路径，中文路径下读不出来，所以自己按字节读
+        image = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
         if image is None:
             # 预览读不出属于缺图而非错误，用中性文件图标，避免整排警告三角
             return self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileIcon)

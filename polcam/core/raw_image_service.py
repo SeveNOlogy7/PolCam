@@ -60,9 +60,13 @@ class RawImageService:
         path = Path(file_path).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        success = cv2.imwrite(str(path), frame)
-        if not success:
-            raise IOError(f"无法保存图像文件: {path}")
+        # cv2.imwrite/imread 按进程 ANSI 代码页解析路径，中文目录或文件名会直接失败
+        # （imwrite 只是返回 False，文件根本不落盘），所以自己编码再按字节写。
+        extension = path.suffix or self.DEFAULT_EXTENSION
+        encoded, buffer = cv2.imencode(extension, frame)
+        if not encoded:
+            raise IOError(f"无法编码图像文件: {path}")
+        path.write_bytes(buffer.tobytes())
         return path
 
     def load_image(self, file_path: Union[str, Path]) -> np.ndarray:
@@ -70,7 +74,7 @@ class RawImageService:
         if not path.exists():
             raise FileNotFoundError(f"图像文件不存在: {path}")
 
-        raw_data = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        raw_data = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
         if raw_data is None:
             raise ValueError("无法读取图像文件")
         if not self.verify_image_size(raw_data):

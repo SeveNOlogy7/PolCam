@@ -5,7 +5,6 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore
-import cv2
 import numpy as np
 import os
 from datetime import datetime
@@ -262,7 +261,7 @@ class ToolbarController(BaseModule):
         for img, suffix in zip(images, suffixes):
             filename = os.path.join(save_dir, f"{base_name}_{suffix}{extension}")
             try:
-                cv2.imwrite(filename, img)
+                self._raw_image_service.save_image(img, filename)
                 self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
                 self._logger.info(f"图像已保存: {filename}")
             except Exception as e:
@@ -276,7 +275,7 @@ class ToolbarController(BaseModule):
         """保存单张图像。"""
         filename = os.path.join(save_dir, f"{base_name}_{suffix}{extension}")
         try:
-            cv2.imwrite(filename, image)
+            self._raw_image_service.save_image(image, filename)
             self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
             self._logger.info(f"图像已保存: {filename}")
             return True
@@ -469,7 +468,7 @@ class ToolbarController(BaseModule):
                 mode_str = self._get_processing_mode_str()
                 filename = os.path.join(save_dir, f"{base_name}_{mode_str}{ext}")
                 try:
-                    cv2.imwrite(filename, self._last_result.images[0])
+                    self._raw_image_service.save_image(self._last_result.images[0], filename)
                     self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
                     success = True
                     self._logger.info(f"图像已保存: {filename}")
