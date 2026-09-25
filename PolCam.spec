@@ -32,7 +32,7 @@ VSVersionInfo(
       StringStruct('FileVersion', '{_version}'),
       StringStruct('OriginalFilename', 'PolCam.exe'),
       StringStruct('ProductName', 'PolCam'),
-      StringStruct('ProductVersion', '{_version}'),
+      StringStruct('ProductVersion', 'v{_version}'),
     ])]),
     VarFileInfo([VarStruct('Translation', [2052, 1200])])
   ]

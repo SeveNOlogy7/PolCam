@@ -48,6 +48,8 @@ jobs:
           set -euo pipefail
           version="$(uv run python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # 给人看的版本一律带 v 前缀；pyproject 里那个受 PEP 440 约束不能带。
+          echo "display_version=v$version" >> "$GITHUB_OUTPUT"
 
           # 发布说明的参数：tag 触发取该 tag 段落，手动触发取未发布段落。
           if [[ "${{ github.event_name }}" == "push" ]]; then
@@ -99,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/artifacts
-          zip="dist/artifacts/${APP_NAME}-${{ steps.ver.outputs.version }}-win64-portable.zip"
+          zip="dist/artifacts/${APP_NAME}-${{ steps.ver.outputs.display_version }}-win64-portable.zip"
           # 打包 PolCam 目录本身，zip 顶层就是 PolCam/，解压即用。
           powershell -NoProfile -Command "Compress-Archive -Path 'dist/${APP_NAME}' -DestinationPath '$zip' -Force"
           test -f "$zip" || { echo "::error::便携 zip 未生成"; exit 1; }
@@ -124,8 +126,8 @@ jobs:
           echo "ISCC: $iscc"
           # MSYS_NO_PATHCONV 是必需的：/DMyAppVersion=x 会被 Git Bash 当成 Unix
           # 绝对路径改写，Inno 收到的是被破坏的参数。本地已踩过这个坑。
-          MSYS_NO_PATHCONV=1 "$iscc" "/DMyAppVersion=${{ steps.ver.outputs.version }}" packaging/PolCam.iss
-          installer="dist/installer/${APP_NAME}-${{ steps.ver.outputs.version }}-win64.exe"
+          MSYS_NO_PATHCONV=1 "$iscc" "/DMyAppVersion=${{ steps.ver.outputs.display_version }}" packaging/PolCam.iss
+          installer="dist/installer/${APP_NAME}-${{ steps.ver.outputs.display_version }}-win64.exe"
           test -f "$installer" || { echo "::error::安装包未生成：$installer"; exit 1; }
           cp "$installer" dist/artifacts/
 
@@ -153,7 +155,7 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           draft: true
           prerelease: false
-          name: "${{ env.APP_NAME }} ${{ steps.ver.outputs.version }}"
+          name: "${{ env.APP_NAME }} ${{ steps.ver.outputs.display_version }}"
           body_path: ${{ runner.temp }}/RELEASE_NOTES.md
           files: |
             dist/artifacts/*.zip

@@ -5,7 +5,7 @@
 header = "# Changelog\n\n本文件由 git-cliff 从提交历史生成，请勿手工编辑。\n\n"
 body = """
 {% if version %}\
-## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+## {{ version }} - {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
 ## 未发布
 {% endif %}

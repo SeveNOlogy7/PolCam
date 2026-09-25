@@ -531,7 +531,7 @@ class ToolbarController(BaseModule):
         """处理关于事件"""
         about_text = f"""
         <h3>PolCam</h3>
-        <p>版本: {POLCAM_VERSION}</p>
+        <p>版本: v{POLCAM_VERSION}</p>
         <p>偏振相机采集和处理软件</p>
         <p>作者: Junhao Cai</p>
         <p>项目主页: <a href="https://github.com/SeveNOlogy7/PolCam">Github</a></p>
