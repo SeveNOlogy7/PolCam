@@ -721,17 +721,19 @@ def test_stop_streaming_updates_toolbar_with_latest_frame(main_window):
     enable_save_raw.assert_called_once_with(True)
 
 def test_one_shot_complete_releases_the_wb_button(qapp):
-    """一次性白平衡做完后那个按钮要弹起来。
+    """一次性白平衡做完后要把白平衡控件恢复成可用。
 
     这里写的是 wb_control.once_button，而 WhiteBalance 里的控件叫 once_btn，所以
-    wb 分支一走到就 AttributeError。（目前没有调用方，等着被接到信号上。）
+    wb 分支一走到就 AttributeError。（目前没有调用方：单次白平衡在相机侧还没实现。）
     """
     control = CameraControl()
-    control.wb_control.once_btn.setChecked(True)
+    control.wb_control.set_enabled(False)
+    assert not control.wb_control.auto_check.isEnabled()
 
     control.handle_one_shot_complete('wb')
 
-    assert not control.wb_control.once_btn.isChecked()
+    assert control.wb_control.auto_check.isEnabled()
+    assert control.wb_control.once_btn.isEnabled()
 
 def test_visibility_setters_tolerate_a_parentless_widget(qapp):
     """没有父控件时设置可见性不该炸。
