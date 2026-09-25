@@ -150,7 +150,8 @@ class CameraControl(QtWidgets.QWidget):
             self.wb_control.setVisible(visible)
             # 立即重新计算布局
             self.updateGeometry()
-            self.parentWidget().updateGeometry()
+            if self.parentWidget():
+                self.parentWidget().updateGeometry()
 
     def set_angle_controls_visible(self, visible: bool):
         """设置角度选择控制组的可见性"""
@@ -158,7 +159,8 @@ class CameraControl(QtWidgets.QWidget):
             self.angle_selector.setVisible(visible)
             # 立即重新计算布局
             self.updateGeometry()
-            self.parentWidget().updateGeometry()
+            if self.parentWidget():
+                self.parentWidget().updateGeometry()
             
     def set_pol_controls_visible(self, visible: bool):
         """设置偏振分析相关控件的可见性"""
@@ -234,7 +236,7 @@ class CameraControl(QtWidgets.QWidget):
                 self.update_gain_value(value)
         elif control_type == 'wb':
             self.wb_control.set_enabled(True)
-            self.wb_control.once_button.setChecked(False)
+            self.wb_control.once_btn.setChecked(False)
 
     def handle_parameter_change(self, param_name: str, value: float):
         """处理参数变化

@@ -719,3 +719,26 @@ def test_stop_streaming_updates_toolbar_with_latest_frame(main_window):
     cancel_all_tasks.assert_called_once()
     update_current_frame.assert_called_once_with(frame, 123.0)
     enable_save_raw.assert_called_once_with(True)
+
+def test_one_shot_complete_releases_the_wb_button(qapp):
+    """一次性白平衡做完后那个按钮要弹起来。
+
+    这里写的是 wb_control.once_button，而 WhiteBalance 里的控件叫 once_btn，所以
+    wb 分支一走到就 AttributeError。（目前没有调用方，等着被接到信号上。）
+    """
+    control = CameraControl()
+    control.wb_control.once_btn.setChecked(True)
+
+    control.handle_one_shot_complete('wb')
+
+    assert not control.wb_control.once_btn.isChecked()
+
+def test_visibility_setters_tolerate_a_parentless_widget(qapp):
+    """没有父控件时设置可见性不该炸。
+
+    set_pol_controls_visible 判了 parentWidget() 是否存在，另外两个 setter 没判。
+    """
+    control = CameraControl()
+
+    control.set_wb_controls_visible(True)
+    control.set_angle_controls_visible(True)
