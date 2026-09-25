@@ -504,3 +504,18 @@ def test_camera_module_degrades_without_galaxy_sdk():
     assert module.connect() is False
     assert module.is_connected() is False
     assert module.start() is False
+
+def test_connect_failure_closes_the_opened_device(camera_module):
+    """连接中途失败时，已经独占打开的设备必须被关掉。
+
+    异常处理里只把 _camera 置 None，独占句柄就这么泄漏到进程结束；_device_indices
+    里那格也永远占着，下一次连接会跳号。而 _running 从没被置起来，所以
+    BaseModule.stop() 直接 early-return，不会有人去 disconnect()。
+    """
+    assert camera_module.initialize()
+    device = camera_module.device_manager.open_device_by_index.return_value
+    device.get_remote_device_feature_control.side_effect = RuntimeError("feature control 挂了")
+
+    assert camera_module.connect() is False
+    assert device.close_device.called, "失败路径没有关闭已打开的设备"
+    assert camera_module._device_indices == []

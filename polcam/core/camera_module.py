@@ -227,7 +227,6 @@ class CameraModule(BaseModule):
                 self._logger.error("打开相机失败")
                 return False
 
-            self._device_indices.append(device_index)
             self._remote_feature = self._camera.get_remote_device_feature_control()
             cached_params = self._last_params.copy()
 
@@ -238,6 +237,8 @@ class CameraModule(BaseModule):
 
             # 设置连接状态
             self._connected = True
+            # 到这里才算真的占住这一格；失败路径上设备会被关掉，索引也就无需回滚
+            self._device_indices.append(device_index)
 
             # 获取实际设备信息
             device_info = device_list[device_index - 1] if device_list and len(device_list) >= device_index else {}
@@ -271,6 +272,13 @@ class CameraModule(BaseModule):
 
         except Exception as e:
             self._logger.error(f"连接相机失败: {str(e)}")
+            # 只把 _camera 置 None 等于把独占句柄漏到进程结束：_running 从没被置起来，
+            # BaseModule.stop() 会 early-return，没人再来 disconnect() 这个设备。
+            if self._camera is not None:
+                try:
+                    self._camera.close_device()
+                except Exception as close_error:
+                    self._logger.warning(f"关闭未连接成功的相机失败: {close_error}")
             self._camera = None
             self._remote_feature = None
             self._connected = False
