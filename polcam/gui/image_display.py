@@ -5,6 +5,7 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore, QtGui
+import math
 import numpy as np
 import cv2
 from typing import List, Optional, Tuple
@@ -386,8 +387,9 @@ class ImageDisplay(QtWidgets.QWidget):
         min_area = (full_w * full_h) / self._max_zoom
         if width > 0 and height > 0 and width * height < min_area:
             scale = (min_area / (width * height)) ** 0.5
-            width = int(width * scale)
-            height = int(height * scale)
+            # 向上取整：int() 会让放大后的窗口仍然小于 min_area，实际倍率反超上限
+            width = math.ceil(width * scale)
+            height = math.ceil(height * scale)
 
         width = max(1, min(width, full_w))
         height = max(1, min(height, full_h))
@@ -575,6 +577,10 @@ class ImageDisplay(QtWidgets.QWidget):
         width = min(width, full_w - source_x)
         height = min(height, full_h - source_y)
         width, height = self._constrain_view_size_to_max_zoom(width, height)
+        # 上面把窗口放大过，原点要再收一次进画布；否则存下的 ROI 越界，读的时候
+        # 会被 _get_current_view_roi 平移回来，显示的就不是用户框住的那块
+        source_x = max(0, min(source_x, full_w - width))
+        source_y = max(0, min(source_y, full_h - height))
 
         if width <= 0 or height <= 0:
             return False

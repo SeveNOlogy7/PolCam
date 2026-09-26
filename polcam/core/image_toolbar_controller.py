@@ -5,6 +5,7 @@ See LICENSE file for full license details.
 """
 
 from .base_module import BaseModule
+import math
 from typing import Optional, List
 from qtpy import QtWidgets
 from .events import Event, EventType
@@ -295,8 +296,9 @@ class ImageToolbarController(BaseModule):
             min_area = (sensor_w * sensor_h) / self._max_zoom
             if new_w > 0 and new_h > 0 and new_w * new_h < min_area:
                 scale = (min_area / (new_w * new_h)) ** 0.5
-                new_w = int(new_w * scale)
-                new_h = int(new_h * scale)
+                # 向上取整才能真的落回上限内：int() 会留下 1000x1000/31² = 1040x
+                new_w = math.ceil(new_w * scale)
+                new_h = math.ceil(new_h * scale)
         elif self._zoom_mode == 'zoom_out':
             new_w = int(w * self.ZOOM_FACTOR)
             new_h = int(h * self.ZOOM_FACTOR)

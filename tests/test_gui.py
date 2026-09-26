@@ -342,8 +342,8 @@ def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qap
     mock_camera.set_roi.return_value = True
     mock_camera.get_roi.side_effect = [
         (0, 0, 10, 10),
-        (0, 0, 31, 31),
-        (0, 0, 31, 31),
+        (0, 0, 32, 32),
+        (0, 0, 32, 32),
     ]
     display.toolbar_controller.set_camera_module(mock_camera)
 
@@ -352,8 +352,10 @@ def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qap
 
     mock_camera.set_roi.assert_called_once()
     _, _, new_w, new_h = mock_camera.set_roi.call_args.args
-    assert new_w == 31
-    assert new_h == 31
+    assert new_w == new_h == 32
+    # 1000x1000 / 32² 才落回 1000x 以内；曾经断言的 31 对应 1040x，
+    # 正好是这个用例名字说要防住的越界
+    assert (1000 * 1000) / (new_w * new_h) <= 1000.0
 
 def test_image_toolbar_controller_reset_view_uses_software_path_for_static_image(qapp):
     """测试静态图像重置视图不会修改相机 ROI。"""
@@ -820,3 +822,34 @@ def test_one_shot_restores_the_control_even_without_a_result(main_window):
     assert not exposure.value_spin.isEnabled()
 
     assert _wait_until(lambda: exposure.value_spin.isEnabled()), "单次失败后控件没有恢复"
+
+def test_software_area_zoom_stays_inside_the_canvas(qapp):
+    """贴着画布右下角框选，放大窗口不能超出画布。
+
+    apply_software_zoom_area 先把宽高裁到画布边缘，再按最大倍率把窗口放大，但放大
+    之后没有重新收原点；存下来的 ROI 越界，读的时候被 _get_current_view_roi 平移回
+    画布内 —— 于是显示的是用户没框住的那块。断言存下来的值，不是被修好的那个。
+    """
+    display = ImageDisplay()
+    display.show_image(np.zeros((300, 400, 3), dtype=np.uint8))
+    full = display._get_full_view_roi()
+
+    assert display.apply_software_zoom_area(full[2] - 1, full[3] - 1, 1, 1)
+
+    x, y, w, h = display._software_view_roi
+    assert x + w <= full[2], f"视图右边界 {x + w} 超出画布宽 {full[2]}"
+    assert y + h <= full[3], f"视图下边界 {y + h} 超出画布高 {full[3]}"
+
+def test_software_area_zoom_respects_the_max_zoom_at_the_floor(qapp):
+    """为满足最大倍率而放大窗口时，不能因为取整反而超过上限。"""
+    display = ImageDisplay()
+    max_zoom = 1000.0
+    display.set_max_zoom(max_zoom)
+    display.show_image(np.zeros((300, 400, 3), dtype=np.uint8))
+    full = display._get_full_view_roi()
+
+    assert display.apply_software_zoom_area(full[2] - 1, full[3] - 1, 1, 1)
+
+    _, _, w, h = display._software_view_roi
+    ratio = (full[2] * full[3]) / (w * h)
+    assert ratio <= max_zoom * 1.001, f"实际倍率 {ratio:.1f}x 超过上限 {max_zoom}x"
