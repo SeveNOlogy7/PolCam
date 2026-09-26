@@ -234,11 +234,32 @@ class ImageToolbarController(BaseModule):
                 self.image_display.set_interaction_mode('none')
             self._clear_status_message()
 
+    def _camera_roi_is_cropped(self) -> bool:
+        """相机当前 ROI 是否还小于整个传感器。"""
+        if not self._camera_module or not self._camera_module.is_connected():
+            return False
+        _, _, roi_w, roi_h = self._camera_module.get_roi()
+        sensor_w, sensor_h = self._camera_module.get_sensor_size()
+        return (roi_w, roi_h) < (sensor_w, sensor_h)
+
     def _handle_reset_view(self):
         """处理视图复原 — 重置 ROI 为全传感器尺寸"""
         self.sync_zoom_coordinate_space()
+        # 复原按钮只把按钮弹起来，不发 *Activated(False)，模式状态得在这里归零；
+        # 否则游标/放大仍然武装，而按钮已经是未选中态，再点一次变成“开启”
+        self._handle_zoom_area(False)
+        self._handle_cursor_mode(False)
+
         if self._should_use_software_zoom():
+            reset_anything = False
             if self.image_display and self.image_display.reset_software_view():
+                reset_anything = True
+            # 停止采集之后这里已经是软件分支了，但硬件放大留下的 ROI 还裁着，
+            # 只重置软件视图会让状态栏说「视图已重置」而相机仍是裁剪态
+            if self._camera_roi_is_cropped() and self._camera_module.reset_roi():
+                self._update_roi_cache()
+                reset_anything = True
+            if reset_anything:
                 self._show_status_message("视图已重置")
             else:
                 self._show_status_message("当前无可重置的图像视图")

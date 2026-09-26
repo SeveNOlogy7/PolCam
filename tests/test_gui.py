@@ -366,6 +366,9 @@ def test_image_toolbar_controller_reset_view_uses_software_path_for_static_image
     mock_camera = MagicMock()
     mock_camera.is_connected.return_value = True
     mock_camera.is_streaming.return_value = False
+    # 复原要不要碰相机，取决于 ROI 是否还被裁着；这里给一个满幅 ROI 表示“没裁”
+    mock_camera.get_roi.return_value = (0, 0, 1600, 1200)
+    mock_camera.get_sensor_size.return_value = (1600, 1200)
     display.toolbar_controller.set_camera_module(mock_camera)
 
     display.toolbar_controller._handle_reset_view()
@@ -853,3 +856,46 @@ def test_software_area_zoom_respects_the_max_zoom_at_the_floor(qapp):
     _, _, w, h = display._software_view_roi
     ratio = (full[2] * full[3]) / (w * h)
     assert ratio <= max_zoom * 1.001, f"实际倍率 {ratio:.1f}x 超过上限 {max_zoom}x"
+
+def test_reset_view_disarms_the_armed_interaction_modes(qapp):
+    """点「复原」要同时退出游标/放大模式，否则按钮弹起了但模式还武装着。
+
+    _on_reset_clicked 只把按钮 setChecked(False)，没有发对应的 *Activated(False) 信号，
+    而 _handle_reset_view 也从不清 _zoom_mode/_cursor_mode。
+    """
+    display = ImageDisplay()
+    controller = display.toolbar_controller
+
+    controller._handle_zoom_area(True)
+    assert controller._zoom_mode == 'zoom_area'
+
+    controller._handle_reset_view()
+    assert controller._zoom_mode is None, "复原后区域放大模式仍然武装"
+
+    controller._handle_cursor_mode(True)
+    assert controller._cursor_mode
+
+    controller._handle_reset_view()
+    assert not controller._cursor_mode, "复原后游标模式仍然武装"
+
+def test_reset_view_also_restores_a_cropped_camera_roi(qapp):
+    """硬件放大留下的 ROI 必须被复原，即使现在走的是软件缩放分支。
+
+    连续采集里放大、停止采集、再点复原：_should_use_software_zoom 已经为真，
+    于是只重置了软件视图，相机 ROI 还裁着，状态栏却写着「视图已重置」。
+    """
+    display = ImageDisplay()
+    display.show_image(np.zeros((100, 100, 3), dtype=np.uint8))
+    controller = display.toolbar_controller
+
+    camera = MagicMock()
+    camera.is_connected.return_value = True
+    camera.is_streaming.return_value = False
+    camera.get_roi.return_value = (0, 0, 50, 50)
+    camera.get_sensor_size.return_value = (100, 100)
+    camera.reset_roi.return_value = True
+    controller.set_camera_module(camera)
+
+    controller._handle_reset_view()
+
+    assert camera.reset_roi.called, "相机 ROI 仍是裁剪状态，没有被复原"
