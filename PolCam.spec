@@ -6,6 +6,7 @@ datas 里的 pyproject.toml 不是冗余：polcam/__init__.py 从 sys._MEIPASS �
 """
 
 from pathlib import Path
+import re
 import tomllib
 
 ROOT = Path(SPECPATH)
@@ -13,8 +14,10 @@ ROOT = Path(SPECPATH)
 # 从 pyproject.toml 取版本，写进 exe 的文件属性，这样发布出去的二进制
 # 在资源管理器里就能看出是哪个版本，不必启动后点「关于」。
 _version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-_parts = (_version.split(".") + ["0", "0", "0", "0"])[:4]
-_num = tuple(int(p) if p.isdigit() else 0 for p in _parts)
+# Windows 的版本资源只收数字，所以数值部分取版本的前导 X.Y.Z；1.0.1rc1 的预发布标记
+# 只出现在下面给人看的 FileVersion / ProductVersion 字符串里。
+_release = re.match(r"(\d+)\.(\d+)\.(\d+)", _version)
+_num = (tuple(int(p) for p in _release.groups()) + (0,))[:4] if _release else (0, 0, 0, 0)
 
 _version_file = Path(SPECPATH) / "build" / "version_info.txt"
 _version_file.parent.mkdir(parents=True, exist_ok=True)
