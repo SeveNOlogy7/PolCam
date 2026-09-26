@@ -228,3 +228,23 @@ def test_cached_result_is_keyed_by_the_params_that_produced_it():
         "brightness=1.5 命中了 brightness=1.0 的缓存，新设置没有生效"
     )
     module.destroy()
+
+
+def test_clear_cache_drops_the_white_balance_gains():
+    """清缓存必须连白平衡增益一起清。
+
+    set_camera_type() 就是靠 clear_cache() 换相机状态的，而 _wb_cache 不在它管范围内，
+    于是换一台相机后最多 2 秒里仍然沿用上一台算出来的增益。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import ProcessingModule
+
+    module = ProcessingModule()
+    assert module.initialize()
+    module._wb_cache.set_merged(np.array([1.2, 1.0, 0.8], dtype=np.float32))
+    assert module._wb_cache.get_merged() is not None
+
+    module.clear_cache()
+
+    assert module._wb_cache.get_merged() is None, "旧相机的白平衡增益活过了换相机"

@@ -673,6 +673,9 @@ class ProcessingModule(BaseModule):
     def clear_cache(self):
         """清空处理结果缓存"""
         self._frame_cache.clear()
+        # set_camera_type() 靠这里换相机，白平衡增益必须一起清，
+        # 否则新相机的头几帧还会用上一台的增益
+        self._wb_cache.clear_all()
         self._last_result = None
 
     def get_last_result(self) -> Optional[ProcessingResult]:
