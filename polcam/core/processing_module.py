@@ -178,6 +178,10 @@ class ProcessingModule(BaseModule):
         self._last_result: Optional[ProcessingResult] = None
         self._frame_cache = {}          # 缓存最近处理过的帧
         self._max_cache_size = 10
+        # 工作线程读写、GUI 线程（set_mode/set_camera_type/clear_cache）随时清空；
+        # 没有临界区时 len() 与 next(iter()) 之间会被清掉，抛
+        # RuntimeError: dictionary changed size during iteration
+        self._cache_lock = threading.Lock()
 
         # 替换原有的白平衡缓存
         self._wb_cache = WhiteBalanceCache(valid_duration=2.0)
@@ -298,18 +302,21 @@ class ProcessingModule(BaseModule):
         self._is_mono = (camera_type == CameraType.MONO)
         self._is_normal_color = (camera_type == CameraType.NORMAL_COLOR)
 
-        # 为普通彩色相机创建 gxipy 格式转换器
-        self._image_format_convert = None
-        self._pixel_format = None
+        # 为普通彩色相机创建 gxipy 格式转换器：先在局部建完再一次性换上去。
+        # 直接先置 None 会让工作线程读到「转换器是 None / 新旧搭配」的中间态，
+        # 抛 AttributeError 丢帧，或者用 A 算的缓冲容量交给 B 做转换。
+        convert = None
+        pixel_format_value = None
         if self._is_normal_color and pixel_format is not None:
             if ImageFormatConvert is None:
                 self._logger.error("Galaxy SDK 不可用，无法为普通彩色相机建立格式转换")
             else:
-                self._pixel_format = pixel_format
-                self._image_format_convert = ImageFormatConvert()
-                self._image_format_convert.set_dest_format(GxPixelFormatEntry.BGR8)
-                valid_bits = get_best_valid_bits(pixel_format)
-                self._image_format_convert.set_valid_bits(valid_bits)
+                instance = ImageFormatConvert()
+                instance.set_dest_format(GxPixelFormatEntry.BGR8)
+                instance.set_valid_bits(get_best_valid_bits(pixel_format))
+                convert, pixel_format_value = instance, pixel_format
+
+        self._pixel_format, self._image_format_convert = pixel_format_value, convert
 
         self.clear_cache()
 
@@ -431,10 +438,12 @@ class ProcessingModule(BaseModule):
                 task = ProcessingTask(frame=task.frame, mode=ProcessingMode.RAW,
                                      params=task.params, priority=task.priority)
 
-            # 检查缓存
+            # 检查缓存（帧哈希在锁外算，临界区里只留字典操作）
             cache_key = self._get_cache_key(task)
-            if cache_key in self._frame_cache:
-                return self._frame_cache[cache_key]
+            with self._cache_lock:
+                cached = self._frame_cache.get(cache_key)
+            if cached is not None:
+                return cached
                 
             # 根据模式处理图像
             if task.mode == ProcessingMode.RAW:
@@ -588,9 +597,11 @@ class ProcessingModule(BaseModule):
                 display_canvas=display_canvas,
             )
             
-            self._frame_cache[cache_key] = result
-            if len(self._frame_cache) > self._max_cache_size:
-                del self._frame_cache[next(iter(self._frame_cache))]
+            with self._cache_lock:
+                self._frame_cache[cache_key] = result
+                if len(self._frame_cache) > self._max_cache_size:
+                    # 移除最早的缓存项
+                    del self._frame_cache[next(iter(self._frame_cache))]
 
             return result
             
@@ -672,7 +683,8 @@ class ProcessingModule(BaseModule):
 
     def clear_cache(self):
         """清空处理结果缓存"""
-        self._frame_cache.clear()
+        with self._cache_lock:
+            self._frame_cache.clear()
         # set_camera_type() 靠这里换相机，白平衡增益必须一起清，
         # 否则新相机的头几帧还会用上一台的增益
         self._wb_cache.clear_all()

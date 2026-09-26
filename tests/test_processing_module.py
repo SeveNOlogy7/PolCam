@@ -248,3 +248,49 @@ def test_clear_cache_drops_the_white_balance_gains():
     module.clear_cache()
 
     assert module._wb_cache.get_merged() is None, "旧相机的白平衡增益活过了换相机"
+
+
+def test_camera_config_swaps_in_one_step(monkeypatch):
+    """换相机配置必须一次性生效，不能先拆掉再建。
+
+    set_camera_type 以前先把 _image_format_convert/_pixel_format 置 None 再重建，
+    工作线程在这两步之间进来就会读到 None 转换器（AttributeError 丢帧），
+    或者用旧转换器算出的缓冲容量交给新转换器去做转换。
+    """
+    import polcam.core.processing_module as pm
+    from polcam.core.camera_module import CameraType
+
+    module = pm.ProcessingModule()
+    assert module.initialize()
+
+    observed = []
+
+    class HalfBuiltVisible(Exception):
+        pass
+
+    class FakeConvert:
+        def _record(self):
+            observed.append((module._image_format_convert, module._pixel_format))
+
+        def __init__(self):
+            self._record()
+
+        def set_dest_format(self, *args):
+            self._record()
+
+        def set_valid_bits(self, *args):
+            self._record()
+
+    monkeypatch.setattr(pm, "ImageFormatConvert", FakeConvert)
+    entry = pm.GxPixelFormatEntry
+
+    module.set_camera_type(CameraType.NORMAL_COLOR, None, entry.MONO8)
+    assert module._image_format_convert is not None and module._pixel_format is not None
+
+    # 第二次才是关键：重建期间工作线程看到的必须仍然是上一份完整配置
+    observed.clear()
+    module.set_camera_type(CameraType.NORMAL_COLOR, None, entry.BGR8)
+
+    assert observed, "FakeConvert 没被调用，测试没覆盖到重建过程"
+    torn = [state for state in observed if state[0] is None or state[1] is None]
+    assert not torn, f"重建期间工作线程能读到半构造状态: {torn}"
