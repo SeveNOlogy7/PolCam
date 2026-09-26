@@ -60,10 +60,18 @@ jobs:
             fi
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
+            # 版本串里带字母就是 PEP 440 的预发布版（1.0.1rc1 / 1.1b2 / 2.0a3 / .devN），
+            # 在 GitHub 上标成 pre-release，免得被当成正式版抓走。
+            if [[ "$version" =~ [a-zA-Z] ]]; then
+              echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
             echo "notes_args=--latest --strip header" >> "$GITHUB_OUTPUT"
           else
             echo "tag=" >> "$GITHUB_OUTPUT"
             echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
             echo "notes_args=--unreleased --strip header" >> "$GITHUB_OUTPUT"
             echo "手动触发：只构建产物，不建 Release、不建 tag"
           fi
@@ -153,7 +161,7 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           draft: true
-          prerelease: false
+          prerelease: ${{ steps.ver.outputs.is_prerelease }}
           name: "${{ env.APP_NAME }} ${{ steps.ver.outputs.display_version }}"
           body_path: ${{ runner.temp }}/RELEASE_NOTES.md
           files: |
