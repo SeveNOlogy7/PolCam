@@ -114,15 +114,20 @@ class ProcessingResult:
     metadata: Dict[str, Any]
     timestamp: float
     display_canvas: Optional[np.ndarray] = None
+    # 产生这份结果的那一帧的采集时间。处理慢于一帧时，GUI 上“当前帧”的时间戳已经
+    # 是下一帧的了，保存处理结果必须用这个而不是那个。
+    capture_timestamp: Optional[Any] = None
 
 class ProcessingTask:
     """处理任务类"""
     def __init__(self, frame: np.ndarray, mode: ProcessingMode, 
-                 params: Dict[str, Any], priority: int = 0):
+                 params: Dict[str, Any], priority: int = 0,
+                 capture_timestamp: Optional[Any] = None):
         self.frame = frame
         self.mode = mode
         self.params = params
         self.priority = priority
+        self.capture_timestamp = capture_timestamp
         self.timestamp = time.time()
 
     def __lt__(self, other):
@@ -320,12 +325,14 @@ class ProcessingModule(BaseModule):
 
         self.clear_cache()
 
-    def process_frame(self, frame: np.ndarray, priority: int = 0):
+    def process_frame(self, frame: np.ndarray, priority: int = 0,
+                      capture_timestamp: Optional[Any] = None):
         """添加处理任务
         
         Args:
             frame: 输入图像帧
             priority: 优先级（0-10，值越大优先级越高）
+            capture_timestamp: 这一帧的采集时间，用于结果落地时命名/归档
         """
         if frame is None:
             return
@@ -335,7 +342,8 @@ class ProcessingModule(BaseModule):
             frame=frame,
             mode=self._current_mode,
             params=self._params.copy(),
-            priority=priority
+            priority=priority,
+            capture_timestamp=capture_timestamp
         )
         
         # 添加到任务队列
@@ -427,7 +435,8 @@ class ProcessingModule(BaseModule):
                 ProcessingMode.QUAD_COLOR,
             ]:
                 task = ProcessingTask(frame=task.frame, mode=ProcessingMode.RAW,
-                                     params=task.params, priority=task.priority)
+                                     params=task.params, priority=task.priority,
+                                     capture_timestamp=task.capture_timestamp)
 
             # 安全防护：普通彩色相机仅支持 RAW, MERGED_COLOR, MERGED_GRAY
             if self._is_normal_color and task.mode not in [
@@ -436,7 +445,8 @@ class ProcessingModule(BaseModule):
                 ProcessingMode.MERGED_GRAY,
             ]:
                 task = ProcessingTask(frame=task.frame, mode=ProcessingMode.RAW,
-                                     params=task.params, priority=task.priority)
+                                     params=task.params, priority=task.priority,
+                                     capture_timestamp=task.capture_timestamp)
 
             # 检查缓存（帧哈希在锁外算，临界区里只留字典操作）
             cache_key = self._get_cache_key(task)
@@ -595,6 +605,7 @@ class ProcessingModule(BaseModule):
                 metadata=metadata,
                 timestamp=time.time(),
                 display_canvas=display_canvas,
+                capture_timestamp=task.capture_timestamp,
             )
             
             with self._cache_lock:
@@ -733,7 +744,8 @@ class ProcessingModule(BaseModule):
             return
 
         # 创建新的处理任务，使用最高优先级
-        self.process_frame(self._last_result.images[0], priority=10)
+        self.process_frame(self._last_result.images[0], priority=10,
+                           capture_timestamp=self._last_result.capture_timestamp)
 
     def get_mode_description(self, mode: Optional[ProcessingMode] = None) -> str:
         """获取处理模式的描述文本

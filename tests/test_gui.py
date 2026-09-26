@@ -917,3 +917,23 @@ def test_failed_streaming_start_leaves_the_ui_out_of_capture_mode(main_window):
     assert not main_window._continuous_mode, "启动失败却进入了连续采集模式"
     assert stream_btn.text() != "停止采集"
     assert not stream_btn.isChecked()
+
+def test_processed_result_is_filed_under_its_own_frame_timestamp(main_window):
+    """保存处理结果用的时间戳必须来自产生它的那一帧。
+
+    _on_frame_processed 以前读的是可变的 self._current_frame_timestamp；处理耗时超过
+    一帧间隔时那里已经是下一帧的时间，于是存出来的文件名对不上内容。
+    """
+    from datetime import datetime
+
+    own = datetime(2026, 9, 26, 11, 59, 0)
+    newer = datetime(2026, 9, 26, 12, 0, 1)
+    frame = np.linspace(0, 200, 16 * 16, dtype=np.uint8).reshape(16, 16)
+
+    main_window.processor.process_frame(frame, capture_timestamp=own)
+    # 这一帧还在处理时，下一帧的采集时间已经落到实时值上
+    main_window._current_frame_timestamp = newer
+
+    assert _wait_until(
+        lambda: main_window.toolbar_controller._last_result_timestamp is not None)
+    assert main_window.toolbar_controller._last_result_timestamp == own

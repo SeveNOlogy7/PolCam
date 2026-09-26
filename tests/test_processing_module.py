@@ -345,3 +345,31 @@ def test_get_last_result_returns_the_last_computed_result():
         frame=frame, mode=ProcessingMode.RAW, params=dict(DEFAULT_PROCESSING_PARAMS)))
 
     assert module.get_last_result() is result
+
+
+def test_result_carries_the_timestamp_of_its_frame():
+    """结果必须自带它那一帧的采集时间戳，而不是让 GUI 事后去猜。
+
+    连续采集里处理耗时超过帧间隔时，FRAME_CAPTURED(N+1) 会先于
+    FRAME_PROCESSED(N) 到达同一条派发队列，届时 main_window._current_frame_timestamp
+    已经是下一帧的了。
+    """
+    import numpy as np
+    from datetime import datetime
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    stamp = datetime(2026, 9, 26, 12, 0, 0)
+    module = ProcessingModule()
+    assert module.initialize()
+    frame = np.linspace(0, 200, 16 * 16, dtype=np.uint8).reshape(16, 16)
+
+    result = module._process_task(ProcessingTask(
+        frame=frame, mode=ProcessingMode.RAW,
+        params=dict(DEFAULT_PROCESSING_PARAMS), capture_timestamp=stamp))
+
+    assert result.capture_timestamp == stamp

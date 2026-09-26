@@ -492,8 +492,15 @@ class MainWindow(QtWidgets.QMainWindow):
         result = event.data.get('result')
         proc_time = event.data.get('processing_time', 0)
         if result:
-            # 更新工具栏控制器中的处理结果和时间戳
-            self.toolbar_controller.update_last_result(result, self._current_frame_timestamp)
+            # 更新工具栏控制器中的处理结果和时间戳。用结果自带的那一帧时间，处理慢于
+            # 一帧时 self._current_frame_timestamp 已经跳到下一帧了；没带时间戳的来源
+            # （如载入 RAW 文件）退回实时值。
+            self.toolbar_controller.update_last_result(
+                result,
+                result.capture_timestamp
+                if result.capture_timestamp is not None
+                else self._current_frame_timestamp,
+            )
             self._update_display(result)
             self._update_process_time(proc_time)
             # 只在非连续采集模式下启用保存处理结果按钮
@@ -716,7 +723,7 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 # 确保处理模块没有待处理任务时才发送新任务
                 if self.processor.get_task_count() == 0 and not self.processor.is_processing():
-                    self.processor.process_frame(frame)
+                    self.processor.process_frame(frame, capture_timestamp=timestamp)
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
