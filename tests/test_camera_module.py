@@ -565,3 +565,101 @@ def test_one_shot_detects_completion_with_the_real_sdk_shape(camera_module):
     camera_module.set_gain_once()
     gain_wait = time.perf_counter() - started
     assert gain_wait < 1.0, f"单次自动增益没识别到完成，等了 {gain_wait:.1f}s"
+
+def _streaming_probe(stream_block=None, stream_off_error=None, grab_block=None):
+    """造一个只带假设备的 CameraModule，绕开 connect 直接看线程生命周期。"""
+    import queue
+    import threading
+    from unittest.mock import MagicMock
+
+    from polcam.core.camera_module import CameraModule
+
+    module = CameraModule()
+    module.initialize()
+    state = {"in_get": 0, "peak": 0, "off_while_reading": 0, "close_while_reading": 0}
+    lock = threading.Lock()
+
+    device = MagicMock()
+
+    def get_image(timeout=None):
+        with lock:
+            state["in_get"] += 1
+            state["peak"] = max(state["peak"], state["in_get"])
+        if grab_block is not None:
+            grab_block.wait(5.0)
+        with lock:
+            state["in_get"] -= 1
+        return None
+
+    device.data_stream = [MagicMock()]
+    device.data_stream[0].get_image.side_effect = get_image
+
+    def stream_off():
+        if state["in_get"] > 0:
+            with lock:
+                state["off_while_reading"] += 1
+        if stream_off_error is not None:
+            raise stream_off_error
+        return True
+
+    def close_device():
+        if state["in_get"] > 0:
+            with lock:
+                state["close_while_reading"] += 1
+        return True
+
+    device.stream_off.side_effect = stream_off
+    device.close_device.side_effect = close_device
+    module._camera = device
+    module._frame_queue = queue.Queue(10)
+    module.publish_event = lambda *a, **k: None
+    return module, state
+
+
+def test_stop_streaming_never_closes_the_handle_under_a_reader():
+    """抓帧线程还在 get_image 里时不能关数据流/关设备。
+
+    stop_streaming 以前只 join(1.0) 就往下走，而 get_image 默认等 1000ms ——
+    两边预算相等就是掷硬币，输了就是在有人读的时候拆原生句柄。
+    """
+    import threading
+
+    release = threading.Event()
+    module, state = _streaming_probe(grab_block=release)
+    assert module.start_streaming() is True
+
+    module.stop_streaming()
+    assert state["off_while_reading"] == 0, "在读者仍在 get_image 时调用了 stream_off"
+    assert module.is_streaming() is True, "没停成功却报告已经停下来了"
+
+    release.set()
+    threading.Event().wait(0.4)
+
+
+def test_restart_does_not_stack_readers_on_one_stream():
+    """停/起重启不能攒出第二个同时读数据流的线程。"""
+    import threading
+    import time
+
+    release = threading.Event()
+    module, state = _streaming_probe(grab_block=release)
+    for _ in range(3):
+        module.start_streaming()
+        time.sleep(0.05)
+        module.stop_streaming()
+    release.set()
+    time.sleep(0.3)
+    assert state["peak"] == 1, f"同时有 {state['peak']} 个线程在 get_image"
+
+
+def test_streaming_state_recovers_when_stream_off_raises():
+    """stream_off 抛错不能把采集状态永久卡住。
+
+    以前 _is_streaming 停不下来地留在 True，之后每次 start_streaming 都早退，
+    按钮写着「停止采集」而再也不会有帧。
+    """
+    module, _state = _streaming_probe(stream_off_error=RuntimeError("关流失败"))
+    assert module.start_streaming() is True
+    assert module.stop_streaming() is False
+    assert module.start_streaming() is True, "上一次没关干净之后就再也起不来了"
+    module.stop_streaming()

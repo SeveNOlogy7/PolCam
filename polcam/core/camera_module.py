@@ -52,6 +52,11 @@ class CameraModule(BaseModule):
     4. 状态管理和错误处理
     """
     
+    # 抓帧线程单次等待设备的上限，以及 stop_streaming 等它退出的预算。
+    # 前者必须明显小于后者，否则停流时读者还挂在 get_image 里。
+    GRAB_TIMEOUT_MS = 100
+    STREAM_JOIN_TIMEOUT_S = 2.0
+
     def __init__(self):
         super().__init__("Camera")
         self.device_manager = gx.DeviceManager() if gx is not None else None
@@ -294,7 +299,13 @@ class CameraModule(BaseModule):
         try:
             if self._is_streaming:
                 self.stop_streaming()
-                
+
+            if self._stream_thread and self._stream_thread.is_alive():
+                # 抓帧线程还挂在 get_image 里，此刻 close_device() 就是当着读者的面
+                # 拆原生句柄。留着连接等它退出，也比制造 use-after-free 好。
+                self._logger.error("抓帧线程未退出，推迟关闭设备句柄")
+                return
+
             if self._camera:
                 self._camera.close_device()
                 self._camera = None
@@ -327,8 +338,15 @@ class CameraModule(BaseModule):
 
     def start_streaming(self) -> bool:
         """开始图像采集；返回是否真的在采集。"""
-        if self._is_streaming:
+        if self._stream_thread and self._stream_thread.is_alive():
+            # 上一轮的抓帧线程还在读数据流。再起一个就是多个线程同时 get_image，
+            # 而 stop 时会当着读者的面关流/关设备 —— 复用现有线程，不再起新的。
+            self._is_streaming = True
             return True
+        if self._is_streaming:
+            # 线程已经没了但标志还挂着：上一轮没停干净，收回去重来，不能从此卡死
+            self._logger.warning("检测到失效的采集状态，重新建立数据流")
+            self._is_streaming = False
         if not self._camera:
             self._logger.error("没有可用相机，无法开始采集")
             return False
@@ -361,39 +379,50 @@ class CameraModule(BaseModule):
             })
             return False
 
-    def stop_streaming(self):
-        """停止图像采集"""
+    def stop_streaming(self) -> bool:
+        """停止图像采集；返回是否真的停下来（数据流已关闭且没有线程在读）。"""
         if not self._is_streaming:
-            return
-            
+            return True
+
         try:
             self._stop_flag = True
-            if self._stream_thread:
-                self._stream_thread.join(timeout=1.0)
-            
+            thread = self._stream_thread
+            if thread:
+                thread.join(timeout=self.STREAM_JOIN_TIMEOUT_S)
+            if thread and thread.is_alive():
+                # 抓帧线程还停在 get_image 里。这时候 stream_off()/close_device() 就是
+                # 当着读者的面拆原生句柄；宁可报失败，也不拆。
+                self._logger.error("抓帧线程未能退出，跳过数据流关闭以避免破坏正在读取的句柄")
+                return False
+
             # 确保数据流关闭
             self._camera.stream_off()
             time.sleep(0.1)  # 等待数据流完全关闭
-            
+
             # 清空图像队列
             while not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
                 except queue.Empty:
                     break
-                    
+
             self._is_streaming = False
-            
+
             # 发送串流停止事件
             self.publish_event(EventType.STREAMING_STOPPED)
             self.publish_event(EventType.PROCESSING_COMPLETED)
-            
+            return True
+
         except Exception as e:
             self._logger.error(f"停止图像采集失败: {str(e)}")
             self.publish_event(EventType.ERROR_OCCURRED, {
                 "source": "camera",
                 "error": str(e)
             })
+            # 收回状态，否则 _is_streaming 永远为真，之后每次 start_streaming 都早退，
+            # 界面写着「停止采集」却再也不出帧
+            self._is_streaming = False
+            return False
 
     def _streaming_task(self):
         """图像采集线程任务"""
@@ -402,8 +431,9 @@ class CameraModule(BaseModule):
                 # 开始计时
                 t_start = time.perf_counter()
                 
-                # 获取图像
-                raw_image = self._camera.data_stream[0].get_image()
+                # 获取图像：这里的等待必须明显短于 stop_streaming 的 join 预算，
+                # 否则 join 超时后就只能当着读者的面关句柄
+                raw_image = self._camera.data_stream[0].get_image(timeout=self.GRAB_TIMEOUT_MS)
                 if raw_image:
                     frame = raw_image.get_numpy_array()
                     if frame is not None:
