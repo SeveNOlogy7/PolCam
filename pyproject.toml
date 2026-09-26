@@ -1,6 +1,6 @@
 [project]
 name = "polcam"
-version = "1.0.0"
+version = "1.0.1"
 description = "PolCam is a Python application for controlling and processing polarization camera images"
 readme = "README.md"
 requires-python = ">=3.12"
