@@ -373,3 +373,60 @@ def test_result_carries_the_timestamp_of_its_frame():
         params=dict(DEFAULT_PROCESSING_PARAMS), capture_timestamp=stamp))
 
     assert result.capture_timestamp == stamp
+
+
+def _raw_task(frame):
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+    return ProcessingTask(frame=frame, mode=ProcessingMode.RAW,
+                          params=dict(DEFAULT_PROCESSING_PARAMS))
+
+
+def test_frame_cache_evicts_the_least_recently_used_result():
+    """要踢最久没用过的，不是最早写入的。
+
+    这条缓存存在的意义就是切显示模式时当前帧不重算；FIFO 下你反复查看的那一帧会被
+    几张路过的帧挤掉。
+    """
+    import numpy as np
+
+    frames = [np.full((16, 16), i, dtype=np.uint8) for i in range(3)]
+    module = ProcessingModule()
+    assert module.initialize()
+    module._max_cache_size = 2
+    module._max_cache_bytes = 10 ** 9
+
+    first = module._process_task(_raw_task(frames[0]))
+    second = module._process_task(_raw_task(frames[1]))
+    # 再看一眼第一帧 —— 它就此变成“最近用过”，最久没用的换成第二帧
+    assert module._process_task(_raw_task(frames[0])) is first
+
+    module._process_task(_raw_task(frames[2]))
+
+    assert module._process_task(_raw_task(frames[0])) is first, "被查看的帧被挤掉了"
+    assert module._process_task(_raw_task(frames[1])) is not second, "该被挤掉的没挤掉"
+
+
+def test_frame_cache_is_bounded_by_bytes_not_entry_count():
+    """上限要按内存算：一条 QUAD 结果可以是几十 MB，条数兜不住。"""
+    import numpy as np
+
+    module = ProcessingModule()
+    assert module.initialize()
+    module._max_cache_size = 100
+    small = np.zeros((16, 16), dtype=np.uint8)          # 256 B
+    big = np.full((512, 512), 7, dtype=np.uint8)       # 256 KiB
+    # 只够留下一条大结果 + 一条小结果，第二条大结果进来就必须挤掉东西
+    module._max_cache_bytes = big.nbytes + small.nbytes
+
+    module._process_task(_raw_task(small))
+    kept_small = dict(module._frame_cache)
+    module._process_task(_raw_task(big))
+    module._process_task(_raw_task(np.full((512, 512), 9, dtype=np.uint8)))
+
+    total = sum(size for _, size in module._frame_cache.values())
+    assert total <= module._max_cache_bytes, f"缓存里还留着 {total} 字节"
+    assert len(module._frame_cache) < len(kept_small) + 2, "没有按字节淘汰"

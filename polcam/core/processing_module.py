@@ -11,6 +11,7 @@ import queue
 import weakref
 from ctypes import c_ubyte, addressof
 from typing import List, Tuple, Optional, Dict, Any
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import time
 from dataclasses import dataclass
@@ -106,6 +107,10 @@ DEFAULT_PROCESSING_PARAMS = {
     'pol_wb_auto': False        # 偏振分析模式下彩色图像的白平衡开关
 }
 
+# 结果缓存的内存上限。QUAD_COLOR 在 2048x2048 下一条就有 ~50MB（4 张 BGR 全尺寸图
+# 再加合成分布），只按条数限的话十条就是几百 MB。
+MAX_RESULT_CACHE_BYTES = 128 * 1024 * 1024
+
 @dataclass
 class ProcessingResult:
     """处理结果数据类"""
@@ -181,8 +186,12 @@ class ProcessingModule(BaseModule):
 
         # 缓存管理
         self._last_result: Optional[ProcessingResult] = None
-        self._frame_cache = {}          # 缓存最近处理过的帧
+        # 结果缓存：键 -> (结果, 该结果占的字节数)。OrderedDict 是为了能按“最近使用”
+        # 挪动顺序，淘汰时踢最久没用过的，而不是最早写入的。
+        self._frame_cache: "OrderedDict[str, Tuple[ProcessingResult, int]]" = OrderedDict()
         self._max_cache_size = 10
+        # 条数只是兜底：一条 QUAD 结果在 2048² 下就有几十 MB，真正该限的是内存
+        self._max_cache_bytes = MAX_RESULT_CACHE_BYTES
         # 工作线程读写、GUI 线程（set_mode/set_camera_type/clear_cache）随时清空；
         # 没有临界区时 len() 与 next(iter()) 之间会被清掉，抛
         # RuntimeError: dictionary changed size during iteration
@@ -451,9 +460,11 @@ class ProcessingModule(BaseModule):
             # 检查缓存（帧哈希在锁外算，临界区里只留字典操作）
             cache_key = self._get_cache_key(task)
             with self._cache_lock:
-                cached = self._frame_cache.get(cache_key)
-            if cached is not None:
-                return cached
+                entry = self._frame_cache.get(cache_key)
+                if entry is not None:
+                    # 命中就算“最近用过”，否则 LRU 会踢掉正在被反复查看的那一帧
+                    self._frame_cache.move_to_end(cache_key)
+                    return entry[0]
                 
             # 根据模式处理图像
             if task.mode == ProcessingMode.RAW:
@@ -609,10 +620,8 @@ class ProcessingModule(BaseModule):
             )
             
             with self._cache_lock:
-                self._frame_cache[cache_key] = result
-                if len(self._frame_cache) > self._max_cache_size:
-                    # 移除最早的缓存项
-                    del self._frame_cache[next(iter(self._frame_cache))]
+                self._frame_cache[cache_key] = (result, self._result_size(result))
+                self._evict_to_limits()
 
             # _last_result 是“最近一次真正算出来的结果”：命中缓存提前返回时不更新，
             # 否则 reprocess_last_frame 会把缓存里的旧对象再塞一遍形成回环
@@ -680,6 +689,28 @@ class ProcessingModule(BaseModule):
         for i in range(3):  # BGR
             result[:, :, i] = cv2.multiply(image[:, :, i], gains[i])
         return result
+
+    @staticmethod
+    def _result_size(result: ProcessingResult) -> int:
+        """一条结果实际占的字节数。
+
+        sys.getsizeof 对 numpy 数组量不出真实占用，必须用 nbytes 把每张图（含合成分
+        布）加起来。
+        """
+        size = sum(image.nbytes for image in result.images)
+        if result.display_canvas is not None:
+            size += result.display_canvas.nbytes
+        return size
+
+    def _evict_to_limits(self) -> None:
+        """按“最久没用”淘汰，直到条数和字节数都回到上限内。调用方需已持有 _cache_lock。"""
+        if self._max_cache_size <= 0 or self._max_cache_bytes <= 0:
+            self._frame_cache.clear()
+            return
+        while self._frame_cache and (
+                len(self._frame_cache) > self._max_cache_size
+                or sum(size for _, size in self._frame_cache.values()) > self._max_cache_bytes):
+            self._frame_cache.popitem(last=False)
 
     def _get_cache_key(self, task: ProcessingTask) -> str:
         """生成缓存键"""
@@ -785,8 +816,7 @@ class ProcessingModule(BaseModule):
             raise ValueError("缓存大小不能为负数")
         
         self._max_cache_size = size
-        
-        # 如果新的大小小于当前缓存数量，删除多余的缓存
-        while len(self._frame_cache) > size:
-            oldest_key = next(iter(self._frame_cache))
-            del self._frame_cache[oldest_key]
+
+        # 收缩到新的上限，策略和写入时同一套（按最久没用淘汰）
+        with self._cache_lock:
+            self._evict_to_limits()
