@@ -187,3 +187,44 @@ def test_polarization_parameter_maps_skip_enhancement():
     # 强度图仍然应该吃到亮度设置，别把两边一起改掉
     assert merged.dtype == np.uint8
     module.destroy()
+
+
+def test_cached_result_is_keyed_by_the_params_that_produced_it():
+    """缓存必须按“产出它的那份参数”记键，而不是按记下它时的实时参数。
+
+    记缓存曾经用的是 self._params，结果却是用 task.params 算出来的；处理途中调
+    一下亮度，这条结果就被登记到另一个参数集名下 —— 新设置看起来毫无反应，而它真正
+    对应的那份渲染再也回不来。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    frame = np.linspace(0, 200, 16 * 16, dtype=np.uint8).reshape(16, 16)
+    params_a = dict(DEFAULT_PROCESSING_PARAMS)
+    params_b = dict(DEFAULT_PROCESSING_PARAMS)
+    params_b['brightness'] = 1.5
+    task_a = ProcessingTask(frame=frame, mode=ProcessingMode.RAW, params=params_a)
+    task_b = ProcessingTask(frame=frame, mode=ProcessingMode.RAW, params=params_b)
+
+    module = ProcessingModule()
+    assert module.initialize()
+    module._params = dict(params_a)
+
+    result_a = module._process_task(task_a)
+
+    module._params = dict(params_b)
+
+    # 记下 result_a 用的是 task_a 的键，所以再问一次仍然应该是同一条缓存
+    assert module._process_task(task_a) is result_a
+    # 换参数就是另一次计算，不能命中上面那条
+    result_b = module._process_task(task_b)
+    assert result_b is not result_a
+    assert not np.array_equal(result_a.images[0], result_b.images[0]), (
+        "brightness=1.5 命中了 brightness=1.0 的缓存，新设置没有生效"
+    )
+    module.destroy()

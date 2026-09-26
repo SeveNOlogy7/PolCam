@@ -394,8 +394,6 @@ class ProcessingModule(BaseModule):
                     'timestamp': time.time()
                 })
 
-            self._update_cache(task.frame, result)
-
             # 发送处理完成事件
             self.publish_event(EventType.PROCESSING_COMPLETED)
 
@@ -590,6 +588,10 @@ class ProcessingModule(BaseModule):
                 display_canvas=display_canvas,
             )
             
+            self._frame_cache[cache_key] = result
+            if len(self._frame_cache) > self._max_cache_size:
+                del self._frame_cache[next(iter(self._frame_cache))]
+
             return result
             
         except Exception as e:
@@ -659,27 +661,6 @@ class ProcessingModule(BaseModule):
         frame_hash = hash(task.frame.tobytes())
         params_hash = hash(frozenset(task.params.items()))
         return f"{frame_hash}_{task.mode}_{params_hash}"
-
-    def _update_cache(self, frame: np.ndarray, result: ProcessingResult):
-        """更新结果缓存"""
-        if result is None:
-            return
-            
-        # 生成缓存键
-        cache_key = self._get_cache_key(ProcessingTask(
-            frame=frame,
-            mode=result.mode,
-            params=self._params
-        ))
-        
-        # 更新缓存
-        self._frame_cache[cache_key] = result
-        
-        # 限制缓存大小
-        if len(self._frame_cache) > self._max_cache_size:
-            # 移除最早的缓存项
-            oldest_key = next(iter(self._frame_cache))
-            del self._frame_cache[oldest_key]
 
     def get_current_mode(self) -> ProcessingMode:
         """获取当前处理模式"""
