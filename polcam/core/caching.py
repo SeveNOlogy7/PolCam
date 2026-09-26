@@ -6,7 +6,7 @@ See LICENSE file for full license details.
 通用缓存管理
 """
 
-from typing import Any, Dict, Optional, TypeVar, Generic
+from typing import Any, Dict, Optional, Set, TypeVar, Generic
 import time
 
 T = TypeVar('T')
@@ -26,6 +26,7 @@ class TimedCache(Generic[T]):
         self._timestamps: Dict[str, float] = {}
         self._valid_duration = valid_duration
         self._is_permanent = False  # 添加永久缓存标志
+        self._permanent_keys: Set[str] = set()  # 只钉住单个键，不动整桶
         
     def get(self, key: str) -> Optional[T]:
         """获取缓存的值"""
@@ -47,18 +48,20 @@ class TimedCache(Generic[T]):
         """移除指定的缓存项"""
         self._data.pop(key, None)
         self._timestamps.pop(key, None)
+        self._permanent_keys.discard(key)
         
     def clear(self):
         """清空所有缓存"""
         self._data.clear()
         self._timestamps.clear()
+        self._permanent_keys.clear()
         
     def is_expired(self, key: str) -> bool:
         """检查缓存项是否过期"""
         if key not in self._timestamps:
             return True
         # 如果设置为永久缓存，永不过期
-        if self._is_permanent:
+        if self._is_permanent or key in self._permanent_keys:
             return False
         return time.time() - self._timestamps[key] > self._valid_duration
         
@@ -69,14 +72,22 @@ class TimedCache(Generic[T]):
         self._valid_duration = duration
         # 设置新的有效期时自动切换到临时缓存模式
         self._is_permanent = False
+        self._permanent_keys.clear()
         
     def get_valid_duration(self) -> float:
         """获取当前的缓存有效期"""
         return self._valid_duration
 
-    def set_permanent(self):
-        """设置为永久缓存（永不过期）"""
-        self._is_permanent = True
+    def set_permanent(self, key: Optional[str] = None):
+        """设置为永久缓存（永不过期）
+
+        Args:
+            key: 只钉住这一个键；不传则整桶永久。
+        """
+        if key is None:
+            self._is_permanent = True
+        else:
+            self._permanent_keys.add(key)
 
     def set_temporary(self, duration: float = None):
         """恢复为临时缓存
@@ -86,12 +97,15 @@ class TimedCache(Generic[T]):
                      如果未指定，保持原有的有效期不变
         """
         self._is_permanent = False
+        self._permanent_keys.clear()
         if duration is not None and duration > 0:
             self._valid_duration = duration
             
-    def is_permanent(self) -> bool:
-        """返回是否为永久缓存"""
-        return self._is_permanent
+    def is_permanent(self, key: Optional[str] = None) -> bool:
+        """返回是否为永久缓存；传 key 时只问这一个键"""
+        if key is None:
+            return self._is_permanent
+        return self._is_permanent or key in self._permanent_keys
 
 class WhiteBalanceCache:
     """
@@ -108,13 +122,18 @@ class WhiteBalanceCache:
         self._quad_mode = TimedCache[Any](valid_duration)
         self._pol_mode = TimedCache[Any](valid_duration)
         
+    @staticmethod
+    def _angle_key(angle: int) -> str:
+        """single/quad 模式以角度为键。"""
+        return f"angle_{angle}"
+
     def get_single(self, angle: int) -> Optional[Any]:
         """获取单角度模式的缓存"""
-        return self._single_mode.get(f"angle_{angle}")
+        return self._single_mode.get(self._angle_key(angle))
         
     def set_single(self, angle: int, gains: Any):
         """设置单角度模式的缓存"""
-        self._single_mode.set(f"angle_{angle}", gains)
+        self._single_mode.set(self._angle_key(angle), gains)
         
     def get_merged(self) -> Optional[Any]:
         """获取合成模式的缓存"""
@@ -126,11 +145,11 @@ class WhiteBalanceCache:
         
     def get_quad(self, angle: int) -> Optional[Any]:
         """获取四角度模式的缓存"""
-        return self._quad_mode.get(f"angle_{angle}")
+        return self._quad_mode.get(self._angle_key(angle))
         
     def set_quad(self, angle: int, gains: Any):
         """设置四角度模式的缓存"""
-        self._quad_mode.set(f"angle_{angle}", gains)
+        self._quad_mode.set(self._angle_key(angle), gains)
         
     def get_pol(self) -> Optional[Any]:
         """获取偏振分析模式的缓存"""
@@ -155,8 +174,8 @@ class WhiteBalanceCache:
         self._pol_mode.set_valid_duration(duration)
 
     def set_permanent_single(self, angle: int):
-        """设置单角度模式为永久缓存"""
-        self._single_mode.set_permanent()
+        """把指定角度的单角度缓存设为永久，其余角度照常过期"""
+        self._single_mode.set_permanent(self._angle_key(angle))
         
     def set_permanent_merged(self):
         """设置合成模式为永久缓存"""
