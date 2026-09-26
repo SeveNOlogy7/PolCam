@@ -294,3 +294,54 @@ def test_camera_config_swaps_in_one_step(monkeypatch):
     assert observed, "FakeConvert 没被调用，测试没覆盖到重建过程"
     torn = [state for state in observed if state[0] is None or state[1] is None]
     assert not torn, f"重建期间工作线程能读到半构造状态: {torn}"
+
+
+def test_cache_key_distinguishes_frames_that_share_bytes():
+    """键必须带上帧的形状/类型，否则同字节不同形的两帧会共用一条结果。"""
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    module = ProcessingModule()
+    assert module.initialize()
+    pixels = np.arange(256, dtype=np.uint8)
+    tall = pixels.reshape(16, 16)
+    wide = pixels.reshape(8, 32)
+    params = dict(DEFAULT_PROCESSING_PARAMS)
+    key = lambda frame: module._get_cache_key(ProcessingTask(
+        frame=frame, mode=ProcessingMode.RAW, params=params))
+
+    assert key(tall) != key(wide), "16x16 与 8x32 撞了同一个缓存键"
+    assert key(tall) != key(tall.astype(np.int8)), "同形状不同 dtype 撞了同一个缓存键"
+
+
+def test_get_last_result_returns_the_last_computed_result():
+    """算出来的结果必须留得住。
+
+    _last_result 以前只被 clear_cache() 置 None，从未赋值，所以 get_last_result()
+    永远返回 None，reprocess_last_frame() 也永远不排任务。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    module = ProcessingModule()
+    assert module.initialize()
+    frame = np.linspace(0, 200, 16 * 16, dtype=np.uint8).reshape(16, 16)
+
+    assert module.get_last_result() is None
+    module.reprocess_last_frame()
+    assert module.get_task_count() == 0
+
+    result = module._process_task(ProcessingTask(
+        frame=frame, mode=ProcessingMode.RAW, params=dict(DEFAULT_PROCESSING_PARAMS)))
+
+    assert module.get_last_result() is result

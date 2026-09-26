@@ -603,6 +603,10 @@ class ProcessingModule(BaseModule):
                     # 移除最早的缓存项
                     del self._frame_cache[next(iter(self._frame_cache))]
 
+            # _last_result 是“最近一次真正算出来的结果”：命中缓存提前返回时不更新，
+            # 否则 reprocess_last_frame 会把缓存里的旧对象再塞一遍形成回环
+            self._last_result = result
+
             return result
             
         except Exception as e:
@@ -668,10 +672,13 @@ class ProcessingModule(BaseModule):
 
     def _get_cache_key(self, task: ProcessingTask) -> str:
         """生成缓存键"""
-        # 使用帧哈希、模式和关键参数生成缓存键
+        # 使用帧哈希、帧形状/类型、模式和关键参数生成缓存键。形状必须进键：
+        # tobytes() 只看字节流，16x16 与 8x32 的同内容帧会撞成一条，于是把错形状的
+        # 结果发给另一帧。
         frame_hash = hash(task.frame.tobytes())
+        frame_shape = f"{task.frame.shape}_{task.frame.dtype}"
         params_hash = hash(frozenset(task.params.items()))
-        return f"{frame_hash}_{task.mode}_{params_hash}"
+        return f"{frame_hash}_{frame_shape}_{task.mode}_{params_hash}"
 
     def get_current_mode(self) -> ProcessingMode:
         """获取当前处理模式"""
