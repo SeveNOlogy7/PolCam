@@ -101,24 +101,20 @@ class WhiteBalanceCache:
     """
     
     def __init__(self, valid_duration: float = 2.0):
-        # 创建不同模式的缓存对象
-        self._single_mode = TimedCache[Dict[int, Any]](valid_duration)
+        # 创建不同模式的缓存对象。single/quad 直接以角度为键 —— 用“一个桶装字典”的
+        # 话，任何一个角度的写入都会给所有角度续期，过期的增益还能被端出来。
+        self._single_mode = TimedCache[Any](valid_duration)
         self._merged_mode = TimedCache[Any](valid_duration)
-        self._quad_mode = TimedCache[Dict[int, Any]](valid_duration)
+        self._quad_mode = TimedCache[Any](valid_duration)
         self._pol_mode = TimedCache[Any](valid_duration)
         
     def get_single(self, angle: int) -> Optional[Any]:
         """获取单角度模式的缓存"""
-        cache = self._single_mode.get('angles')
-        if cache is None:
-            return None
-        return cache.get(angle)
+        return self._single_mode.get(f"angle_{angle}")
         
     def set_single(self, angle: int, gains: Any):
         """设置单角度模式的缓存"""
-        cache = self._single_mode.get('angles') or {}
-        cache[angle] = gains
-        self._single_mode.set('angles', cache)
+        self._single_mode.set(f"angle_{angle}", gains)
         
     def get_merged(self) -> Optional[Any]:
         """获取合成模式的缓存"""
@@ -130,16 +126,11 @@ class WhiteBalanceCache:
         
     def get_quad(self, angle: int) -> Optional[Any]:
         """获取四角度模式的缓存"""
-        cache = self._quad_mode.get('angles')
-        if cache is None:
-            return None
-        return cache.get(angle)
+        return self._quad_mode.get(f"angle_{angle}")
         
     def set_quad(self, angle: int, gains: Any):
         """设置四角度模式的缓存"""
-        cache = self._quad_mode.get('angles') or {}
-        cache[angle] = gains
-        self._quad_mode.set('angles', cache)
+        self._quad_mode.set(f"angle_{angle}", gains)
         
     def get_pol(self) -> Optional[Any]:
         """获取偏振分析模式的缓存"""
