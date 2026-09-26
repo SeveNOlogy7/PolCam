@@ -663,3 +663,25 @@ def test_streaming_state_recovers_when_stream_off_raises():
     assert module.stop_streaming() is False
     assert module.start_streaming() is True, "上一次没关干净之后就再也起不来了"
     module.stop_streaming()
+
+
+def test_stream_thread_does_not_pin_the_camera_module():
+    """抓帧线程不能把 CameraModule 钉在内存里。
+
+    线程以前以 target=self._streaming_task 启动，绑定方法本身就是一份强引用：
+    模块永远回收不掉、设备句柄跟着永远留着，线程也没有退出条件。
+    """
+    import time
+    import weakref
+
+    module, _state = _streaming_probe()
+    assert module.start_streaming() is True
+    module_ref = weakref.ref(module)
+
+    del module
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline and module_ref() is not None:
+        time.sleep(0.05)
+
+    assert module_ref() is None, "抓帧线程钉住了 CameraModule，设备句柄一起泄漏"

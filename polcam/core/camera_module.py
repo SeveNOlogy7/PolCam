@@ -20,6 +20,7 @@ else:
 
 import numpy as np
 import threading
+import weakref
 from typing import Optional, Tuple, Dict, Any
 from enum import Enum
 import queue
@@ -362,9 +363,10 @@ class CameraModule(BaseModule):
             self._camera.stream_on()
             self._is_streaming = True
             
-            # 启动采集线程
+            # 启动采集线程（只传弱引用，见 _run_stream_loop）
             self._stream_thread = threading.Thread(
-                target=self._streaming_task,
+                target=self._run_stream_loop,
+                args=(weakref.ref(self),),
                 daemon=True
             )
             self._stream_thread.start()
@@ -424,48 +426,66 @@ class CameraModule(BaseModule):
             self._is_streaming = False
             return False
 
-    def _streaming_task(self):
-        """图像采集线程任务"""
-        while not self._stop_flag:
+    @staticmethod
+    def _run_stream_loop(module_ref: "weakref.ReferenceType[CameraModule]") -> None:
+        """抓帧循环。
+
+        线程只握 module 的弱引用：以绑定方法 self._streaming_task 作 target 时，那份
+        隐式强引用会让 CameraModule 永远回收不掉，开着的数据流句柄跟着一起泄漏，
+        线程本身也没有退出条件。
+        """
+        while True:
+            module = module_ref()
+            if module is None or module._stop_flag:
+                return
             try:
-                # 开始计时
-                t_start = time.perf_counter()
-                
-                # 获取图像：这里的等待必须明显短于 stop_streaming 的 join 预算，
-                # 否则 join 超时后就只能当着读者的面关句柄
-                raw_image = self._camera.data_stream[0].get_image(timeout=self.GRAB_TIMEOUT_MS)
-                if raw_image:
-                    frame = raw_image.get_numpy_array()
-                    if frame is not None:
-                        # 计算采集时间
-                        t_capture = time.perf_counter() - t_start
-                        
-                        # 当队列满时，移除最旧的帧
-                        try:
-                            if self._frame_queue.full():
-                                self._frame_queue.get_nowait()
-                        except queue.Empty:
-                            pass
-                        
-                        # 将新帧放入队列
-                        self._frame_queue.put(frame)
-                        
-                        # 发布帧捕获事件，包含采集时间
-                        self.publish_event(EventType.FRAME_CAPTURED, {
-                            "frame": frame,
-                            "capture_time": t_capture,
-                            "timestamp": time.time()
-                        })
-                else:
-                    time.sleep(0.001)  # 短暂暂停避免空转
-                    
-            except Exception as e:
-                self._logger.error(f"图像采集错误: {str(e)}")
-                self.publish_event(EventType.ERROR_OCCURRED, {
-                    "source": "camera",
-                    "error": str(e)
-                })
-                time.sleep(0.1)  # 错误发生时短暂暂停
+                module._stream_once()
+            finally:
+                # 必须在这一轮结束时松开这一帧的强引用，否则局部变量本身就够把模块
+                # 钉住，弱引用形同虚设
+                module = None
+
+    def _stream_once(self) -> None:
+        """采集一帧并投递；失败时短暂退避。"""
+        try:
+            # 开始计时
+            t_start = time.perf_counter()
+
+            # 获取图像：这里的等待必须明显短于 stop_streaming 的 join 预算，
+            # 否则 join 超时后就只能当着读者的面关句柄
+            raw_image = self._camera.data_stream[0].get_image(timeout=self.GRAB_TIMEOUT_MS)
+            if raw_image:
+                frame = raw_image.get_numpy_array()
+                if frame is not None:
+                    # 计算采集时间
+                    t_capture = time.perf_counter() - t_start
+
+                    # 当队列满时，移除最旧的帧
+                    try:
+                        if self._frame_queue.full():
+                            self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+
+                    # 将新帧放入队列
+                    self._frame_queue.put(frame)
+
+                    # 发布帧捕获事件，包含采集时间
+                    self.publish_event(EventType.FRAME_CAPTURED, {
+                        "frame": frame,
+                        "capture_time": t_capture,
+                        "timestamp": time.time()
+                    })
+            else:
+                time.sleep(0.001)  # 短暂暂停避免空转
+
+        except Exception as e:
+            self._logger.error(f"图像采集错误: {str(e)}")
+            self.publish_event(EventType.ERROR_OCCURRED, {
+                "source": "camera",
+                "error": str(e)
+            })
+            time.sleep(0.1)  # 错误发生时短暂暂停
 
     def _get_frame(self) -> Optional[np.ndarray]:
         """获取单帧图像"""
