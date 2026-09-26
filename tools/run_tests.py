@@ -11,52 +11,107 @@ STATUS_HEAP_CORRUPTION (0xc0000374)，退出时也偶发段错误。分开进程
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# pytest 结束时才会打的汇总行；进程中途退出（含 native crash 与 os._exit）就看不到它。
+# -q 会把两侧的 "=== " 装饰去掉（`5 passed, 1 warning in 0.15s`），所以只认计数本身。
+_SUMMARY = re.compile(r"\b\d+ (?:passed|failed|errors?\b)|\bno tests ran\b")
 
-def run_one(test_file: Path, extra_args: list[str]) -> int:
-    env = {**os.environ, "COVERAGE_FILE": f".coverage.{test_file.stem}"}
-    # --cov-report= 压掉 pytest.ini 里的 html，报告最后由 combine 统一出一份
+
+def coverage_file(test_file: Path) -> Path:
+    return ROOT / f".coverage.{test_file.stem}"
+
+
+def verdict(test_file: Path, returncode: int, output: str) -> str | None:
+    """返回 None 表示这个文件真的跑完了；否则给出失败原因。
+
+    只看退出码不够：test 里一句 os._exit(0) 能让退出码为 0 而后面的测试根本没跑。
+    """
+    if returncode != 0:
+        return f"退出码 {returncode}"
+
+    summary = _SUMMARY.search(output)
+    if summary is None:
+        return "没跑到 pytest 汇总行（进程中途退出，结果不完整）"
+    if "no tests ran" in summary.group(0):
+        return "没有收集到任何测试"
+    if "failed" in summary.group(0) or "error" in summary.group(0):
+        return summary.group(0).strip("= ").strip()
+
+    # 覆盖率数据由解释器正常退出时的 atexit 写出，缺它就说明这个子进程没有善终
+    if not coverage_file(test_file).exists():
+        return "缺少覆盖率数据文件，子进程未正常结束"
+    return None
+
+
+def run_one(test_file: Path, extra_args: list[str]) -> str | None:
+    data_file = coverage_file(test_file)
+    if data_file.exists():
+        data_file.unlink()
+
+    env = {**os.environ, "COVERAGE_FILE": data_file.name}
+    # -o addopts= 清掉 pytest.ini 里的 --cov-report=html：子进程各写一份 htmlcov 既浪费
+    # 又会留下半成品，统一报告交给下面的 combine 出一次。注意单个 --cov-report= 是追加
+    # 而不是覆盖，压不住 ini 里那份。
     command = [
         sys.executable,
         "-m",
         "pytest",
         str(test_file),
+        "-o",
+        "addopts=",
         "--cov=polcam",
         "--cov-report=",
         *extra_args,
     ]
-    return subprocess.run(command, cwd=ROOT, env=env).returncode
+    result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
+    sys.stdout.write(result.stdout)
+    sys.stdout.flush()
+    sys.stderr.write(result.stderr)
+    return verdict(test_file, result.returncode, result.stdout)
 
 
-def combine_coverage() -> None:
-    if not list(ROOT.glob(".coverage.test_*")):
-        return
-    subprocess.run([sys.executable, "-m", "coverage", "combine"], cwd=ROOT)
-    subprocess.run([sys.executable, "-m", "coverage", "html"], cwd=ROOT)
+def combine_coverage() -> str | None:
+    data_files = sorted(ROOT.glob(".coverage.*"))
+    if not data_files:
+        return "没有任何覆盖率数据文件，无法出报告"
+    for step in (["combine"], ["html"]):
+        result = subprocess.run(
+            [sys.executable, "-m", "coverage", *step], cwd=ROOT, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            sys.stderr.write(result.stdout + result.stderr)
+            return f"coverage {' '.join(step)} 失败"
+    return None
 
 
 def main() -> int:
-    test_files = sorted(ROOT.glob("tests/test_*.py"))
+    test_files = sorted(ROOT.glob("tests/**/test_*.py"))
     if not test_files:
         print("no test_*.py found under tests/", file=sys.stderr)
         return 1
 
-    failed = []
+    failures = []
     for test_file in test_files:
-        print(f"\n=== {test_file.name} ===", flush=True)
-        if run_one(test_file, sys.argv[1:]) != 0:
-            failed.append(test_file.name)
+        print(f"\n=== {test_file.relative_to(ROOT)} ===", flush=True)
+        reason = run_one(test_file, sys.argv[1:])
+        if reason:
+            failures.append(f"{test_file.relative_to(ROOT)}: {reason}")
 
-    combine_coverage()
+    coverage_problem = combine_coverage()
 
-    if failed:
-        print(f"\nfailed test files: {', '.join(failed)}", file=sys.stderr)
+    for line in failures:
+        print(f"FAIL {line}", file=sys.stderr)
+    if coverage_problem:
+        print(f"FAIL coverage: {coverage_problem}", file=sys.stderr)
+    if failures or coverage_problem:
         return 1
+
     print(f"\nall {len(test_files)} test files passed")
     return 0
 
