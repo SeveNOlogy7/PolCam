@@ -144,6 +144,30 @@ def test_polarization_parameters_do_not_wrap_on_bright_scene(image_processor):
     # S3=(150+100)-(200+50)=0 -> 无圆偏振
     assert np.allclose(docp, 0, atol=1e-3)
 
+def test_enhance_image_brightness_and_contrast_are_gains(image_processor):
+    """亮度/对比度按字面意思当倍率用。
+
+    对话框里这两个滑条是 0.0-2.0 的因子，默认 1.0；实现里 beta=brightness*255 是加性
+    位移，于是不管原来多亮，只要不等于 1.0 就直接推到 255 全白，调暗也会变亮。
+    """
+    gray = np.full((16, 16), 80, dtype=np.uint8)
+
+    assert np.array_equal(image_processor.enhance_image(gray), gray)
+
+    brighter = image_processor.enhance_image(gray, brightness=1.5)
+    assert np.all(brighter == 120), f"brightness=1.5 应该把 80 抬到 120，实测 {brighter[0, 0]}"
+
+    dimmer = image_processor.enhance_image(gray, brightness=0.5)
+    assert np.all(dimmer == 40), f"brightness=0.5 应该把 80 压到 40，实测 {dimmer[0, 0]}"
+
+    contrasted = image_processor.enhance_image(gray, contrast=1.5)
+    assert np.all(contrasted == 56), f"contrast=1.5 应以 128 为轴放大，80 -> 56，实测 {contrasted[0, 0]}"
+
+    # 1.1 这种“稍微亮一点”绝不能把整幅图推成纯白
+    slightly_brighter = image_processor.enhance_image(gray, brightness=1.1)
+    assert slightly_brighter.max() < 255, "brightness=1.1 把画面冲成了全白"
+
+
 def test_enhance_image_falls_back_to_the_original(image_processor):
     """增强失败时按文档返回原图。
 

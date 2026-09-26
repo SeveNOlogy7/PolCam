@@ -233,13 +233,15 @@ class ImageProcessor:
         try:
             result = image.copy()
             
-            # 亮度和对比度调节
+            # 亮度和对比度调节：两者都是倍率，亮度绕 0 缩放，对比度绕中灰 128 缩放。
+            # 不用 convertScaleAbs：它的 beta 是加性位移（brightness*255 会把任何非 1.0
+            # 的取值直接推到全白），而且它对负数取绝对值，深色像素会被算亮。
             if brightness != 1.0 or contrast != 1.0:
-                result = cv2.convertScaleAbs(
-                    result, 
-                    alpha=contrast,
-                    beta=brightness * 255
-                )
+                gain = brightness * contrast
+                offset = 128.0 * (1.0 - contrast)
+                result = np.clip(
+                    result.astype(np.float32) * gain + offset, 0.0, 255.0
+                ).astype(image.dtype)
             
             # 锐化处理
             if sharpness > 0:
