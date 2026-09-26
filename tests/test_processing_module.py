@@ -149,3 +149,41 @@ def test_drain_releases_abandoned_workers():
 
     assert _processing_loop_threads() == []
     assert module.is_running() is False
+
+
+def test_polarization_parameter_maps_skip_enhancement():
+    """显示增强只能动强度图，不能动 DoLP/AoLP/DoCP 参数图。
+
+    _enhance_images 里那句“跳过偏振参数图”的判据是 len(shape) < 2，而参数图是 2D，
+    所以一个都没跳过；亮度调到非 1.0 时 float32 的 0-1 数据被 convertScaleAbs 变成
+    全 255 的 uint8，而工具栏正是拿这几条数组上色并写成“原始偏振度数据”的 .npy。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    params = dict(DEFAULT_PROCESSING_PARAMS)
+    params['brightness'] = 1.5
+
+    module = ProcessingModule()
+    assert module.initialize()
+    frame = np.linspace(0, 200, 16 * 16, dtype=np.uint8).reshape(16, 16)
+
+    result = module._process_task(ProcessingTask(
+        frame=frame, mode=ProcessingMode.POLARIZATION, params=params
+    ))
+
+    merged, dolp, aolp, docp = result.images
+    assert dolp.dtype == np.float32, f"参数图被改成 {dolp.dtype} 了"
+    assert 0.0 <= float(dolp.min()) and float(dolp.max()) <= 1.0, (
+        f"DoLP 逃出物理区间 [{dolp.min()}, {dolp.max()}]"
+    )
+    assert 0.0 <= float(aolp.min()) and float(aolp.max()) <= 180.0
+    assert len(np.unique(dolp)) > 1, "DoLP 被增强压成了单一值"
+    # 强度图仍然应该吃到亮度设置，别把两边一起改掉
+    assert merged.dtype == np.uint8
+    module.destroy()

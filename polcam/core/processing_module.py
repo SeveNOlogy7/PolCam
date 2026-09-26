@@ -554,8 +554,12 @@ class ProcessingModule(BaseModule):
             else:
                 raise ValueError(f"未知的处理模式: {task.mode}")
                 
-            # 应用图像增强，对所有可增强的图像进行处理
-            images = self._enhance_images(images, task.params)
+            # 应用图像增强。偏振模式的后三张是 DoLP/AoLP/DoCP 参数图，不是图像：显示上色
+            # 和"原始偏振度数据"的 .npy 导出都直接吃它们，过一遍增强就把物理量毁掉了。
+            if task.mode == ProcessingMode.POLARIZATION:
+                images = [self._enhance_images(images[:1], task.params)[0], *images[1:]]
+            else:
+                images = self._enhance_images(images, task.params)
 
             if task.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
                 canvas_images = images
@@ -628,12 +632,6 @@ class ProcessingModule(BaseModule):
         """对图像列表应用增强处理"""
         enhanced = []
         for img in images:
-            # 跳过非图像数据（如偏振参数图）
-            if len(img.shape) < 2:
-                enhanced.append(img)
-                continue
-                
-            # 应用图像增强
             enhanced_img = self._processor.enhance_image(
                 img,
                 brightness=params['brightness'],
