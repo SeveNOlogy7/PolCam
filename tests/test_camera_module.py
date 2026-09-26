@@ -25,7 +25,9 @@ def camera_module():
         
         # 设置默认参数值
         mock_remote_feature.get_float_feature.return_value.get.return_value = 10000.0
-        mock_remote_feature.get_enum_feature.return_value.get.return_value = "Off"
+        # EnumFeature.get() 返回 (枚举值, 描述字符串)，替身必须照真实形状给，
+        # 给成裸字符串会让“按字符串比较”的错误代码看起来也是对的
+        mock_remote_feature.get_enum_feature.return_value.get.return_value = (0, "Off")
         
         yield module
 
@@ -541,3 +543,25 @@ def test_start_streaming_without_a_camera_reports_failure(camera_module):
     """没设备时同样是失败，而不是静默无声。"""
     assert camera_module.initialize()
     assert camera_module.start_streaming() is False
+
+def test_one_shot_detects_completion_with_the_real_sdk_shape(camera_module):
+    """ExposureAuto/GainAuto 的 get() 返回 (值, 字符串) 元组，判据得取字符串那一项。
+
+    直接和 "Off" 比永远不相等，于是一次性自动调整不管多做完了，都要把 5 秒超时烧满。
+    """
+    import time
+
+    assert camera_module.initialize()
+    assert camera_module.connect()
+    feature = camera_module._remote_feature.get_enum_feature.return_value
+    feature.get.return_value = (1, "Off")
+
+    started = time.perf_counter()
+    camera_module.set_exposure_once()
+    exposure_wait = time.perf_counter() - started
+    assert exposure_wait < 1.0, f"单次自动曝光没识别到完成，等了 {exposure_wait:.1f}s"
+
+    started = time.perf_counter()
+    camera_module.set_gain_once()
+    gain_wait = time.perf_counter() - started
+    assert gain_wait < 1.0, f"单次自动增益没识别到完成，等了 {gain_wait:.1f}s"

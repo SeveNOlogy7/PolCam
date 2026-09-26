@@ -36,10 +36,12 @@ def test_sync_subscribe_and_publish(event_manager):
     # 等待事件处理
     time.sleep(0.1)
     
-    # 验证结果
-    assert len(received_events) == 1
-    assert received_events[0].type == EventType.CAMERA_CONNECTED
-    assert received_events[0].data["status"] is True
+    # 验证结果：总线是进程级单例，同一次运行里别处也可能发 CAMERA_CONNECTED，
+    # 所以只认自己发出去的那一条，而不是数总数
+    mine = [event for event in received_events if event is test_event]
+    assert len(mine) == 1
+    assert mine[0].type == EventType.CAMERA_CONNECTED
+    assert mine[0].data["status"] is True
 
 def test_async_subscribe_and_publish(event_manager):
     """测试异步事件订阅和发布"""
@@ -59,10 +61,12 @@ def test_async_subscribe_and_publish(event_manager):
     # 等待异步处理完成
     time.sleep(0.3)
     
-    # 验证结果
-    assert len(async_received_events) == 1
-    assert async_received_events[0].type == EventType.FRAME_CAPTURED
-    assert async_received_events[0].data["frame_id"] == 1
+    # 验证结果：和 CAMERA_CONNECTED 那条一样，只认自己发的那条（FRAME_CAPTURED 更容易被
+    # 别处发出的事件串进来）
+    mine = [event for event in async_received_events if event is test_event]
+    assert len(mine) == 1
+    assert mine[0].type == EventType.FRAME_CAPTURED
+    assert mine[0].data["frame_id"] == 1
 
 def test_multiple_subscribers(event_manager):
     """测试多个订阅者"""

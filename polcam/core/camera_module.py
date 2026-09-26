@@ -613,7 +613,10 @@ class CameraModule(BaseModule):
             max_wait_time = 5  # 最大等待时间（秒）
             start_time = time.time()
             while (time.time() - start_time) < max_wait_time:
-                if self._remote_feature.get_enum_feature("ExposureAuto").get() == "Off":
+                # EnumFeature.get() 返回 (枚举值, 描述字符串)，直接拿元组和 "Off" 比
+                # 永远不相等，于是每次一次性调整都要把 5 秒超时烧满
+                _, exposure_auto = self._remote_feature.get_enum_feature("ExposureAuto").get()
+                if exposure_auto == "Off":
                     break
                 time.sleep(0.1)
             else:
@@ -663,7 +666,9 @@ class CameraModule(BaseModule):
             max_wait_time = 5  # 最大等待时间（秒）
             start_time = time.time()
             while (time.time() - start_time) < max_wait_time:
-                if self._remote_feature.get_enum_feature("GainAuto").get() == "Off":
+                # 同上：取元组里的描述字符串来比，元组和 "Off" 比永远为假
+                _, gain_auto = self._remote_feature.get_enum_feature("GainAuto").get()
+                if gain_auto == "Off":
                     break
                 time.sleep(0.1)
             else:
