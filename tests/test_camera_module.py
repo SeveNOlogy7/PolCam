@@ -519,3 +519,25 @@ def test_connect_failure_closes_the_opened_device(camera_module):
     assert camera_module.connect() is False
     assert device.close_device.called, "失败路径没有关闭已打开的设备"
     assert camera_module._device_indices == []
+
+def test_start_streaming_reports_success_and_failure(camera_module):
+    """启动采集要把成败告诉调用方。
+
+    以前它既 return None 又吞掉异常，调用方无从知道有没有真的开起来；
+    MainWindow 因此会在失败时照样进入“连续采集中”。
+    """
+    assert camera_module.initialize()
+    assert camera_module.connect()
+    assert camera_module.start_streaming() is True
+    assert camera_module.is_streaming() is True
+    assert camera_module.stop_streaming() is not False
+
+    camera_module._camera.stream_on.side_effect = RuntimeError("设备已断开")
+    assert camera_module.start_streaming() is False
+    assert camera_module.is_streaming() is False
+
+
+def test_start_streaming_without_a_camera_reports_failure(camera_module):
+    """没设备时同样是失败，而不是静默无声。"""
+    assert camera_module.initialize()
+    assert camera_module.start_streaming() is False

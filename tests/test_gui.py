@@ -899,3 +899,21 @@ def test_reset_view_also_restores_a_cropped_camera_roi(qapp):
     controller._handle_reset_view()
 
     assert camera.reset_roi.called, "相机 ROI 仍是裁剪状态，没有被复原"
+
+def test_failed_streaming_start_leaves_the_ui_out_of_capture_mode(main_window):
+    """开始连续采集失败时不能谎报「连续采集中」。
+
+    start_streaming() 以前不告诉调用方成败（没设备直接 return，异常也只写日志），
+    而 handle_stream 在它后面无条件把按钮文字、状态灯和 _continuous_mode 都设成采集中。
+    """
+    camera = MagicMock()
+    camera.start_streaming.return_value = False
+    camera.is_connected.return_value = True
+    main_window.camera = camera
+    stream_btn = main_window.camera_control.stream_btn
+
+    main_window.handle_stream(True)
+
+    assert not main_window._continuous_mode, "启动失败却进入了连续采集模式"
+    assert stream_btn.text() != "停止采集"
+    assert not stream_btn.isChecked()

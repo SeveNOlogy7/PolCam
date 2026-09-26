@@ -325,10 +325,13 @@ class CameraModule(BaseModule):
             self._bayer_pattern = None
             self._pixel_format = None
 
-    def start_streaming(self):
-        """开始图像采集"""
-        if not self._camera or self._is_streaming:
-            return
+    def start_streaming(self) -> bool:
+        """开始图像采集；返回是否真的在采集。"""
+        if self._is_streaming:
+            return True
+        if not self._camera:
+            self._logger.error("没有可用相机，无法开始采集")
+            return False
             
         try:
             # 发送串流开始事件
@@ -347,13 +350,16 @@ class CameraModule(BaseModule):
                 daemon=True
             )
             self._stream_thread.start()
+            return True
             
         except Exception as e:
             self._logger.error(f"启动图像采集失败: {str(e)}")
+            self._is_streaming = False
             self.publish_event(EventType.ERROR_OCCURRED, {
                 "source": "camera",
                 "error": str(e)
             })
+            return False
 
     def stop_streaming(self):
         """停止图像采集"""

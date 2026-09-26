@@ -56,6 +56,7 @@ def _make_mock_camera():
 
     def start_streaming():
         state["streaming"] = True
+        return True
 
     def stop_streaming():
         state["streaming"] = False

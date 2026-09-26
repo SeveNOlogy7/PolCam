@@ -407,12 +407,17 @@ class MainWindow(QtWidgets.QMainWindow):
         if start:
             # 开始连续采集时禁用单帧采集和保存按钮
             self._single_capture_requested = False
+            if not self.camera.start_streaming():
+                # 没真的开起来就不能把界面摆成采集中的样子，否则用户只能再点一次
+                # 走停止分支才能恢复
+                self.camera_control.stream_btn.setChecked(False)
+                self.status_label.setText("无法开始连续采集")
+                return
             self._last_capture_metrics_update_at = 0.0
             self._last_auto_params_update_at = 0.0
             self.camera_control.capture_btn.setEnabled(False)
             self.toolbar_controller.enable_save_raw(False)
             self.toolbar_controller.enable_save_result(False)
-            self.camera.start_streaming()
             self.camera_control.stream_btn.setText("停止采集")
             # 设置连续模式标志并更新状态
             self._continuous_mode = True
