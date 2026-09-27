@@ -46,6 +46,12 @@ CloseApplications=yes
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; onedir 布局里 _internal 的文件名会跟着 PyInstaller / Qt 版本变：只覆盖不清理，
+; 升级后 {app}\_internal 里会留着上一版的孤儿 DLL，新 exe 可能挑到旧文件 —— 这种
+; 只有升级用户会遇到，干净安装和 CI 都复现不出来。InstallDelete 在 [Files] 之前执行。
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 ; PyInstaller onedir 的布局是硬要求：PolCam.exe 必须和 _internal\ 同级，
 ; 把 _internal 的内容摊平到 {app} 会让 exe 启动即弹 Error。

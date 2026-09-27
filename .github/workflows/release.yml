@@ -46,7 +46,7 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          version="$(uv run python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          version="$(uv run --locked python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # 给人看的版本一律带 v 前缀；pyproject 里那个受 PEP 440 约束不能带。
           echo "display_version=v$version" >> "$GITHUB_OUTPUT"
@@ -77,7 +77,7 @@ jobs:
           fi
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --locked
 
       - name: Run test suite as a release gate
         env:
@@ -85,10 +85,10 @@ jobs:
         # 必须与 ci.yml 的测试步骤逐字一致：曾经这里是 `uv run pytest -q --no-cov`
         # 而 ci.yml 是 `uv run pytest`，同一 commit 只有这个变体在会话收尾处退出
         # 127 —— 发布路径上不该有无谓的差异。
-        run: uv run python tools/run_tests.py -q
+        run: uv run --locked python tools/run_tests.py -q
 
       - name: Build executable
-        run: uv run pyinstaller --noconfirm PolCam.spec
+        run: uv run --locked pyinstaller --noconfirm PolCam.spec
 
       - name: Verify build output and embedded version
         run: |

@@ -1309,3 +1309,61 @@ def test_a_non_8bit_frame_is_not_displayed_as_random_noise(qapp, frame):
         import shiboken6
         if shiboken6.isValid(display):
             shiboken6.delete(display)
+
+
+def _overlay_green_centroid(overlay):
+    image = overlay.grab().toImage()
+    xs = ys = hits = 0
+    for y in range(0, image.height(), 2):
+        for x in range(0, image.width(), 2):
+            pixel = image.pixel(x, y)
+            if (pixel >> 8) & 0xFF > 200 and (pixel >> 16) & 0xFF < 80 and pixel & 0xFF < 80:
+                xs += x; ys += y; hits += 1
+    return (xs / hits, ys / hits) if hits else None
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="裁剪后游标仍按源图坐标画，且 quad_size 还是裁剪前的值（实测裁剪到 64x64 后"
+           "它仍是 128x128）——要改的是四图合成与视图状态的换算，不在这里顺手猜",
+)
+def test_quad_cursor_overlay_follows_the_software_crop(qapp):
+    """游标画在裁剪后的哪一格，得按裁剪窗口算，不能拿源图坐标直接乘。
+
+    _QuadCursorOverlay.paintEvent 把 cursor_quad_position（源图坐标）当作裁剪画布的
+    tile 坐标来用：`(quad_x + rel_x) * scale_x`。没裁剪、没降采样时两者恰好相等，所以
+    平时看不出来；一框选放大就露馅 —— 实测裁剪到 (60,60,64,64) 后，被裁掉的 (20,20)
+    照旧画出来，而窗内的 (80,80) 被算到画布外，什么都看不见。
+    """
+    from polcam.gui.image_display import _QuadCursorOverlay
+
+    display = ImageDisplay()
+    try:
+        display.show_quad_view([np.full((128, 128), 40, dtype=np.uint8) for _ in range(4)])
+        display.resize(700, 500)
+        display.show()
+        QApplication.processEvents()
+        overlay = next(c for c in display.image_label.children()
+                       if isinstance(c, _QuadCursorOverlay))
+
+        def at(source_xy):
+            overlay.set_cursor_info({"cursor_quad_position": source_xy})
+            QApplication.processEvents()
+            return _overlay_green_centroid(overlay)
+
+        unzoomed_origin = at((0, 0))
+        assert unzoomed_origin is not None, "游标根本没画出来，用例无从判断"
+
+        assert display.apply_software_zoom_area(60, 60, 64, 64)
+        QApplication.processEvents()
+
+        assert at((20, 20)) is None, "裁剪窗口外的点还画在视图里"
+        cropped_origin = at((60, 60))
+        assert cropped_origin is not None, "裁剪窗左上角那个点被算到了画布外"
+        assert abs(cropped_origin[0] - unzoomed_origin[0]) < 12 and \
+            abs(cropped_origin[1] - unzoomed_origin[1]) < 12, (
+            f"裁剪窗原点应落在未裁剪原点附近：{cropped_origin} vs {unzoomed_origin}")
+    finally:
+        import shiboken6
+        if shiboken6.isValid(display):
+            shiboken6.delete(display)

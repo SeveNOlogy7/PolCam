@@ -18,13 +18,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# 单个测试文件的墙钟上限。这个 runner 存在的理由就是"某个文件能把进程卡死"：一个残留
+# 的模态框、一个不回的线程，都会让 subprocess.run 永远等下去，两条 CI 腿一起烧到 GitHub
+# 的 360 分钟超时才报错。宁可超时报错，也不要静默挂住。
+PER_FILE_TIMEOUT_S = 300
+
 # pytest 结束时才会打的汇总行；进程中途退出（含 native crash 与 os._exit）就看不到它。
 # -q 会把两侧的 "=== " 装饰去掉（`5 passed, 1 warning in 0.15s`），所以只认计数本身。
 _SUMMARY = re.compile(r"\b\d+ (?:passed|failed|errors?\b)|\bno tests ran\b")
 
 
 def coverage_file(test_file: Path) -> Path:
-    return ROOT / f".coverage.{test_file.stem}"
+    # 键要含目录：glob 是 tests/**/test_*.py，只取 stem 的话 tests/gui/test_toolbar.py 和
+    # tests/core/test_toolbar.py 会写同一个数据文件，后者 unlink 掉前者的，combine 只剩
+    # 最后一份，汇总覆盖率静默少一块
+    relative = test_file.relative_to(ROOT).with_suffix("")
+    return ROOT / (".coverage." + "_".join(relative.parts))
 
 
 def verdict(test_file: Path, returncode: int, output: str) -> str | None:
@@ -69,7 +78,16 @@ def run_one(test_file: Path, extra_args: list[str]) -> str | None:
         "--cov-report=",
         *extra_args,
     ]
-    result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
+    try:
+        result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True,
+                                timeout=PER_FILE_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        partial = (exc.output or b"") if isinstance(exc.output, bytes) else (exc.output or "")
+        sys.stdout.write(partial)
+        sys.stdout.write(f"\n[runner] {test_file.relative_to(ROOT)} 超过 {PER_FILE_TIMEOUT_S}s "
+                         f"没结束，已杀掉：挂住的测试会掩盖后面所有文件的结果\n")
+        sys.stdout.flush()
+        return f"超过 {PER_FILE_TIMEOUT_S}s 未完成（已终止）"
     sys.stdout.write(result.stdout)
     sys.stdout.flush()
     sys.stderr.write(result.stderr)
