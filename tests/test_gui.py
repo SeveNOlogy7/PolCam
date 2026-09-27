@@ -1216,3 +1216,27 @@ def test_hardware_zoom_area_selection_respects_configured_max_zoom(qapp):
     _, _, new_w, new_h = mock_camera.set_roi.call_args.args
     assert (1000 * 1000) / (new_w * new_h) <= 1000.0, (
         f"{new_w}x{new_h} 实际上是 {(1000 * 1000) / (new_w * new_h):.1f}x，超过了 1000x 上限")
+
+
+def test_clicking_the_image_after_leaving_a_tool_mode_still_works(qapp):
+    """退出工具模式之后点图像，不该把 None 当成槽函数去调。
+
+    set_interaction_mode('none')（以及 set_cursor_mode(False)）把三个鼠标虚函数赋成
+    None，而 PySide 照旧按实例属性去找并调用它们。实测第一次点击就是
+    TypeError: Error calling Python override of QLabel::mousePressEvent():
+    'NoneType' object is not callable —— 事件被丢掉，还往日志里灌错误。
+    """
+    from qtpy.QtCore import QPoint, Qt
+    from qtpy.QtTest import QTest
+
+    display = ImageDisplay()
+    try:
+        display.show_image(np.zeros((120, 160, 3), dtype=np.uint8))
+        display.set_interaction_mode('zoom_in')
+        display.set_interaction_mode('none')
+
+        QTest.mouseClick(display.image_label, Qt.LeftButton, Qt.NoModifier, QPoint(30, 30))
+    finally:
+        import shiboken6
+        if shiboken6.isValid(display):
+            shiboken6.delete(display)

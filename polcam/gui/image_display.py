@@ -810,7 +810,8 @@ class ImageDisplay(QtWidgets.QWidget):
         else:
             self.image_label.setCursor(QtCore.Qt.ArrowCursor)
             self.image_label.setMouseTracking(False)
-            self.image_label.mouseMoveEvent = None
+            if "mouseMoveEvent" in vars(self.image_label):
+                del self.image_label.mouseMoveEvent
             self.cursor_info = None
             self._update_cursor_overlay()
 
@@ -838,9 +839,17 @@ class ImageDisplay(QtWidgets.QWidget):
         else:
             # 'none' — 清除所有事件处理器
             self.set_cursor_mode(False)
-            self.image_label.mousePressEvent = None
-            self.image_label.mouseReleaseEvent = None
-            self.image_label.mouseMoveEvent = None
+            self._clear_mouse_overrides()
+
+    # 用删除实例属性来"清除"，不能赋 None：PySide 依然按实例属性找虚函数覆盖，
+    # 找到 None 就调用它，下一次点击是 TypeError
+    _MOUSE_OVERRIDES = ("mousePressEvent", "mouseReleaseEvent", "mouseMoveEvent")
+
+    def _clear_mouse_overrides(self):
+        for name in self._MOUSE_OVERRIDES:
+            if name in vars(self.image_label):
+                delattr(self.image_label, name)
+        self.image_label.setMouseTracking(False)
 
     def update_roi_info(self, roi: tuple, sensor_size: tuple):
         """缓存当前 ROI 和传感器尺寸，供坐标映射使用
