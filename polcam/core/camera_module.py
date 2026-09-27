@@ -367,6 +367,9 @@ class CameraModule(BaseModule):
             time.sleep(0.1)
             
             self._stop_flag = False
+            # 预算要跟着一起清：_stream_once 开头就按它早退，只复位 _stop_flag 的话
+            # 重启后的线程每轮都在守卫处返回，既不报错也不退，还跳过所有退避
+            self._stream_error_count = 0
             self._camera.stream_on()
             self._is_streaming = True
             

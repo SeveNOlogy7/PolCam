@@ -744,3 +744,35 @@ def test_a_good_frame_clears_the_error_budget(camera_module, monkeypatch):
         camera_module._stream_once()
 
     assert camera_module._stop_flag is False
+
+
+def test_restarting_after_an_error_burst_starts_reading_frames_again(camera_module, monkeypatch):
+    """错误爆发把流停掉之后，重新点"连续采集"要真的重新开始取帧。
+
+    STREAM_ERROR_LIMIT 的守卫写在 _stream_once 开头，而清零在它下面；
+    start_streaming() 只复位 _stop_flag，于是重启后的线程每一轮都在守卫处返回——
+    既不报错也不退，还跳过了所有退避 sleep。实测：0.05 秒空转 395002 次，
+    一次都没碰 get_image，这一场会话的采图就此废掉。
+    """
+    monkeypatch.setattr(CameraModule, "STREAM_ERROR_LIMIT", 3)
+    calls = []
+    stream = MagicMock()
+
+    def raising_get_image(**kwargs):
+        calls.append(1)
+        raise OSError("device gone")
+
+    stream.get_image.side_effect = raising_get_image
+    camera_module._camera = MagicMock()
+    camera_module._camera.data_stream = [stream]
+
+    while camera_module._stream_error_count < 3:
+        camera_module._stream_once()
+    assert camera_module._stop_flag is True
+
+    assert camera_module.start_streaming() is True
+    camera_module.stop_streaming()
+
+    before = len(calls)
+    camera_module._stream_once()
+    assert len(calls) > before, "重启采集后 _stream_once 仍在守卫处直接返回"
