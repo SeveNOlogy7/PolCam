@@ -430,3 +430,26 @@ def test_frame_cache_is_bounded_by_bytes_not_entry_count():
     total = sum(size for _, size in module._frame_cache.values())
     assert total <= module._max_cache_bytes, f"缓存里还留着 {total} 字节"
     assert len(module._frame_cache) < len(kept_small) + 2, "没有按字节淘汰"
+
+
+def test_a_failed_task_still_reports_completion():
+    """处理抛异常时也要发 PROCESSING_COMPLETED，否则状态灯永远停在"正在处理"。
+
+    GUI 那边的复位只挂在 PROCESSING_STARTED / PROCESSING_COMPLETED 这一对上
+    （main_window._on_processing_completed），而 _process_one 的 except 分支只发了
+    ERROR_OCCURRED，finally 里也没补 —— 失败一次，灯就亮到下一次成功为止。
+    """
+    module = ProcessingModule()
+    assert module.initialize()
+    received = []
+    module.subscribe_event(EventType.PROCESSING_COMPLETED, lambda event: received.append(event))
+    module._process_task = lambda task: (_ for _ in ()).throw(RuntimeError("处理炸了"))
+
+    module.process_frame(np.zeros((16, 16), dtype=np.uint8))
+
+    deadline = time.time() + 3.0
+    while time.time() < deadline and not received:
+        time.sleep(0.02)
+    module.destroy()
+
+    assert received, "任务失败后没有发完成事件，状态灯复位不了"

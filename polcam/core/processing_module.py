@@ -418,9 +418,6 @@ class ProcessingModule(BaseModule):
                     'timestamp': time.time()
                 })
 
-            # 发送处理完成事件
-            self.publish_event(EventType.PROCESSING_COMPLETED)
-
         except Exception as e:
             self._logger.error(f"处理任务失败: {str(e)}")
             self.publish_event(EventType.ERROR_OCCURRED, {
@@ -429,6 +426,9 @@ class ProcessingModule(BaseModule):
             })
 
         finally:
+            # 完成的对侧一定要发出去：GUI 的"正在处理"灯只在这个事件里复位，
+            # 失败路径少发一次，灯就一直亮到下一次成功。
+            self.publish_event(EventType.PROCESSING_COMPLETED)
             self._is_processing = False
             self._task_queue.task_done()
 
