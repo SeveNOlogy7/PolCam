@@ -321,13 +321,32 @@ class ImageDisplay(QtWidgets.QWidget):
         except Exception as e:
             print(f"图像显示错误: {e}")
 
+    @staticmethod
+    def _to_display8(image: np.ndarray) -> np.ndarray:
+        """把非 uint8 的像素折成 Qt 能按字节解释的 uint8。
+
+        _create_qimage 直接按 dtype.itemsize==1 的 stride 建 QImage，16bit 帧于是每行
+        错位一半，画面变成一个灰值。这里不猜传感器位深（那要看 valid bits）：整型按
+        0..255 夹住，浮点按已归一化的 0..1 摊开——先保证形状是对的。
+        """
+        if image.dtype == np.uint8:
+            return image
+        if np.issubdtype(image.dtype, np.floating):
+            return np.clip(image * 255.0, 0, 255).astype(np.uint8)
+        return np.clip(image, 0, 255).astype(np.uint8)
+
     def _create_qimage(self, image: np.ndarray) -> QtGui.QImage:
         """从 numpy 图像构建 QImage，优先避免大块颜色转换拷贝。"""
+        converted = image.dtype != np.uint8
+        if converted:
+            image = self._to_display8(image)
+        # QImage 不拥有传进去的内存：原来的 uint8 帧由调用方（canvas / current_images）
+        # 持有，转换出来的是临时数组，只能交一份自有副本
         if len(image.shape) == 2:
             h, w = image.shape
             bytes_per_line = w
             return QtGui.QImage(
-                image.data,
+                image.tobytes() if converted else image.data,
                 w,
                 h,
                 bytes_per_line,
@@ -338,7 +357,9 @@ class ImageDisplay(QtWidgets.QWidget):
         bytes_per_line = 3 * w
         bgr_format = getattr(QtGui.QImage, 'Format_BGR888', None)
         if bgr_format is not None:
-            return QtGui.QImage(image.data, w, h, bytes_per_line, bgr_format)
+            return QtGui.QImage(
+                image.tobytes() if converted else image.data,
+                w, h, bytes_per_line, bgr_format)
 
         display_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         return QtGui.QImage(

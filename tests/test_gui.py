@@ -1240,3 +1240,72 @@ def test_clicking_the_image_after_leaving_a_tool_mode_still_works(qapp):
         import shiboken6
         if shiboken6.isValid(display):
             shiboken6.delete(display)
+
+
+def test_restoring_a_display_mode_runs_the_refresh_once(main_window):
+    """补那次"索引没动也要刷新"不能变成"索引动了还再刷一次"。
+
+    set_processing_mode 内部就是 setCurrentIndex，而 currentIndexChanged 没被屏蔽，所以
+    模式真的换了的时候刷新已经跑过一遍；_restore_display_mode 再手动调一次，等于同一件
+    事做两遍：连接/断开一次相机，_on_display_mode_changed 跑两次、帧被排队处理两次，
+    状态灯跟着闪两下。
+    """
+    from polcam.core.camera_module import CameraType
+    from polcam.core.processing_module import ProcessingMode
+
+    main_window.image_display.set_processing_mode(ProcessingMode.RAW)
+    main_window._preferred_display_mode = ProcessingMode.QUAD_COLOR
+    main_window.camera = MagicMock()
+    reappraised = []
+    original = main_window._reprocessing_from_current_frame
+
+    def counting(*args):
+        reappraised.append(args)
+        original(*args)
+
+    main_window._reprocessing_from_current_frame = counting
+    try:
+        main_window._on_camera_connected(Event(EventType.CAMERA_CONNECTED, {
+            "device_info": "彩色偏振相机", "camera_type": CameraType.COLOR}))
+    finally:
+        main_window._reprocessing_from_current_frame = original
+
+    assert main_window.image_display.get_current_processing_mode() != ProcessingMode.RAW, \
+        "这个用例要跑在「模式真的换了」的情形上"
+    assert len(reappraised) == 1, f"一次连接把显示模式刷新了 {len(reappraised)} 遍"
+
+
+def _left_right_balance(pixmap):
+    image = pixmap.toImage()
+    y = image.height() // 2
+    left = sum(image.pixel(x, y) & 0xFF for x in range(image.width() // 4))
+    right = sum(image.pixel(x, y) & 0xFF
+                for x in range(image.width() * 3 // 4, image.width()))
+    return left, right
+
+
+_STEP = np.broadcast_to(np.arange(64)[None, :], (64, 64)) < 32
+
+@pytest.mark.parametrize("frame", [
+    pytest.param(np.where(_STEP, 0, 65535).astype(np.uint16), id="uint16"),
+    pytest.param(np.where(_STEP, 0.0, 1.0).astype(np.float32), id="float32"),
+])
+def test_a_non_8bit_frame_is_not_displayed_as_random_noise(qapp, frame):
+    """_create_qimage 只看形状不看 dtype，非 8bit 的帧会被按 uint8 的 stride 解释。
+
+    原始帧读取现在保留文件真实位深（IMREAD_UNCHANGED），16bit 的 Mono10/12/16 TIFF
+    就是这么进到显示路径的：bytes_per_line 还是按 w 算，于是每行读到的字节错位，
+    半黑半白的图整屏变成一个灰值。用左右阶梯而不是渐变来测，因为渐变按字节错位读
+    出来还是渐变，看不出错。
+    """
+    display = ImageDisplay()
+    try:
+        display.show_image(frame)
+        pixmap = display.image_label.pixmap()
+        assert pixmap is not None and not pixmap.isNull()
+        left, right = _left_right_balance(pixmap)
+        assert right > left * 4, f"左半 {left}、右半 {right}：阶梯被抹平了"
+    finally:
+        import shiboken6
+        if shiboken6.isValid(display):
+            shiboken6.delete(display)
