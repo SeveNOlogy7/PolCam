@@ -209,6 +209,12 @@ class CameraModule(BaseModule):
 
     def connect(self) -> bool:
         """连接相机"""
+        # 一进来就把指定的设备取走：留到成功路径才清的话，这次只要在任何一处提前
+        # 返回（SDK 不可用、枚举到 0 台、打开失败），那个索引就会留给下一次连接 ——
+        # 而下一次可能是"没人选设备"的单相机自动连接，结果是打开一台用户没选的相机
+        target_device_index = self._target_device_index
+        self._target_device_index = None
+
         try:
             if self.device_manager is None:
                 self._logger.error("Galaxy SDK 不可用，无法连接相机")
@@ -221,9 +227,8 @@ class CameraModule(BaseModule):
                 return False
 
             # 确定要连接的设备索引
-            if self._target_device_index is not None:
-                device_index = self._target_device_index
-                self._target_device_index = None  # 用后清除
+            if target_device_index is not None:
+                device_index = target_device_index
             else:
                 # 查找可用的设备索引
                 device_index = 1

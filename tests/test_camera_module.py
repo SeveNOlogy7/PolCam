@@ -776,3 +776,21 @@ def test_restarting_after_an_error_burst_starts_reading_frames_again(camera_modu
     before = len(calls)
     camera_module._stream_once()
     assert len(calls) > before, "重启采集后 _stream_once 仍在守卫处直接返回"
+
+
+def test_a_failed_connect_does_not_leave_the_chosen_device_for_next_time(camera_module):
+    """这次连接失败之后，不能把用户选的设备留给下一次完全无关的连接。
+
+    _target_device_index 只在成功路径上"用后清除"，而 SDK 不可用、枚举到 0 台这两个
+    提前 return 都不清。于是瞬时枚举失败把索引留在字段里，等用户再点连接时如果只枚举到
+    一台，MainWindow 走的单相机分支根本不会指定目标设备 —— 那次连接就会去开用户没选的
+    那台，并按它的 Bayer/像素格式跑整条处理链。
+    """
+    camera_module.device_manager.update_all_device_list.return_value = (0, [])
+    camera_module.set_target_device_index(2)
+
+    assert camera_module.connect() is False
+
+    camera_module.device_manager.update_all_device_list.return_value = (1, [{"model_name": "只有一台"}])
+    assert camera_module.connect() is True
+    camera_module.device_manager.open_device_by_index.assert_called_with(1)
