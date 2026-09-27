@@ -46,7 +46,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._preferred_display_mode = ProcessingMode.RAW
         self._current_settings = AppSettings()
         self.close_flag = False
-        self._one_shot_pending = None  # 哪一路单次自动调整在等 PARAMETER_CHANGED 报回
+        self._one_shot_pending = set()  # 哪几路单次自动调整还在等报回（可以叠着发）
         self._one_shot_finished.connect(self._on_one_shot_finished)
         self._event_bridge = _MainThreadEventBridge(self)
         self._event_bridge.dispatch_event.connect(
@@ -343,6 +343,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.camera_control.stream_btn.setChecked(False)  # 更新按钮状态
             self.camera.stop()  # 使用CameraModule的stop方法
             self.camera_control.set_connected(False)
+            # 还在飞的单次调整就此作废：晚到的完成通知会把已经禁用的控件重新点亮
+            self._one_shot_pending.clear()
             self.status_indicator.setEnabled(False)
             self.status_indicator.setStatus(False)
             self.status_label.setText("就绪")
@@ -579,7 +581,7 @@ class MainWindow(QtWidgets.QMainWindow):
         它自己发的 PARAMETER_CHANGED（见 _on_parameter_changed），其余情况靠
         _on_one_shot_finished 兜底。
         """
-        self._one_shot_pending = control_type
+        self._one_shot_pending.add(control_type)
         self.camera_control.handle_one_shot_auto(control_type)
 
         def run():
@@ -588,7 +590,10 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 self._logger.error(f"单次{control_type}调整失败: {str(e)}")
             finally:
-                self._one_shot_finished.emit(control_type)
+                if not self.close_flag:
+                    # 窗口已经关了就不再回报：控件树随时可能没了，往那个信号源 emit 会
+                    # 抛 RuntimeError: Signal source has been deleted，而且线程里没人接。
+                    self._one_shot_finished.emit(control_type)
 
         threading.Thread(
             target=run,
@@ -596,16 +601,27 @@ class MainWindow(QtWidgets.QMainWindow):
             daemon=True,
         ).start()
 
+    def _complete_one_shot(self, control_type: str, value=None) -> bool:
+        """结束一路在飞的单次调整。返回 True 表示这一路确实归它管。
+
+        没在飞的通知（比如断开之后晚到的那一路）在这里被认出来并忽略，所以断开时要
+        把 _one_shot_pending 清掉 —— 不然晚到的完成会把已经禁用的控件重新点亮，之后
+        改的值根本写不进硬件（没有 remote feature 时 set_* 直接 return），面板显示的
+        就是相机从没收到过的数。
+        """
+        if control_type not in self._one_shot_pending:
+            return False
+        self._one_shot_pending.discard(control_type)
+        self.camera_control.handle_one_shot_complete(control_type, value)
+        return True
+
     def _on_one_shot_finished(self, control_type: str):
         """单次调整收工，无论它有没有报回结果。
 
         超时、相机没连（set_*_once 直接 return）和 SDK 抛错这三条路都不会发
         PARAMETER_CHANGED，只靠那个事件恢复会让控件永久禁用。
         """
-        if self._one_shot_pending != control_type:
-            return
-        self._one_shot_pending = None
-        self.camera_control.handle_one_shot_complete(control_type)
+        self._complete_one_shot(control_type)
 
     def _handle_exposure_once(self):
         """曝光单次自动调整。连成绑定方法而不是 lambda：闭包握着窗口，窗口就再也回不来。"""
@@ -706,6 +722,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_info.clear()
         self._update_metrics_separator()
         self._camera_type = None
+        # 相机是掉线没的，不是用户点的断开：在飞的单次调整同样就此作废
+        self._one_shot_pending.clear()
 
         # 恢复全部8个显示模式
         self.image_display.set_camera_modes(None)
@@ -791,10 +809,8 @@ class MainWindow(QtWidgets.QMainWindow):
         param_name = param_data.get("parameter")
         param_value = param_data.get("value")
         
-        if param_name == self._one_shot_pending:
+        if self._complete_one_shot(param_name, param_value):
             # 单次自动调整报回来了：恢复控件并显示测得的值
-            self._one_shot_pending = None
-            self.camera_control.handle_one_shot_complete(param_name, param_value)
             return
 
         if param_name == "exposure":

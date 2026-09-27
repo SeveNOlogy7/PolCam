@@ -777,6 +777,100 @@ def test_one_shot_gain_restores_the_manual_control(main_window):
         Event(EventType.PARAMETER_CHANGED, {"parameter": "gain", "value": 3.5}))
     assert gain.value_spin.isEnabled(), "单次完成后没有恢复手动控件"
 
+
+def test_a_one_shot_worker_does_not_report_into_a_closed_window(qapp):
+    """窗口销毁之后，还在轮询硬件的工作线程不该再往它发信号。
+
+    closeEvent 走完、控件树被销毁之后，线程 finally 里那句 emit 就是
+    RuntimeError: Signal source has been deleted —— 线程里没人接这个异常，产品里就是
+    收尾阶段的 use-after-free。这里不用 main_window fixture：它是在测试体跑完之后才
+    销毁窗口的，那样信号早就发完了，测不到这条。
+    """
+    import shiboken6
+
+    seen = []
+    monkeypatch_thread_hook = threading.excepthook
+    threading.excepthook = lambda args: seen.append(args.exc_value)
+    try:
+        release = threading.Event()
+        camera = MagicMock()
+        camera.set_exposure_once.side_effect = lambda: release.wait(2.0)
+
+        window = MainWindow()
+        window.camera = camera
+        window.camera_control.exposure_control.once_clicked.emit()
+
+        window.close()
+        shiboken6.delete(window)
+        del window
+        release.set()
+
+        worker = next(t for t in threading.enumerate() if t.name == "PolCam-OneShot-exposure")
+        assert _wait_until(lambda: not worker.is_alive()), "工作线程没结束"
+        assert seen == [], f"窗口没了之后工作线程还在往它发信号: {seen}"
+    finally:
+        threading.excepthook = monkeypatch_thread_hook
+
+
+def test_two_overlapping_one_shots_both_get_restored(main_window):
+    """两路单次调整叠在一起时，先发起的那一路也要被恢复。
+
+    _one_shot_pending 只有一个槽位，第二次点击直接把它改成 gain，于是 exposure 的完成
+    通知被当成"不是我在等的"丢掉 —— 曝光那组控件从此永久禁用，得断开重连才回来。实测
+    两路都上报完成之后：exposure spin/auto/once 全 False，gain 那组全 True。
+    """
+    release = threading.Event()
+
+    def slow_once():
+        release.wait(2.0)
+
+    camera = MagicMock()
+    camera.set_exposure_once.side_effect = slow_once
+    camera.is_connected.return_value = True
+    main_window.camera = camera
+    exposure = main_window.camera_control.exposure_control
+    gain = main_window.camera_control.gain_control
+
+    exposure.once_clicked.emit()
+    gain.once_clicked.emit()
+    release.set()
+
+    assert _wait_until(lambda: exposure.value_spin.isEnabled() and gain.value_spin.isEnabled()),\
+        "叠加的两次单次调整里，先发起那一路的控件没有恢复"
+
+
+def test_a_one_shot_landing_after_disconnect_does_not_re_enable(main_window):
+    """断开之后才落地的单次调整不能把手动控件又打开。
+
+    handle_one_shot_complete 无条件 set_enabled(True)；断开那一路已经把整组禁用了，
+    工作线程晚一步回来就把它们点亮，之后改的值根本写不进硬件（没有 remote feature
+    时 set_* 直接 return），面板显示的是相机没收到的数。
+    """
+    release = threading.Event()
+
+    def slow_once():
+        release.wait(2.0)
+
+    camera = MagicMock()
+    camera.set_exposure_once.side_effect = slow_once
+    camera.is_connected.return_value = True
+    main_window.camera = camera
+    exposure = main_window.camera_control.exposure_control
+
+    exposure.once_clicked.emit()
+    assert not exposure.value_spin.isEnabled()
+
+    camera.is_connected.return_value = False
+    main_window.handle_connect(False)                 # 用户点了「断开相机」
+    release.set()
+    assert _wait_until(
+        lambda: not any(t.name == "PolCam-OneShot-exposure" for t in threading.enumerate())),\
+        "工作线程没结束"
+    # 排队回 GUI 线程的完成信号得有机会落地，否则这条断言什么都没等到
+    _wait_until(lambda: exposure.value_spin.isEnabled(), timeout=0.3)
+
+    assert not exposure.value_spin.isEnabled(), "相机已断开，曝光控件却被重新启用了"
+
 def _wait_until(predicate, timeout=2.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
