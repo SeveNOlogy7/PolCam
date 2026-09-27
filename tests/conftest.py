@@ -23,6 +23,7 @@ except Exception:  # 未安装大恒 Galaxy 驱动时 gxipy 在 import 阶段就
     ):
         sys.modules[_gxipy_module] = MagicMock()
 
+import shiboken6
 from qtpy import QtCore, QtWidgets
 
 
@@ -132,6 +133,10 @@ def main_window(qapp):
     with mock.patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
         window.close()
     assert not warning.called, f"窗口关闭时 closeEvent 抛了异常: {warning.call_args}"
+    # 关掉的窗口还留着一整棵控件树。pytest 在收尾时会连做 5 次 gc.collect()
+    # （_pytest/unraisableexception.cleanup），由收集器去销毁 Qt 对象就是崩溃现场；
+    # 趁 QApplication 还在的时候把树一次性删掉，就没有什么留给收集器收尾了。
+    shiboken6.delete(window)
 
 
 def drain_processing_workers(timeout=5.0):
@@ -164,3 +169,8 @@ def drain_processing_workers(timeout=5.0):
 def drain_processing_workers_at_exit():
     yield
     drain_processing_workers()
+    # 事件线程是个 while True 的守护线程，退出时它还活着就会在解释器收尾阶段去回调
+    # 原生对象已经不在了的订阅者（实测过 RuntimeError: Signal source has been deleted），
+    # coverage 的时序下直接崩成 0xc0000409。
+    from polcam.core.events import EventManager
+    EventManager().shutdown(timeout=2.0)
