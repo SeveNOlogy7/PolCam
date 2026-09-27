@@ -13,6 +13,13 @@ from polcam.core.events import EventManager, EventType, Event
 def event_manager():
     return EventManager()
 
+
+def _bus_threads():
+    import threading
+    return [t for t in threading.enumerate()
+            if getattr(t, "_target", None) is not None
+            and getattr(t._target, "__name__", "") == "process_events"]
+
 def test_singleton():
     """测试事件管理器的单例模式"""
     manager1 = EventManager()
@@ -268,3 +275,44 @@ def test_unsubscribing_in_a_callback_does_not_drop_async_deliveries(event_manage
         time.sleep(0.02)
 
     assert received == ["async"]
+
+
+def test_shutdown_stops_the_bus_worker_thread(event_manager):
+    """事件总线要能关掉。
+
+    处理线程是 while True 的守护线程，从来没有人停它：进程退出时它还活着，收尾时序
+    一错就是 0xc0000409；而它随时可能回调一个原生对象已经不在了的订阅者（实测日志里
+    出现过 RuntimeError: Signal source has been deleted）。
+    """
+    received = []
+    event_manager.subscribe(EventType.CAMERA_CONNECTED, lambda event: received.append(event))
+    event_manager.publish(Event(EventType.CAMERA_CONNECTED, {"n": 1}))
+
+    deadline = time.time() + 2.0
+    while not received and time.time() < deadline:
+        time.sleep(0.02)
+    workers = _bus_threads()
+    assert workers, "事件线程没起来，测试无从判断"
+
+    event_manager.shutdown(timeout=2.0)
+
+    assert not any(t.is_alive() for t in workers), "关掉之后事件线程还活着"
+    assert len(received) == 1
+
+
+def test_publish_after_shutdown_is_dropped_without_calling_anyone(event_manager):
+    """关掉之后再发布不该偷偷回调，也不该把队列堆到没人取。
+
+    这条放在 test_events.py 的最后：单例总线关掉就开不回来，文件级进程隔离正好让它
+    不会影响别的文件。
+    """
+    received = []
+    event_manager.subscribe(EventType.CAMERA_DISCONNECTED, lambda event: received.append(event))
+
+    event_manager.shutdown(timeout=2.0)
+    event_manager.publish(Event(EventType.CAMERA_DISCONNECTED, None))
+    time.sleep(0.2)
+
+    assert received == [], "总线已经关了，回调还在被触发"
+
+    event_manager.shutdown(timeout=2.0)  # 再来一次不该炸

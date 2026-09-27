@@ -46,6 +46,10 @@ class EventManager:
     _instance = None
     _lock = threading.Lock()
 
+    # 放进队列让处理线程退出的哨兵。不能用 None：None 是合法的 event 载荷占位，
+    # 而哨兵只跟线程内部约定，永远不会被当成事件派发出去。
+    _STOP = object()
+
     def __new__(cls):
         with cls._lock:
             if cls._instance is None:
@@ -63,6 +67,8 @@ class EventManager:
         self._thread_pool = ThreadPoolExecutor(max_workers=4)
         self._event_queue = queue.Queue()
         self._is_processing = False
+        self._shutdown = False
+        self._processing_thread = None
         self._logger = logging.getLogger(__name__)
         
         # 启动事件处理线程
@@ -94,7 +100,28 @@ class EventManager:
 
     def publish(self, event: Event):
         """发布事件"""
+        if self._shutdown:
+            self._logger.warning(f"事件总线已关闭，丢弃事件: {event.type}")
+            return
         self._event_queue.put(event)
+
+    def shutdown(self, timeout: float = 2.0):
+        """停掉事件线程和异步线程池。
+
+        处理线程原本是个 while True 的守护线程，谁也没法让它退出：进程收尾时它还活着，
+        随时可能回调一个原生对象已经销毁的订阅者。
+        """
+        if self._shutdown:
+            return
+        self._shutdown = True
+
+        self._event_queue.put(self._STOP)
+        thread = self._processing_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)
+            if thread.is_alive():
+                self._logger.warning("事件线程在关闭超时后仍未退出")
+        self._thread_pool.shutdown(wait=False)
 
     def _start_event_processing(self):
         """启动事件处理线程"""
@@ -102,6 +129,8 @@ class EventManager:
             while True:
                 try:
                     event = self._event_queue.get()
+                    if event is self._STOP:
+                        break
                     self._process_event(event)
                 except Exception as e:
                     self._logger.error(f"处理事件时发生错误: {str(e)}\n{traceback.format_exc()}")
@@ -110,6 +139,7 @@ class EventManager:
 
         thread = threading.Thread(target=process_events, daemon=True)
         thread.start()
+        self._processing_thread = thread
 
     def _process_event(self, event: Event):
         """处理单个事件"""
