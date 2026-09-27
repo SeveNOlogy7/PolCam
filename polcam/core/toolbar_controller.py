@@ -78,6 +78,12 @@ class ToolbarController(BaseModule):
 
     def update_current_frame(self, frame: np.ndarray, timestamp: Optional[datetime] = None):
         """更新当前帧"""
+        if frame is not self._current_frame:
+            # 换了一帧，上一帧的处理结果就不能再被存出去了。按对象身份比而不是比像素：
+            # 显示模式切换会把同一个 ndarray 原样再传一次，那种情况不该清。
+            self._last_result = None
+            self._last_result_timestamp = None
+            self.enable_save_result(False)
         self._current_frame = frame
         self._current_frame_timestamp = timestamp
 

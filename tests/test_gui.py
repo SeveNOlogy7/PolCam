@@ -998,6 +998,31 @@ def test_closing_main_window_destroys_the_camera_even_without_streaming(main_win
     camera.destroy.assert_called_once()
 
 
+def test_a_new_frame_invalidates_the_previous_result(main_window):
+    """换了帧就不能再把上一帧的处理结果存出去。
+
+    _last_result 只在 update_last_result 里赋值，全仓没有第二处碰它；而
+    _update_frame_and_display 在处理队列还忙的时候会静默丢掉新帧（main_window.py:744）。
+    于是"载入帧 B → 屏幕是 B → 点保存处理结果"写出的是帧 A 的四张图和 A 的时间戳。
+    """
+    from polcam.core.processing_module import ProcessingMode, ProcessingResult
+
+    controller = main_window.toolbar_controller
+    frame_a = np.zeros((16, 16), dtype=np.uint8)
+    frame_b = np.ones((16, 16), dtype=np.uint8)
+    result = ProcessingResult(mode=ProcessingMode.RAW, images=[frame_a], metadata={},
+                              timestamp=0.0)
+
+    controller.update_current_frame(frame_a)
+    controller.update_last_result(result)
+    controller.enable_save_result(True)
+
+    controller.update_current_frame(frame_b)
+
+    assert controller._last_result is None, "新帧到了，缓存的结果还是上一帧的"
+    assert not main_window.toolbar.save_result_action.isEnabled()
+
+
 def test_closed_main_window_is_released_for_gc():
     """关掉又丢掉引用的窗口要真的能被回收。
 
