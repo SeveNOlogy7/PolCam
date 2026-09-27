@@ -8,6 +8,7 @@ See LICENSE file for full license details.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Iterable, List, Optional
 
@@ -34,6 +35,8 @@ class GalleryPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items_by_id: dict[int, GalleryItem] = {}
+        # 键是 (路径, mtime_ns)：同一次刷新之间条目没变就不必再解一遍全尺寸图
+        self._thumbnails: dict[tuple[str, int], QtGui.QIcon] = {}
         self._setup_ui()
 
     def _setup_ui(self):
@@ -125,6 +128,11 @@ class GalleryPanel(QtWidgets.QWidget):
     def set_items(self, items: Iterable[GalleryItem]):
         items = list(items)
         self._items_by_id = {item.id: item for item in items}
+        # 缓存随面板上还有没有这张图走，不然一个长会话里解过的缩略图会一直攒着
+        live_paths = {item.file_path for item in items}
+        self._thumbnails = {
+            key: icon for key, icon in self._thumbnails.items() if key[0] in live_paths
+        }
         self.preview_list.clear()
         self.table.setRowCount(0)
 
@@ -165,11 +173,30 @@ class GalleryPanel(QtWidgets.QWidget):
             self.table.setItem(row, column, table_item)
 
     def _create_thumbnail_icon(self, file_path: str) -> QtGui.QIcon:
+        try:
+            signature = (file_path, os.stat(file_path).st_mtime_ns)
+        except OSError:
+            # 文件已经不在了。图库行是按 captured_at DESC 排的，让这一行把异常抛出去
+            # 就等于其后每次刷新都断在第一张图上，整个面板从此空白。
+            return self._placeholder_icon()
+
+        cached = self._thumbnails.get(signature)
+        if cached is not None:
+            return cached
+
+        icon = self._decode_thumbnail_icon(file_path)
+        self._thumbnails[signature] = icon
+        return icon
+
+    def _decode_thumbnail_icon(self, file_path: str) -> QtGui.QIcon:
         # cv2.imread 按进程 ANSI 代码页解析路径，中文路径下读不出来，所以自己按字节读
-        image = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        try:
+            image = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        except OSError:
+            return self._placeholder_icon()
         if image is None:
             # 预览读不出属于缺图而非错误，用中性文件图标，避免整排警告三角
-            return self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileIcon)
+            return self._placeholder_icon()
 
         height, width = image.shape
         qimage = QtGui.QImage(
@@ -187,6 +214,9 @@ class GalleryPanel(QtWidgets.QWidget):
             QtCore.Qt.TransformationMode.SmoothTransformation,
         )
         return QtGui.QIcon(pixmap)
+
+    def _placeholder_icon(self) -> QtGui.QIcon:
+        return self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileIcon)
 
     def _format_datetime(self, timestamp: float) -> str:
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
