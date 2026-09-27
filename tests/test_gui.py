@@ -1190,3 +1190,29 @@ def test_a_camera_without_the_current_mode_lands_on_one_it_supports(main_window)
         f"下拉框是 {shown_mode.name}，处理模块还在 {main_window.processor._current_mode.name}")
     assert main_window._preferred_display_mode == shown_mode
     assert main_window.camera_control.wb_control.isHidden(), "RAW/合成模式下白平衡组还在显示"
+
+
+def test_hardware_zoom_area_selection_respects_configured_max_zoom(qapp):
+    """框选放大也要受最大放大倍率约束。
+
+    点击放大那条路的 int() 换成 ceil 是修过的（1000x1000/31² = 1040x 会越过上限），
+    但区域选择这条姊妹路径还是 int()，于是状态栏理直气壮地写着"已调整到最大放大倍率
+    1040.6x"。
+    """
+    display = ImageDisplay()
+    controller = display.toolbar_controller
+    controller.set_max_zoom(1000.0)
+
+    mock_camera = MagicMock()
+    mock_camera.is_connected.return_value = True
+    mock_camera.get_sensor_size.return_value = (1000, 1000)
+    mock_camera.get_roi.return_value = (0, 0, 31, 31)
+    mock_camera.set_roi.return_value = True
+    controller.set_camera_module(mock_camera)
+
+    controller._handle_zoom_area_selection(0, 0, 31, 31)
+
+    mock_camera.set_roi.assert_called_once()
+    _, _, new_w, new_h = mock_camera.set_roi.call_args.args
+    assert (1000 * 1000) / (new_w * new_h) <= 1000.0, (
+        f"{new_w}x{new_h} 实际上是 {(1000 * 1000) / (new_w * new_h):.1f}x，超过了 1000x 上限")

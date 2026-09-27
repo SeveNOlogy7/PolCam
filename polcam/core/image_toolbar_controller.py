@@ -294,9 +294,9 @@ class ImageToolbarController(BaseModule):
             if success:
                 zoom_ratio = self.image_display.get_software_zoom_ratio()
                 if zoom_ratio >= self._max_zoom - 0.1:
-                    self._show_status_message(f"已达最大放大倍率 {zoom_ratio:.1f}x")
+                    self._show_status_message(f"已达最大放大倍率（面积） {zoom_ratio:.1f}x")
                 else:
-                    self._show_status_message(f"缩放: {zoom_ratio:.1f}x")
+                    self._show_status_message(f"缩放: {zoom_ratio:.1f}x（面积）")
             return
 
         if not self._camera_module or not self._camera_module.is_connected():
@@ -343,9 +343,9 @@ class ImageToolbarController(BaseModule):
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
                 if zoom_pct >= self._max_zoom - 0.1:
-                    self._show_status_message(f"已达最大放大倍率 {zoom_pct:.1f}x")
+                    self._show_status_message(f"已达最大放大倍率（面积） {zoom_pct:.1f}x")
                 else:
-                    self._show_status_message(f"缩放: {zoom_pct:.1f}x")
+                    self._show_status_message(f"缩放: {zoom_pct:.1f}x（面积）")
 
     def _handle_zoom_area_selection(self, sensor_x: int, sensor_y: int,
                                      width: int, height: int):
@@ -379,8 +379,9 @@ class ImageToolbarController(BaseModule):
             min_area = (sensor_w * sensor_h) / self._max_zoom
             if width * height < min_area:
                 scale = (min_area / (width * height)) ** 0.5
-                new_w = int(width * scale)
-                new_h = int(height * scale)
+                # 和点击放大那条路一样向上取整：int() 会刚好差一点面积，落在上限之外
+                new_w = math.ceil(width * scale)
+                new_h = math.ceil(height * scale)
                 center_x = sensor_x + width // 2
                 center_y = sensor_y + height // 2
                 sensor_x = center_x - new_w // 2
