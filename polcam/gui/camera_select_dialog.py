@@ -125,14 +125,12 @@ class CameraSelectDialog(QtWidgets.QDialog):
         has_selection = selected_index is not None
         is_connected = self._camera.is_connected()
 
-        if is_connected and has_selection and selected_index == self._connected_index:
-            # 选中的是已连接的设备 → 显示"断开"
+        if is_connected:
+            # 断开不需要「选中已连接那一行」：独占打开的那台往往根本不再出现在重举结果里，
+            # 那时 selected_index 永远等不到 _connected_index，按原来的写法按钮只会变成
+            # 禁用的「连接」，这一场会话里就再也脱不开那个句柄了
             self._connect_btn.setText("断开")
             self._connect_btn.setEnabled(True)
-        elif is_connected:
-            # 已连接但选中的是其他设备 → 禁用（需先断开）
-            self._connect_btn.setText("连接")
-            self._connect_btn.setEnabled(False)
         else:
             # 未连接 → 有选中则启用"连接"
             self._connect_btn.setText("连接")
@@ -187,6 +185,11 @@ class CameraSelectDialog(QtWidgets.QDialog):
                 self._info_label.setText("未检测到相机设备")
             elif not self._camera.is_connected():
                 self._info_label.setText(f"检测到 {count} 个相机设备，请选择要连接的相机：")
+            elif not any(device.get('index') == self._connected_index
+                         for device in device_list):
+                # 已连接那台不在了（多半是被本进程独占着），信息栏别继续报它的名字
+                self._info_label.setText(
+                    f"已连接的相机不在当前列表里（可能被本程序占用），点「断开」可释放")
         except Exception as e:
             self._logger.error(f"刷新设备列表失败: {str(e)}")
             QtWidgets.QMessageBox.warning(self, "刷新失败", f"刷新设备列表失败: {str(e)}")
