@@ -9,7 +9,6 @@ import numpy as np
 from unittest.mock import MagicMock, patch
 from polcam.core.events import Event, EventType
 from polcam.core.image_processor import ImageProcessor
-from polcam.gui.main_window import MainWindow
 
 def test_camera_to_processor_integration(mock_camera):
     """测试相机采集到图像处理的集成"""
@@ -51,62 +50,58 @@ def test_camera_to_processor_integration(mock_camera):
     assert np.all(dolp >= 0) and np.all(dolp <= 1)
     assert np.all(aolp >= 0) and np.all(aolp <= 180)
 
-def test_gui_camera_integration(qapp, mock_camera):
-    window = MainWindow()
-    window.camera = mock_camera
+def test_gui_camera_integration(main_window, mock_camera):
+    main_window.camera = mock_camera
     
     # 测试相机连接
-    window.camera_control.connect_btn.setChecked(True)
-    window.handle_connect(True)
-    assert window.camera_control.capture_btn.isEnabled()
-    assert window.camera_control.stream_btn.isEnabled()
-    assert window.status_indicator.isEnabled()
+    main_window.camera_control.connect_btn.setChecked(True)
+    main_window.handle_connect(True)
+    assert main_window.camera_control.capture_btn.isEnabled()
+    assert main_window.camera_control.stream_btn.isEnabled()
+    assert main_window.status_indicator.isEnabled()
     
     # 创建模拟图像数据
     mock_frame = np.zeros((16, 16), dtype=np.uint8)
     mock_camera.get_frame = lambda: mock_frame
     
     # 测试图像显示更新
-    window._update_frame_and_display(mock_frame)
-    assert window.image_display.image_label.pixmap() is not None
+    main_window._update_frame_and_display(mock_frame)
+    assert main_window.image_display.image_label.pixmap() is not None
 
-def test_gui_camera_integration_connection_failure(qapp, mock_camera):
-    window = MainWindow()
-    window.camera = mock_camera
+def test_gui_camera_integration_connection_failure(main_window, mock_camera):
+    main_window.camera = mock_camera
     
     # 模拟连接失败
     # 先设置假连接
-    window.camera_control.connect_btn.setChecked(True)
-    window.handle_connect(True)
+    main_window.camera_control.connect_btn.setChecked(True)
+    main_window.handle_connect(True)
     # 然后断开连接
-    window.handle_connect(False)
+    main_window.handle_connect(False)
     
     # 验证所有控件都处于禁用状态
-    assert not window.camera_control.capture_btn.isEnabled()
-    assert not window.camera_control.stream_btn.isEnabled()
-    assert not window.status_indicator.isEnabled()
-    assert not window.status_indicator._status
-    assert window.status_label.text() == "就绪"
+    assert not main_window.camera_control.capture_btn.isEnabled()
+    assert not main_window.camera_control.stream_btn.isEnabled()
+    assert not main_window.status_indicator.isEnabled()
+    assert not main_window.status_indicator._status
+    assert main_window.status_label.text() == "就绪"
 
-def test_gui_camera_direct_connection_failure(qapp, mock_camera):
-    window = MainWindow()
-    window.camera = mock_camera
+def test_gui_camera_direct_connection_failure(main_window, mock_camera):
+    main_window.camera = mock_camera
     
     # 直接模拟连接失败
     with patch.object(mock_camera, 'connect', return_value=(False, "连接失败测试")):
-        window.camera_control.connect_btn.setChecked(True)
-        window.handle_connect(True)
+        main_window.camera_control.connect_btn.setChecked(True)
+        main_window.handle_connect(True)
         
         # 验证失败状态
-        assert not window.camera_control.capture_btn.isEnabled()
-        assert not window.camera_control.stream_btn.isEnabled()
-        assert not window.status_indicator.isEnabled()
-        assert not window.status_indicator._status
-        assert window.status_label.text() == "连接失败测试"
+        assert not main_window.camera_control.capture_btn.isEnabled()
+        assert not main_window.camera_control.stream_btn.isEnabled()
+        assert not main_window.status_indicator.isEnabled()
+        assert not main_window.status_indicator._status
+        assert main_window.status_label.text() == "连接失败测试"
 
-def test_gui_display_modes(qapp, mock_camera):
-    window = MainWindow()
-    window.camera = mock_camera
+def test_gui_display_modes(main_window, mock_camera):
+    main_window.camera = mock_camera
     
     # 创建测试图像并添加一些测试数据
     mock_frame = np.zeros((16, 16), dtype=np.uint8)
@@ -114,9 +109,9 @@ def test_gui_display_modes(qapp, mock_camera):
     
     # 测试不同显示模式
     for mode_index in range(5):  # 测试所有5种显示模式
-        window.image_display.display_mode.setCurrentIndex(mode_index)
-        window._update_frame_and_display(mock_frame)
-        assert window.image_display.image_label.pixmap() is not None
+        main_window.image_display.display_mode.setCurrentIndex(mode_index)
+        main_window._update_frame_and_display(mock_frame)
+        assert main_window.image_display.image_label.pixmap() is not None
 
 def test_camera_processor_pipeline(mock_camera):
     """测试相机和图像处理器的完整工作流"""
@@ -143,10 +138,9 @@ def test_camera_processor_pipeline(mock_camera):
     dolp, aolp, docp = processor.calculate_polarization_parameters(balanced_images)
     assert all(param.shape == (16, 16) for param in [dolp, aolp, docp])
 
-def test_gui_camera_streaming(qapp, mock_camera):
+def test_gui_camera_streaming(main_window, mock_camera):
     """测试GUI和相机的流模式集成"""
-    window = MainWindow()
-    window.camera = mock_camera
+    main_window.camera = mock_camera
     
     # 设置模拟帧
     mock_frames = []
@@ -165,21 +159,20 @@ def test_gui_camera_streaming(qapp, mock_camera):
     mock_camera.get_frame = mock_get_frame
     
     # 测试流模式
-    window.handle_stream(True)
-    assert window._continuous_mode
+    main_window.handle_stream(True)
+    assert main_window._continuous_mode
     mock_camera.start_streaming.assert_called_once()
     
     # 模拟几次定时器触发
     for _ in range(3):
-        window._update_frame_and_display(mock_camera.get_frame())
+        main_window._update_frame_and_display(mock_camera.get_frame())
         
-    window.handle_stream(False)
-    assert not window._continuous_mode
+    main_window.handle_stream(False)
+    assert not main_window._continuous_mode
     mock_camera.stop_streaming.assert_called_once()
 
-def test_camera_parameter_control(qapp, mock_camera):
+def test_camera_parameter_control(qapp, main_window, mock_camera):
     """测试相机参数控制集成"""
-    window = MainWindow()
     
     # 首先mock所有需要的相机方法
     mock_device = MagicMock()
@@ -208,51 +201,50 @@ def test_camera_parameter_control(qapp, mock_camera):
     mock_camera.set_gain_auto = MagicMock()
     
     # 设置相机对象
-    window.camera = mock_camera
+    main_window.camera = mock_camera
     
     # 确保信号连接正确设置
-    window.setup_connections()
+    main_window.setup_connections()
     
     # 模拟相机连接
     with patch.object(mock_camera.device_manager, 'update_all_device_list', 
                      return_value=(1, ['dev1'])):
         # 连接相机
-        window.handle_connect(True)
+        main_window.handle_connect(True)
         qapp.processEvents()
         
         # 验证控件状态
-        assert window.camera_control.exposure_control.value_spin.isEnabled()
-        assert window.camera_control.gain_control.value_spin.isEnabled()
+        assert main_window.camera_control.exposure_control.value_spin.isEnabled()
+        assert main_window.camera_control.gain_control.value_spin.isEnabled()
         
         # 测试曝光控制 - 通过控件设置值
-        window.camera_control.exposure_control.value_spin.setValue(expected_exposure)
+        main_window.camera_control.exposure_control.value_spin.setValue(expected_exposure)
         qapp.processEvents()
         mock_camera.set_exposure_time.assert_called_with(expected_exposure)
         
         # 测试增益控制 - 通过控件设置值
-        window.camera_control.gain_control.value_spin.setValue(expected_gain)
+        main_window.camera_control.gain_control.value_spin.setValue(expected_gain)
         qapp.processEvents()
         mock_camera.set_gain.assert_called_with(expected_gain)
         
         # 测试自动曝光
-        window.camera_control.exposure_control.auto_check.setChecked(True)
+        main_window.camera_control.exposure_control.auto_check.setChecked(True)
         qapp.processEvents()
         mock_camera.set_exposure_auto.assert_called_with(True)
         
         # 测试自动增益
-        window.camera_control.gain_control.auto_check.setChecked(True)
+        main_window.camera_control.gain_control.auto_check.setChecked(True)
         qapp.processEvents()
         mock_camera.set_gain_auto.assert_called_with(True)
 
-def test_error_propagation(qapp, mock_camera):
+def test_error_propagation(qapp, main_window, mock_camera):
     """测试错误传播处理"""
-    window = MainWindow()
-    window.camera = mock_camera
+    main_window.camera = mock_camera
     
     # 首先建立正常连接
     with patch.object(mock_camera.device_manager, 'update_all_device_list', 
                      return_value=(1, ['dev1'])):
-        window.handle_connect(True)
+        main_window.handle_connect(True)
         qapp.processEvents()
     
     # 模拟图像获取错误
@@ -265,7 +257,7 @@ def test_error_propagation(qapp, mock_camera):
     # 捕获可能的警告对话框
     with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as mock_warning:
         # 测试单帧采集错误处理
-        window.handle_capture()
+        main_window.handle_capture()
         # 验证错误警告是否被显示
         assert mock_warning.called
         assert error_message in mock_warning.call_args[0][2]  # 完整的错误消息
@@ -274,22 +266,21 @@ def test_error_propagation(qapp, mock_camera):
         mock_warning.reset_mock()
         
         # 测试流模式错误处理
-        window.handle_stream(True)
+        main_window.handle_stream(True)
         try:
-            window.camera.get_frame()
+            main_window.camera.get_frame()
         except Exception as exc:
-            window._on_error(Event(EventType.ERROR_OCCURRED, {
+            main_window._on_error(Event(EventType.ERROR_OCCURRED, {
                 'source': 'camera',
                 'error': str(exc),
             }))
         # 流模式下的错误可能会显示不同的警告或不显示警告
         
-        window.handle_stream(False)
+        main_window.handle_stream(False)
 
-def test_display_mode_integration(qapp, mock_camera):
+def test_display_mode_integration(main_window, mock_camera):
     """测试显示模式和图像处理集成"""
-    window = MainWindow()
-    window.camera = mock_camera
+    main_window.camera = mock_camera
     
     # 创建测试帧
     test_frame = np.zeros((16, 16), dtype=np.uint8)
@@ -297,12 +288,12 @@ def test_display_mode_integration(qapp, mock_camera):
     mock_camera.get_frame = lambda: test_frame
     
     # 测试所有显示模式：切换模式并喂入一帧不应抛异常，显示层应持有可用图像
-    for mode in range(window.image_display.display_mode.count()):
-        window.image_display.display_mode.setCurrentIndex(mode)
-        window._update_frame_and_display(test_frame)
-        assert window.image_display.has_display_image()
+    for mode in range(main_window.image_display.display_mode.count()):
+        main_window.image_display.display_mode.setCurrentIndex(mode)
+        main_window._update_frame_and_display(test_frame)
+        assert main_window.image_display.has_display_image()
 
     # 原始图像模式为同步渲染，应立刻产出像素图
-    window.image_display.display_mode.setCurrentIndex(0)
-    window._update_frame_and_display(test_frame)
-    assert window.image_display.image_label.pixmap() is not None
+    main_window.image_display.display_mode.setCurrentIndex(0)
+    main_window._update_frame_and_display(test_frame)
+    assert main_window.image_display.image_label.pixmap() is not None

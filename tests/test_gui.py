@@ -4,7 +4,10 @@ Copyright (c) 2024-2026 Junhao Cai
 See LICENSE file for full license details.
 """
 
+import os
 import pytest
+import subprocess
+import sys
 import threading
 import time
 from qtpy import QtCore, QtGui
@@ -19,19 +22,6 @@ from polcam.core.image_plotter import ImagePlotter
 from polcam.core.events import Event, EventManager, EventType
 from polcam.core.processing_module import ProcessingMode
 import numpy as np
-
-@pytest.fixture
-def main_window(qapp):
-    """建一个主窗口，用完关掉。
-
-    关窗会把它挂到事件总线上的订阅摘掉、把处理模块和相机拆掉，测试之间就不会互相
-    留尾巴；closeEvent 里的异常一律变成失败，而不是弹一个阻塞的模态框。
-    """
-    window = MainWindow()
-    yield window
-    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
-        window.close()
-    assert not warning.called, f"窗口关闭时 closeEvent 抛了异常: {warning.call_args}"
 
 def test_main_window_init(main_window):
     """测试主窗口初始化"""
@@ -428,17 +418,15 @@ def test_status_bar(main_window):
     assert not main_window.status_indicator._status
     assert main_window.status_label.text() == "就绪"
 
-def test_style_application(qapp):
+def test_style_application(main_window):
     """测试样式应用"""
-    window = MainWindow()
-    
     # 测试按钮样式
-    assert window.camera_control.connect_btn.font().pointSize() == Styles.FONT_MEDIUM
-    assert window.camera_control.connect_btn.minimumHeight() == Styles.HEIGHT_MEDIUM
+    assert main_window.camera_control.connect_btn.font().pointSize() == Styles.FONT_MEDIUM
+    assert main_window.camera_control.connect_btn.minimumHeight() == Styles.HEIGHT_MEDIUM
     
     # 测试下拉框样式
-    assert window.image_display.display_mode.font().pointSize() == Styles.FONT_MEDIUM
-    assert window.image_display.display_mode.minimumHeight() == Styles.HEIGHT_MEDIUM
+    assert main_window.image_display.display_mode.font().pointSize() == Styles.FONT_MEDIUM
+    assert main_window.image_display.display_mode.minimumHeight() == Styles.HEIGHT_MEDIUM
 
 
 def test_main_window_dispatches_gui_events_on_main_thread(main_window, qapp):
@@ -1008,5 +996,25 @@ def test_closing_main_window_destroys_the_camera_even_without_streaming(main_win
 
     assert not warning.called, f"closeEvent 抛异常并弹了框: {warning.call_args}"
     camera.destroy.assert_called_once()
+
+
+def test_closed_main_window_is_released_for_gc():
+    """关掉又丢掉引用的窗口要真的能被回收。
+
+    两条 once_clicked 以前是拿 lambda 连的，lambda 的闭包握着窗口；PySide 的连接表
+    把注册过的槽函数一直留着，于是订阅从总线上摘干净之后窗口还是回不来。实测：只断开
+    这两条连接，同一个流程立刻就能被回收；同一段里 wb_once_clicked 连的是绑定方法，
+    那才是能被回收的写法。
+
+    探针跑在子进程里，因为强行 gc.collect() 会顺带收尾本进程里其他已经没原生对象的
+    Qt 控件 —— 那就是这个仓库历史上那个 0xc0000374 堆损坏。
+    """
+    probe = os.path.join(os.path.dirname(__file__), "_window_gc_probe.py")
+    env = {**os.environ,
+           "QT_QPA_PLATFORM": os.environ.get("QT_QPA_PLATFORM", "offscreen")}
+    result = subprocess.run([sys.executable, probe], capture_output=True, text=True, env=env)
+
+    assert result.returncode == 0, (
+        f"探针退出码 {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr[-1500:]}")
 
 

@@ -209,10 +209,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.wb_control.auto_changed.connect(self._handle_wb_auto_changed)
         
         # 修改单次按钮连接
-        self.camera_control.exposure_control.once_clicked.connect(
-            lambda: self._handle_one_shot('exposure', self.camera.set_exposure_once))
-        self.camera_control.gain_control.once_clicked.connect(
-            lambda: self._handle_one_shot('gain', self.camera.set_gain_once))
+        self.camera_control.exposure_control.once_clicked.connect(self._handle_exposure_once)
+        self.camera_control.gain_control.once_clicked.connect(self._handle_gain_once)
         self.camera_control.wb_control.once_clicked.connect(self._handle_wb_once)
 
         # 添加角度选择信号处理
@@ -608,6 +606,14 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._one_shot_pending = None
         self.camera_control.handle_one_shot_complete(control_type)
+
+    def _handle_exposure_once(self):
+        """曝光单次自动调整。连成绑定方法而不是 lambda：闭包握着窗口，窗口就再也回不来。"""
+        self._handle_one_shot('exposure', self.camera.set_exposure_once)
+
+    def _handle_gain_once(self):
+        """增益单次自动调整。"""
+        self._handle_one_shot('gain', self.camera.set_gain_once)
 
     def _handle_wb_once(self):
         """处理白平衡一次性调整"""

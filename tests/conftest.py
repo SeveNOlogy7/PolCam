@@ -7,6 +7,7 @@ See LICENSE file for full license details.
 import pytest
 import sys
 import threading
+from unittest import mock
 from unittest.mock import MagicMock
 
 try:  # 真实 SDK 可用时不干预，保证有相机/驱动的机器上测的是真代码
@@ -112,6 +113,25 @@ def isolate_qsettings(tmp_path_factory):
 @pytest.fixture
 def mock_camera():
     return _make_mock_camera()
+
+
+@pytest.fixture
+def main_window(qapp):
+    """建一个主窗口，用完关掉。
+
+    谁建谁关：MainWindow 会把 12 类事件订阅到单例 EventManager 上，不关的话订阅
+    和桥对象一直留在进程里。窗口现在能被回收了，留着订阅更危险 —— 回收发生在测试
+    之间的任意时刻，总线上线时桥的原生对象已经没了（RuntimeError: Signal source
+    has been deleted），coverage 的收尾时序下直接崩成 0xc0000409。
+    关窗里的异常一律变成失败，而不是弹一个阻塞的模态框。
+    """
+    from polcam.gui.main_window import MainWindow
+
+    window = MainWindow()
+    yield window
+    with mock.patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
+        window.close()
+    assert not warning.called, f"窗口关闭时 closeEvent 抛了异常: {warning.call_args}"
 
 
 def drain_processing_workers(timeout=5.0):
