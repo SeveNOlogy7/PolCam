@@ -74,9 +74,14 @@ class RawImageService:
         if not path.exists():
             raise FileNotFoundError(f"图像文件不存在: {path}")
 
-        raw_data = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        # IMREAD_GRAYSCALE 会把读到的东西强行折成单通道 uint8：文件里明明是 16bit
+        # 也只剩 8bit，三通道结果也被悄悄压成灰度再报"已加载图像"。原始帧的定义是
+        # 单通道，所以按原样读，对不上就明确拒绝。
+        raw_data = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
         if raw_data is None:
             raise ValueError("无法读取图像文件")
+        if raw_data.ndim != 2:
+            raise ValueError(f"原始图像必须是单通道帧，读到了 {raw_data.shape[-1]} 通道图像")
         if not self.verify_image_size(raw_data):
             raise ValueError("图像尺寸必须是8x8马赛克的整数倍")
         return raw_data

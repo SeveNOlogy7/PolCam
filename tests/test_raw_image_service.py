@@ -48,6 +48,35 @@ def test_load_image_rejects_invalid_size(tmp_path: Path, raw_image_service: RawI
         raw_image_service.load_image(image_path)
 
 
+def test_save_and_load_keep_16bit_depth(tmp_path: Path, raw_image_service: RawImageService):
+    """16bit 帧存成 TIFF 再读回来不该被压成 8bit。
+
+    load_image 用的 IMREAD_GRAYSCALE 会把位深强行折到 uint8 —— 文件里确实是 uint16
+    （65535 还在），读回来只剩 255。相机出 10/12/16bit 时，自动保存的图重开就是一张
+    被量化过的近黑图。
+    """
+    frame = np.linspace(0, 65535, 16 * 16, dtype=np.uint16).reshape(16, 16)
+
+    loaded = raw_image_service.load_image(raw_image_service.save_image(frame, tmp_path / "u16.tiff"))
+
+    assert loaded.dtype == np.uint16
+    assert np.array_equal(loaded, frame)
+
+
+def test_load_image_rejects_multi_channel_file(tmp_path: Path, raw_image_service: RawImageService):
+    """处理结果是三通道，不该被当成原始帧悄悄灰度化。
+
+    以前 BGR(200,10,5) 存进去、读出来变成 (16,16) 全是 30 的灰度图，状态栏还报
+    "已加载图像"。原始帧按定义是单通道，拿不到就该说清楚。
+    """
+    frame = np.zeros((16, 16, 3), dtype=np.uint8)
+    frame[:, :] = (200, 10, 5)
+    saved = raw_image_service.save_image(frame, tmp_path / "color.tiff")
+
+    with pytest.raises(ValueError, match="单通道"):
+        raw_image_service.load_image(saved)
+
+
 def test_save_and_load_survive_non_ascii_paths(tmp_path: Path, raw_image_service: RawImageService):
     """中文目录名和文件名也要能存能读。
 
