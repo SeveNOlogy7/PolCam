@@ -119,3 +119,43 @@ def test_destroy_removes_the_module_subscriptions():
     assert module.destroy() is True
 
     assert len(event_manager._subscribers.get(event_type, set())) == before
+
+
+class _DestroyFails(TestModule):
+    """_do_destroy 返回 False 的模块。"""
+
+    def _do_destroy(self) -> bool:
+        self.destroy_called = True
+        return False
+
+
+def test_a_failing_do_destroy_still_leaves_the_module_unusable():
+    """_do_destroy() 说不行，也不能把模块留在"还能用"的状态。
+
+    destroy() 原本只在 success 时才复位 _initialized 并退订，于是拆毁失败的模块
+    is_initialized() 仍为 True，之后 start() 会在一个已经拆过的模块上再跑 _do_start，
+    initialize() 也变成静默空操作。
+    """
+    module = _DestroyFails()
+    assert module.initialize() and module.start()
+
+    assert module.destroy() is False
+    assert module.is_initialized() is False, "拆毁失败却还报告已初始化"
+    assert module.start() is False, "拆毁失败的模块还能被启动"
+
+
+def test_destroy_reports_a_failed_stop():
+    """stop() 失败时 destroy() 不能报成功。
+
+    原来 self.stop() 的返回值被直接丢掉：_do_stop 失败会留下 _running=True，
+    destroy() 照样返回 True。
+    """
+    class _StopFails(TestModule):
+        def _do_stop(self) -> bool:
+            self.stop_called = True
+            return False
+
+    module = _StopFails()
+    assert module.initialize() and module.start()
+
+    assert module.destroy() is False

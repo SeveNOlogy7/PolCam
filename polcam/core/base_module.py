@@ -113,22 +113,32 @@ class BaseModule(ABC):
         Returns:
             bool: 销毁是否成功
         """
+        stopped = True
         if self._running:
-            self.stop()
-            
+            stopped = self.stop()
+
         try:
             self._logger.info(f"正在销毁模块: {self.name}")
             success = self._do_destroy()
-            if success:
-                self._initialized = False
-                self._unsubscribe_all()
-                self._logger.info(f"模块销毁成功: {self.name}")
-            else:
-                self._logger.error(f"模块销毁失败: {self.name}")
-            return success
         except Exception as e:
             self._logger.error(f"模块销毁出错: {self.name}, 错误: {str(e)}")
+            success = False
+        finally:
+            # 状态归位不看 _do_destroy 的脸色：留着 _initialized=True 的话，之后
+            # start() 会在一个已经拆过的模块上再跑 _do_start，initialize() 也从此变成
+            # 静默空操作，退订也跟着被跳过
+            self._initialized = False
+            self._unsubscribe_all()
+
+        if not stopped:
+            self._logger.error(f"模块销毁不完整: {self.name}，停止阶段没成功")
             return False
+        if not success:
+            self._logger.error(f"模块销毁失败: {self.name}")
+            return False
+
+        self._logger.info(f"模块销毁成功: {self.name}")
+        return True
     
     def publish_event(self, event_type: EventType, data: Any = None):
         """发布事件
