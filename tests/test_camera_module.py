@@ -685,3 +685,62 @@ def test_stream_thread_does_not_pin_the_camera_module():
         time.sleep(0.05)
 
     assert module_ref() is None, "抓帧线程钉住了 CameraModule，设备句柄一起泄漏"
+
+
+def test_a_transient_probe_failure_does_not_block_connecting(camera_module):
+    """启动时枚举抖一下，不该让整场会话再也连不上相机。
+
+    _do_initialize 探一次设备列表，结果丢掉不用（注释本来就写着"设备检测移到连接时"），
+    可它异常时返回 False —— _initialized 就此一直是 False，BaseModule.start() 在
+    connect() 之前便短路，而 MainWindow 不看 initialize() 的返回值，也没人重试。相机还
+    在上电、USB 还在重枚举的时候，正是最容易抖的时候。
+    """
+    camera_module.device_manager.update_all_device_list.side_effect = OSError("设备还没就绪")
+
+    assert camera_module.initialize() is True, "一次瞬时的枚举失败被判成了 SDK 不可用"
+
+    camera_module.device_manager.update_all_device_list.side_effect = None
+    assert camera_module.start() is True
+    assert camera_module.is_connected()
+
+
+def test_repeated_grab_errors_stop_the_loop_instead_of_spinning_forever(camera_module, monkeypatch):
+    """连续采集一直报错时要收手，不能每秒十条错误地空转。
+
+    _stream_once 的 except 分支只发了事件再 sleep(0.1)，既不计数也不退出：线一断就是
+    ~10 次/秒的 ERROR_OCCURRED，而 GUI 那边每条都会弹一个模态框。
+    """
+    monkeypatch.setattr(CameraModule, "STREAM_ERROR_LIMIT", 3)
+    camera_module._stop_flag = False
+    boom = MagicMock(side_effect=OSError("device gone"))
+    camera_module._camera = MagicMock()
+    camera_module._camera.data_stream = [MagicMock(get_image=boom)]
+    errors = []
+    camera_module.subscribe_event(EventType.ERROR_OCCURRED, lambda event: errors.append(event))
+
+    for _ in range(10):
+        camera_module._stream_once()
+
+    # 回调是总线线程在跑的，先等它把这批事件收完再判断上限
+    deadline = time.time() + 2.0
+    while len(errors) < 3 and time.time() < deadline:
+        time.sleep(0.02)
+    time.sleep(0.2)
+
+    assert len(errors) == 3, f"错误没被限流：一条路发了 {len(errors)} 次"
+    assert camera_module._stop_flag is True, "连续失败到达上限后循环该退出"
+
+
+def test_a_good_frame_clears_the_error_budget(camera_module, monkeypatch):
+    """偶发一两次失败不该累计到停流，成功一帧就把计数清掉。"""
+    monkeypatch.setattr(CameraModule, "STREAM_ERROR_LIMIT", 3)
+    image = MagicMock()
+    image.get_numpy_array.return_value = None
+    flaky = MagicMock(side_effect=[OSError("抖了一下"), image, OSError("又抖了一下"), image])
+    camera_module._camera = MagicMock()
+    camera_module._camera.data_stream = [MagicMock(get_image=flaky)]
+
+    for _ in range(4):
+        camera_module._stream_once()
+
+    assert camera_module._stop_flag is False

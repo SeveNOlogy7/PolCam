@@ -57,6 +57,9 @@ class CameraModule(BaseModule):
     # 前者必须明显小于后者，否则停流时读者还挂在 get_image 里。
     GRAB_TIMEOUT_MS = 100
     STREAM_JOIN_TIMEOUT_S = 2.0
+    # 连续失败多少次就收手。不封顶的话线一断就是每秒十条错误事件，而 GUI 每条弹一个
+    # 模态框，队列涨得比人点掉的速度快。
+    STREAM_ERROR_LIMIT = 20
 
     def __init__(self):
         super().__init__("Camera")
@@ -67,6 +70,7 @@ class CameraModule(BaseModule):
         self._stream_thread: Optional[threading.Thread] = None
         self._frame_queue = queue.Queue(maxsize=4)  # 增加队列大小
         self._stop_flag = False
+        self._stream_error_count = 0  # 连续采集失败次数，成功一帧就清零
         
         # 缓存最后设置的参数值
         self._last_params = {
@@ -91,8 +95,11 @@ class CameraModule(BaseModule):
                 self._logger.warning("未找到相机设备，将在连接时重新检测")
             return True  # 始终成功，设备检测移到连接时
         except Exception as e:
-            self._logger.error(f"初始化相机管理器失败: {str(e)}")
-            return False
+            # 探测结果本来就要丢掉，所以这里不能因为一次抖动就把模块判死：
+            # _initialized 留在 False 会让 BaseModule.start() 在 connect() 之前短路，
+            # 于是这台相机在这次会话里再也连不上，而没人会重试 initialize。
+            self._logger.warning(f"启动时枚举设备失败，稍后连接时重试: {str(e)}")
+            return True
 
     def _do_start(self) -> bool:
         """启动相机模块"""
@@ -447,6 +454,8 @@ class CameraModule(BaseModule):
 
     def _stream_once(self) -> None:
         """采集一帧并投递；失败时短暂退避。"""
+        if self._stream_error_count >= self.STREAM_ERROR_LIMIT:
+            return  # 已经报过"收手"了，别再重复发布
         try:
             # 开始计时
             t_start = time.perf_counter()
@@ -454,6 +463,7 @@ class CameraModule(BaseModule):
             # 获取图像：这里的等待必须明显短于 stop_streaming 的 join 预算，
             # 否则 join 超时后就只能当着读者的面关句柄
             raw_image = self._camera.data_stream[0].get_image(timeout=self.GRAB_TIMEOUT_MS)
+            self._stream_error_count = 0
             if raw_image:
                 frame = raw_image.get_numpy_array()
                 if frame is not None:
@@ -480,7 +490,18 @@ class CameraModule(BaseModule):
                 time.sleep(0.001)  # 短暂暂停避免空转
 
         except Exception as e:
+            self._stream_error_count += 1
             self._logger.error(f"图像采集错误: {str(e)}")
+            if self._stream_error_count >= self.STREAM_ERROR_LIMIT:
+                # 到这儿就不是抖一下了：再转下去只是每秒十条错误事件，而 GUI 每条会
+                # 弹一个模态框，队列涨得比人点掉快。留一条说清楚的话，然后收手。
+                self._stop_flag = True
+                self._logger.error(f"连续 {self._stream_error_count} 次采集失败，停止采流")
+                self.publish_event(EventType.ERROR_OCCURRED, {
+                    "source": "camera",
+                    "error": f"连续 {self._stream_error_count} 次采集失败，已停止采集: {str(e)}"
+                })
+                return
             self.publish_event(EventType.ERROR_OCCURRED, {
                 "source": "camera",
                 "error": str(e)
