@@ -458,13 +458,17 @@ class MainWindow(QtWidgets.QMainWindow):
             # 不启用保存当前结果按钮，手动切换显示模式后会自动启用
 
     def _restore_display_mode(self, mode: ProcessingMode):
-        """切到给定模式，并保证界面真的按落地后的模式刷新了一次。
+        """切到给定模式，并保证界面真的按落地后的模式刷新一次——且只有一次。
 
         模式列表刚重建时 combo 已经被归到 0，如果目标模式不可用或本来就在 0，
         currentIndexChanged 不会触发，可见性和处理模块就停在上一台相机的模式上。
+        反过来，索引真的动了时信号已经跑过一遍刷新，再手动调一遍就是把同一件事做两次。
         """
+        index_before = self.image_display.display_mode.currentIndex()
         self.image_display.set_processing_mode(mode)
-        self._on_display_mode_changed(self.image_display.display_mode.currentIndex())
+        index_after = self.image_display.display_mode.currentIndex()
+        if index_after == index_before:
+            self._on_display_mode_changed(index_after)
 
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
