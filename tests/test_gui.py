@@ -1162,3 +1162,31 @@ def test_camera_error_dialogs_are_coalesced(main_window):
         emit_error("隔了一阵的另一条")
         assert warning.call_count == 2, "隔了多久都不再提醒，用户就看不到新故障了"
         assert "隔了一阵的另一条" in main_window.status_label.text()
+
+
+def test_a_camera_without_the_current_mode_lands_on_one_it_supports(main_window):
+    """换到不支持当前模式的相机时，界面和处理模块要一起落到实际生效的那个模式。
+
+    重建模式列表时 combo 被 blockSignals 归到 0，随后恢复偏好模式发现索引没变，
+    currentIndexChanged 根本不触发 —— 于是下拉框写着"原始图像"，白平衡组还留着，
+    处理模块仍在跑四角度彩色；偏好模式也没改，下次连接再来一遍。
+    """
+    from polcam.core.camera_module import CameraType
+
+    main_window.show()   # 可见性断言要真的显示出来才有意义（offscreen 下很便宜）
+    main_window.image_display.set_processing_mode(ProcessingMode.QUAD_COLOR)
+    main_window._on_display_mode_changed(main_window.image_display.display_mode.currentIndex())
+    assert main_window.processor._current_mode == ProcessingMode.QUAD_COLOR
+    assert main_window.camera_control.wb_control.isVisible()
+
+    main_window.camera = MagicMock()
+    main_window._on_camera_connected(Event(EventType.CAMERA_CONNECTED, {
+        "device_info": "普通彩色相机",
+        "camera_type": CameraType.NORMAL_COLOR,
+    }))
+
+    shown_mode = main_window.image_display.get_current_processing_mode()
+    assert main_window.processor._current_mode == shown_mode, (
+        f"下拉框是 {shown_mode.name}，处理模块还在 {main_window.processor._current_mode.name}")
+    assert main_window._preferred_display_mode == shown_mode
+    assert main_window.camera_control.wb_control.isHidden(), "RAW/合成模式下白平衡组还在显示"

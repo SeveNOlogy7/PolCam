@@ -457,6 +457,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.toolbar_controller.enable_save_raw(True)
             # 不启用保存当前结果按钮，手动切换显示模式后会自动启用
 
+    def _restore_display_mode(self, mode: ProcessingMode):
+        """切到给定模式，并保证界面真的按落地后的模式刷新了一次。
+
+        模式列表刚重建时 combo 已经被归到 0，如果目标模式不可用或本来就在 0，
+        currentIndexChanged 不会触发，可见性和处理模块就停在上一台相机的模式上。
+        """
+        self.image_display.set_processing_mode(mode)
+        self._on_display_mode_changed(self.image_display.display_mode.currentIndex())
+
     def _on_display_mode_changed(self, index: int):
         """处理显示模式改变"""
         mode = self.image_display.get_current_processing_mode()
@@ -702,7 +711,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 更新显示模式列表
         self.image_display.set_camera_modes(self._camera_type)
-        self.image_display.set_processing_mode(self._preferred_display_mode)
+        self._restore_display_mode(self._preferred_display_mode)
 
         # 黑白相机隐藏白平衡
         if is_mono:
@@ -729,7 +738,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 恢复全部8个显示模式
         self.image_display.set_camera_modes(None)
-        self.image_display.set_processing_mode(self._preferred_display_mode)
+        self._restore_display_mode(self._preferred_display_mode)
 
         # 禁用保存按钮
         self.toolbar_controller.enable_save_raw(False)
@@ -993,7 +1002,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for name, value in settings.processing.to_params().items():
             self.processor.set_parameter(name, value)
 
-        self.image_display.set_processing_mode(settings.ui.display_mode)
+        self._restore_display_mode(settings.ui.display_mode)
 
         if settings.processing.pol_color_mode and self._camera_type == CameraType.MONO:
             self.camera_control.pol_control.set_mono_locked(True)
