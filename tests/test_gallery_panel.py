@@ -61,6 +61,63 @@ def test_set_items_keeps_every_row_when_one_file_is_gone(qtbot, tmp_path: Path):
     assert not panel.empty_label.isVisibleTo(panel)
 
 
+def test_set_items_keeps_every_row_when_a_file_is_unreadable(qtbot, tmp_path: Path):
+    """读不出内容的文件也不能把面板带走 —— cv2.error 不是 OSError。
+
+    上一条覆盖的是"文件不在了"（np.fromfile 抛 FileNotFoundError）。还有一种：路径在、
+    内容坏（拷断的、0 字节的），cv2.imdecode 抛的是 cv2.error，
+    isinstance(cv2.error, OSError) 实测为 False，所以只兜 OSError 的 except 漏掉了它，
+    而 set_items 是先清空两个视图再逐条填，异常一冒出来面板就剩 0 行。
+    """
+    panel = GalleryPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+
+    good = [_make_gallery_item(tmp_path, 1), _make_gallery_item(tmp_path, 2)]
+    broken = _make_gallery_item(tmp_path, 3)
+    Path(broken.file_path).write_bytes(b"")          # 存在，但内容为空
+
+    panel.set_items([broken] + good)
+
+    assert panel.table.rowCount() == 3, "坏文件那行把后面所有行一起带走了"
+    assert panel.preview_list.count() == 3
+    assert panel.count_label.text() == "3 项"
+
+
+def test_a_transient_decode_failure_is_not_cached(qtbot, tmp_path: Path, monkeypatch):
+    """一次读失败不该被缓存成永久占位。
+
+    文件被别的进程独占、杀毒正在扫，这类情况会自愈；按 (路径, mtime) 存住失败结果的话，
+    好端端一张图在面板上永远是中性图标 —— mtime 没变就永不再试。
+    """
+    from polcam.gui.widgets import gallery_panel as panel_module
+
+    panel = GalleryPanel()
+    qtbot.addWidget(panel)
+    item = _make_gallery_item(tmp_path, 7)
+    real_imdecode = cv2.imdecode
+    attempts = []
+    state = {"fail_first": True}
+
+    def flaky_imdecode(buf, flags):
+        attempts.append(1)
+        if state["fail_first"]:
+            state["fail_first"] = False
+            return None                      # 模拟一次"读不出内容"
+        return real_imdecode(buf, flags)
+
+    monkeypatch.setattr(panel_module.cv2, "imdecode", flaky_imdecode)
+
+    panel.set_items([item])
+    assert len(attempts) == 1
+    panel.set_items([item])                  # 刷新一次，这次能读出来
+
+    assert len(attempts) == 2, "失败结果被按 (路径, mtime) 缓存住了，刷新再也不会重读"
+    assert (120, 120) in [(s.width(), s.height()) for s in
+                          panel.preview_list.item(0).icon().availableSizes()], \
+        "重读成功了却还挂着占位图标"
+
+
 def test_refresh_reuses_thumbnails_instead_of_decoding_the_whole_gallery(qtbot, tmp_path: Path, monkeypatch):
     """刷新只该解新出现的图，而不是每次把整库按全尺寸重读一遍。
 

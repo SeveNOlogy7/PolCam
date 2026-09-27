@@ -184,19 +184,27 @@ class GalleryPanel(QtWidgets.QWidget):
         if cached is not None:
             return cached
 
-        icon = self._decode_thumbnail_icon(file_path)
-        self._thumbnails[signature] = icon
+        icon, cached = self._decode_thumbnail_icon(file_path)
+        if cached:
+            # 读失败的结果不进缓存：文件被别的进程占用、杀毒正在扫这类情况是会自愈的，
+            # 按 (路径, mtime) 存住一个占位图标就等于永远显示占位图标
+            self._thumbnails[signature] = icon
         return icon
 
-    def _decode_thumbnail_icon(self, file_path: str) -> QtGui.QIcon:
+    def _decode_thumbnail_icon(self, file_path: str) -> tuple[QtGui.QIcon, bool]:
+        """返回 (图标, 是否值得缓存)。
+
+        cv2.imdecode 抛的是 cv2.error，它不是 OSError 的子孙，只兜 OSError 会漏 ——
+        而 set_items 是先清空视图再逐条填，异常一冒出来整个面板就剩 0 行。
+        """
         # cv2.imread 按进程 ANSI 代码页解析路径，中文路径下读不出来，所以自己按字节读
         try:
             image = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-        except OSError:
-            return self._placeholder_icon()
+        except (OSError, cv2.error):
+            return self._placeholder_icon(), False
         if image is None:
             # 预览读不出属于缺图而非错误，用中性文件图标，避免整排警告三角
-            return self._placeholder_icon()
+            return self._placeholder_icon(), False
 
         height, width = image.shape
         qimage = QtGui.QImage(
@@ -213,7 +221,7 @@ class GalleryPanel(QtWidgets.QWidget):
             QtCore.Qt.AspectRatioMode.KeepAspectRatio,
             QtCore.Qt.TransformationMode.SmoothTransformation,
         )
-        return QtGui.QIcon(pixmap)
+        return QtGui.QIcon(pixmap), True
 
     def _placeholder_icon(self) -> QtGui.QIcon:
         return self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileIcon)
