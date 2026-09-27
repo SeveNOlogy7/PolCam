@@ -130,8 +130,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _subscribe_gui_events(self, event_manager: EventManager):
         """将 GUI 相关事件统一转发回主线程。"""
+        self._event_manager = event_manager
+        # 存下真正注册进总线的那个可调用，取消订阅时用它原样摘除
+        self._event_handler = self._event_bridge.dispatch_event.emit
         for event_type in self._gui_event_handlers:
-            event_manager.subscribe(event_type, self._event_bridge.dispatch_event.emit)
+            event_manager.subscribe(event_type, self._event_handler)
+
+    def _unsubscribe_gui_events(self):
+        """撤销 _subscribe_gui_events 挂上的全部订阅。
+
+        EventManager 是单例，活得比窗口久，订阅留着就会把桥对象一直挂在进程上。
+        """
+        for event_type in self._gui_event_handlers:
+            self._event_manager.unsubscribe(event_type, self._event_handler)
 
     @QtCore.Slot(object)
     def _dispatch_gui_event(self, event: Event):
@@ -621,6 +632,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.close_flag = True  # 设置关闭标志
         
         try:
+            # 先断掉总线订阅，再拆模块：拆的过程里还会发布事件，订阅留着就会
+            # 在已经不再完整的窗口上被回调。
+            self._unsubscribe_gui_events()
             self.save_settings()
 
             # 如果正在连续采集，先停止采集
@@ -632,10 +646,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.processor.stop()
             self.processor.destroy()
             
-            # 如果相机已连接，断开连接
-            if self.camera.is_running():
-                self.camera.stop()
-                self.camera.destroy()  # 清理相机模块资源
+            # 拆相机不能以"有没有出过流"为条件：连上但没采样的会话同样要把句柄还掉。
+            # BaseModule.destroy() 在模块仍在运行时会先 stop()。
+            self.camera.destroy()
                 
             # 接受关闭事件
             event.accept()

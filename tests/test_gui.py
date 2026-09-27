@@ -16,13 +16,22 @@ from polcam.gui.camera_control import CameraControl
 from polcam.gui.image_display import ImageDisplay
 from polcam.gui.styles import Styles
 from polcam.core.image_plotter import ImagePlotter
-from polcam.core.events import Event, EventType
+from polcam.core.events import Event, EventManager, EventType
 from polcam.core.processing_module import ProcessingMode
 import numpy as np
 
 @pytest.fixture
 def main_window(qapp):
-    return MainWindow()
+    """建一个主窗口，用完关掉。
+
+    关窗会把它挂到事件总线上的订阅摘掉、把处理模块和相机拆掉，测试之间就不会互相
+    留尾巴；closeEvent 里的异常一律变成失败，而不是弹一个阻塞的模态框。
+    """
+    window = MainWindow()
+    yield window
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
+        window.close()
+    assert not warning.called, f"窗口关闭时 closeEvent 抛了异常: {warning.call_args}"
 
 def test_main_window_init(main_window):
     """测试主窗口初始化"""
@@ -937,3 +946,67 @@ def test_processed_result_is_filed_under_its_own_frame_timestamp(main_window):
     assert _wait_until(
         lambda: main_window.toolbar_controller._last_result_timestamp is not None)
     assert main_window.toolbar_controller._last_result_timestamp == own
+
+
+def test_closing_main_window_unsubscribes_its_bus_callbacks(qapp):
+    """关窗要把它挂在事件总线上的订阅摘干净。
+
+    EventManager 是单例，活得比窗口长，订阅留着就会把 _MainThreadEventBridge 一直
+    挂在进程上。实测三个窗口建完关掉，总线上从 0 涨到 36 且不回落。
+    """
+    window = MainWindow()
+    bus = EventManager()
+    handler = window._event_bridge.dispatch_event.emit
+
+    for event_type in window._gui_event_handlers:
+        assert handler in bus._subscribers[event_type], "订阅本身没建立，断言无从判断"
+
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
+        window.close()
+    assert not warning.called, f"closeEvent 抛异常并弹了框: {warning.call_args}"
+
+    left = [
+        event_type.name for event_type in window._gui_event_handlers
+        if handler in bus._subscribers[event_type]
+    ]
+    assert not left, f"关窗后仍在总线上: {left}"
+
+
+def test_closing_windows_does_not_accumulate_bus_subscriptions(qapp):
+    """反复开关窗口不该在总线上越攒越多回调。
+
+    这是上面那条的实际后果：EventManager 是单例，订阅留着就等于把那一任窗口的桥
+    一直挂在进程上。实测三个窗口建完关掉，关之前之后总数不变。
+    """
+    bus = EventManager()
+    before = sum(len(callbacks) for callbacks in bus._subscribers.values())
+
+    for _ in range(3):
+        window = MainWindow()
+        with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning'):
+            window.close()
+
+    after = sum(len(callbacks) for callbacks in bus._subscribers.values())
+    assert after == before, f"三轮开关窗口后总线上多了 {after - before} 条"
+
+
+def test_closing_main_window_destroys_the_camera_even_without_streaming(main_window):
+    """接了相机但没出流，关窗时也要把它拆掉。
+
+    closeEvent 写的是 `if camera.is_running(): stop(); destroy()`，而 is_running 只在
+    start() 之后才为真 —— 于是"连上相机、看几眼、关程序"这条最常见的路径根本不会
+    destroy，设备句柄一直开到进程结束。BaseModule.destroy() 在 _running 时自己会先
+    stop()，所以那个 guard 既多余又有害。
+    """
+    camera = MagicMock()
+    camera.is_connected.return_value = True
+    camera.is_running.return_value = False
+    main_window.camera = camera
+
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
+        main_window.close()
+
+    assert not warning.called, f"closeEvent 抛异常并弹了框: {warning.call_args}"
+    camera.destroy.assert_called_once()
+
+

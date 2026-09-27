@@ -22,7 +22,7 @@ except Exception:  # 未安装大恒 Galaxy 驱动时 gxipy 在 import 阶段就
     ):
         sys.modules[_gxipy_module] = MagicMock()
 
-from qtpy import QtWidgets
+from qtpy import QtCore, QtWidgets
 
 
 def _make_mock_camera():
@@ -93,6 +93,20 @@ def qapp():
     if app is None:
         app = QtWidgets.QApplication(sys.argv)
     yield app
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolate_qsettings(tmp_path_factory):
+    """把 QSettings 的默认存储改到临时文件。
+
+    SettingsService 默认用 QSettings()，也就是当前用户真实的那份配置。MainWindow.closeEvent
+    会 save_settings()，所以测试一旦关窗，就会拿测试窗口的状态盖掉用户界面上的设置。
+    """
+    path = tmp_path_factory.mktemp("qsettings") / "polcam-test.ini"
+    QtCore.QSettings.setDefaultFormat(QtCore.QSettings.Format.IniFormat)
+    QtCore.QSettings.setPath(QtCore.QSettings.Format.IniFormat,
+                             QtCore.QSettings.Scope.UserScope, str(path))
+    return path
 
 
 @pytest.fixture
