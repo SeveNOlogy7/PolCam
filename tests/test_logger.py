@@ -5,6 +5,7 @@ See LICENSE file for full license details.
 """
 
 import logging
+import shutil
 from pathlib import Path
 
 import pytest
@@ -51,6 +52,29 @@ def test_logger_writes_to_the_day_it_rolls_into(isolated_logger, monkeypatch):
     assert "第二天" in rolled.read_text(encoding="utf-8")
     old = next(p for p in day_one_files if p.is_file())
     assert "第一天" in old.read_text(encoding="utf-8")
+
+
+def test_a_missing_log_directory_does_not_raise_into_the_caller(isolated_logger, monkeypatch):
+    """日志目录被清掉之后，记日志这个动作不能把异常抛回业务代码。
+
+    全项目到处都在 except 块里 _logger.error(...)：日志自己一抛，真正该记的异常就被顶
+    掉了。标准 FileHandler 把 _open() 包在自己的 try 里交给 handleError，而换日时的
+    doRollover 是我们自己在 emit 里调的，没有人兜。顺带要求目录能重建 —— 用户的日志
+    不该因为有人清理过一次就永久断掉。
+    """
+    root, tmp_path = isolated_logger
+    logger_module.setup_logger(logging.INFO)
+    log_dir = tmp_path / "PolCam" / "logs"
+    handler = _file_handlers(root)[0]
+    handler.close()                       # Windows 上要先放句柄才删得掉
+    shutil.rmtree(log_dir)
+
+    monkeypatch.setattr(logger_module, "_today", lambda: "20990101")
+    logging.getLogger("polcam.next").error("换天后的第一条")
+
+    rolled = log_dir / "polcam_20990101.log"
+    assert rolled.exists(), "日志目录没被重建"
+    assert "换天后的第一条" in rolled.read_text(encoding="utf-8")
 
 
 def test_console_handler_is_not_installed_without_a_console(isolated_logger, monkeypatch):

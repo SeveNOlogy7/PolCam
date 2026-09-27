@@ -34,8 +34,15 @@ class DailyFileHandler(logging.FileHandler):
     def emit(self, record: logging.LogRecord):
         # 换文件这件事只能在 emit 里查：普通 FileHandler 根本不会去问 shouldRollover，
         # 那个钩子只有 BaseRotatingHandler.emit 才会调。
+        # 也不能就这么裸调 doRollover：日志目录被清掉时 _open() 会抛，而全项目都在
+        # except 块里记日志 —— 一抛就把真正该记的异常顶掉了。交给 handleError，
+        # 让失败走 logging 自己的报告路径。
         if _today() != self._date:
-            self.doRollover()
+            try:
+                self.doRollover()
+            except Exception:
+                self.handleError(record)
+                return
         super().emit(record)
 
     def doRollover(self):
@@ -43,6 +50,7 @@ class DailyFileHandler(logging.FileHandler):
             self.stream.close()
             self.stream = None
         self._date = _today()
+        self._directory.mkdir(parents=True, exist_ok=True)
         target = self._directory / f"polcam_{self._date}.log"
         self.baseFilename = os.path.abspath(str(target))
         self.stream = self._open()
