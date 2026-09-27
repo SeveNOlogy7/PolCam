@@ -32,6 +32,7 @@ class _MainThreadEventBridge(QtCore.QObject):
 class MainWindow(QtWidgets.QMainWindow):
     CONTINUOUS_CAPTURE_METRICS_INTERVAL_S = 0.10
     CONTINUOUS_AUTO_PARAMS_INTERVAL_S = 0.25
+    CAMERA_ERROR_DIALOG_INTERVAL_S = 5.0
 
     # 从单次调整的工作线程发出；跨线程连接会自动排回 GUI 线程
     _one_shot_finished = QtCore.Signal(str)
@@ -47,6 +48,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_settings = AppSettings()
         self.close_flag = False
         self._one_shot_pending = set()  # 哪几路单次自动调整还在等报回（可以叠着发）
+        self._last_camera_error_dialog_at = 0.0
         self._one_shot_finished.connect(self._on_one_shot_finished)
         self._event_bridge = _MainThreadEventBridge(self)
         self._event_bridge.dispatch_event.connect(
@@ -801,7 +803,12 @@ class MainWindow(QtWidgets.QMainWindow):
         error_msg = error_data.get("error", "未知错误")
         self.status_label.setText(f"错误: {error_msg}")
         if error_data.get("source") == "camera":
-            QtWidgets.QMessageBox.warning(self, "相机错误", error_msg)
+            # 采流线程会反复发同一条故障，而模态框自己是个嵌套事件循环：一人一框会把
+            # 界面钉住。一段时间内只弹一次，状态栏那条仍然每次都更新。
+            now = time.monotonic()
+            if now - self._last_camera_error_dialog_at >= self.CAMERA_ERROR_DIALOG_INTERVAL_S:
+                self._last_camera_error_dialog_at = now
+                QtWidgets.QMessageBox.warning(self, "相机错误", error_msg)
 
     def _on_parameter_changed(self, event):
         """处理参数改变事件"""

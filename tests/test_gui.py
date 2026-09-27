@@ -1137,3 +1137,28 @@ def test_closed_main_window_is_released_for_gc():
         f"探针退出码 {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr[-1500:]}")
 
 
+
+
+def test_camera_error_dialogs_are_coalesced(main_window):
+    """相机错误连着一起来时不能一条一个框。
+
+    采流线程出错之后还会反复发 ERROR_OCCURRED，而 _on_error 对 source=camera 无条件弹
+    模态框；模态框自己是嵌套事件循环，用户点掉一个又来一个，界面实际就被钉住了。状态栏
+    那条照旧每次都更新。
+    """
+    def emit_error(message):
+        main_window._on_error(Event(EventType.ERROR_OCCURRED, {
+            "source": "camera", "error": message}))
+
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
+        emit_error("第一条")
+        emit_error("第二条")
+        emit_error("第三条")
+
+        assert warning.call_count == 1, f"三条错误弹了 {warning.call_count} 个模态框"
+        assert "第三条" in main_window.status_label.text()
+
+        main_window._last_camera_error_dialog_at -= main_window.CAMERA_ERROR_DIALOG_INTERVAL_S
+        emit_error("隔了一阵的另一条")
+        assert warning.call_count == 2, "隔了多久都不再提醒，用户就看不到新故障了"
+        assert "隔了一阵的另一条" in main_window.status_label.text()
