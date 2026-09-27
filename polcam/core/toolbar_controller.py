@@ -63,6 +63,7 @@ class ToolbarController(BaseModule):
             self._toolbar.settings_action.triggered.disconnect(self._handle_settings)
             self._toolbar.about_action.triggered.disconnect(self._handle_about)
             self._toolbar.help_action.triggered.disconnect(self._handle_help)  # 添加这行
+            self._toolbar.open_raw_action.triggered.disconnect(self._handle_open_raw)
             return True
         except Exception as e:
             self._logger.error(f"工具栏控制器销毁失败: {str(e)}")
