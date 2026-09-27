@@ -8,11 +8,14 @@ See LICENSE file for full license details.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 import sqlite3
+import stat
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -20,6 +23,8 @@ from qtpy import QtCore
 import numpy as np
 
 from .raw_image_service import RawImageService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -52,7 +57,24 @@ class GalleryService:
         self._raw_image_service = raw_image_service or RawImageService()
         self._db_path = Path(db_path).expanduser() if db_path else self._build_default_db_path()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_database()
+        try:
+            self._initialize_database()
+        except sqlite3.Error as exc:
+            # 这一步在 MainWindow.__init__ 的路上，异常冒出去就是"双击图标什么都没有"：
+            # 打包版 console=False，main.py 里那句 print 连输出都没有。图库只是索引，
+            # 坏库另存一份重建即可，但不能悄悄覆盖掉。
+            self._quarantine_database(exc)
+            self._initialize_database()
+
+    def _quarantine_database(self, error: Exception):
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = self._db_path.with_name(f"{self._db_path.name}.corrupt-{stamp}")
+        try:
+            self._db_path.rename(backup)
+            location = str(backup)
+        except OSError as exc:
+            location = f"原地（另存失败: {exc}）"
+        logger.error(f"图库数据库打不开，已另存为 {location}: {error}")
 
     @property
     def db_path(self) -> Path:
@@ -61,10 +83,20 @@ class GalleryService:
     def _build_default_db_path(self) -> Path:
         return Path.home() / "PolCam" / "gallery.db"
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
+        """开一条用完一定关掉的连接。
+
+        `with sqlite3.connect(...)` 只管提交/回滚，不会 close —— 坏库那条路上异常沿着的
+        栈帧还留着 connection，Windows 上文件被占住，另存坏库就直接 sharing violation。
+        """
         connection = sqlite3.connect(self._db_path)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize_database(self):
         with self._get_connection() as connection:
@@ -100,15 +132,12 @@ class GalleryService:
         source: str = "single_capture",
     ) -> GalleryItem:
         capture_time = float(timestamp if timestamp is not None else time.time())
-        file_path = self._raw_image_service.build_auto_save_path(
-            save_directory,
-            timestamp=capture_time,
-            suffix="_RAW",
-            extension=extension,
-        )
+        file_path = self._allocate_capture_path(save_directory, capture_time, extension)
+        # metadata 先序列化再落盘：反过来写的话一个不可序列化的值就留下一个没有记录的
+        # 文件，相册里永远看不到它。
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
         saved_path = self._raw_image_service.save_image(frame, file_path)
         file_stat = saved_path.stat()
-        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
 
         with self._get_connection() as connection:
             cursor = connection.execute(
@@ -137,6 +166,42 @@ class GalleryService:
             item_id = int(cursor.lastrowid)
 
         return self.get_item(item_id)
+
+    def _allocate_capture_path(
+        self,
+        save_directory: Union[str, Path],
+        capture_time: float,
+        extension: str,
+    ) -> Path:
+        """给这次采集挑一个文件系统和数据库两边都不占的名字。
+
+        build_auto_save_path 只看文件系统，而 gallery_items.file_path 是 UNIQUE 的：
+        盘上的文件被手工清掉之后，同一秒再采一次就会插出 IntegrityError —— 图已经写进
+        盘了，记录却没有，相册里永远见不到它。
+        """
+        candidate = self._raw_image_service.build_auto_save_path(
+            save_directory,
+            timestamp=capture_time,
+            suffix="_RAW",
+            extension=extension,
+        )
+        base, index = candidate, 1
+        while self._path_recorded(base) or base.exists():
+            base = candidate.with_name(f"{candidate.stem}_{index:03d}{candidate.suffix}")
+            index += 1
+        return base
+
+    def _path_recorded(self, file_path: Path) -> bool:
+        try:
+            with self._get_connection() as connection:
+                row = connection.execute(
+                    "SELECT 1 FROM gallery_items WHERE file_path = ?",
+                    (str(file_path),),
+                ).fetchone()
+        except sqlite3.Error as exc:
+            logger.warning(f"查询文件名占用失败，按未占用处理: {exc}")
+            return False
+        return row is not None
 
     def list_items(self) -> List[GalleryItem]:
         with self._get_connection() as connection:
@@ -167,14 +232,27 @@ class GalleryService:
 
     def delete_item(self, item_id: int) -> GalleryItem:
         item = self.get_item(item_id)
-        file_path = Path(item.file_path)
-        if file_path.exists():
-            file_path.unlink()
 
+        # 先删记录再删文件。反过来写的结果是：文件已经没了而记录还在（数据库一报错，
+        # 用户的数据就找不回来了）；现在的顺序最坏也只是盘上多一个孤儿文件。
         with self._get_connection() as connection:
             connection.execute("DELETE FROM gallery_items WHERE id = ?", (item_id,))
             connection.commit()
+
+        try:
+            self._remove_file(Path(item.file_path))
+        except OSError as exc:
+            logger.warning(f"图库记录已删除，但文件没能删掉: {item.file_path} ({exc})")
         return item
+
+    @staticmethod
+    def _remove_file(file_path: Path):
+        """删文件；只读属性（从归档/备份拷回来的很常见）先清掉再试一次。"""
+        try:
+            file_path.unlink(missing_ok=True)
+        except PermissionError:
+            file_path.chmod(stat.S_IWRITE)
+            file_path.unlink(missing_ok=True)
 
     def delete_items(self, item_ids: List[int]) -> List[GalleryItem]:
         deleted_items: List[GalleryItem] = []
