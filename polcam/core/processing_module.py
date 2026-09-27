@@ -418,17 +418,23 @@ class ProcessingModule(BaseModule):
                     'timestamp': time.time()
                 })
 
+            # 完成的对侧一定要发出去：GUI 的"正在处理"灯只在这个事件里复位，
+            # 失败路径少发一次，灯就一直亮到下一次成功。
+            self.publish_event(EventType.PROCESSING_COMPLETED)
+
         except Exception as e:
             self._logger.error(f"处理任务失败: {str(e)}")
+            # 顺序要紧：_on_processing_completed 把状态栏写成「就绪」，_on_error 把错误写
+            # 进同一行，而同一条总线是 FIFO、GUI 桥又按序排队，所以这里发布的先后就是
+            # 界面上生效的先后。先完成再错误，灯复位了、错误也留着；反过来就等于
+            # "处理失败了，界面上什么痕迹都没有" —— 处理侧的错误又不弹框。
+            self.publish_event(EventType.PROCESSING_COMPLETED)
             self.publish_event(EventType.ERROR_OCCURRED, {
                 'source': 'processing',
                 'error': str(e)
             })
 
         finally:
-            # 完成的对侧一定要发出去：GUI 的"正在处理"灯只在这个事件里复位，
-            # 失败路径少发一次，灯就一直亮到下一次成功。
-            self.publish_event(EventType.PROCESSING_COMPLETED)
             self._is_processing = False
             self._task_queue.task_done()
 

@@ -453,3 +453,31 @@ def test_a_failed_task_still_reports_completion():
     module.destroy()
 
     assert received, "任务失败后没有发完成事件，状态灯复位不了"
+
+
+def test_a_failed_task_reports_completion_before_the_error():
+    """失败时两个事件的先后顺序决定用户还看不看得到错误。
+
+    _on_processing_completed 会把状态栏写成"就绪"，_on_error 把错误写进同一行。
+    总线是同一条 FIFO，GUI 桥又是按序排回主线程的，所以处理模块里发布的顺序就是界面
+    上生效的顺序：完成先发、错误后发，错误才留得住。反过来（PROCESSING_COMPLETED 落在
+    finally 里）处理失败就变成"就绪"，用户端一条痕迹都没有 —— 非相机错误又不弹框。
+    """
+    module = ProcessingModule()
+    assert module.initialize()
+    seen = []
+    module.subscribe_event(EventType.PROCESSING_COMPLETED,
+                           lambda event: seen.append(event.type))
+    module.subscribe_event(EventType.ERROR_OCCURRED,
+                           lambda event: seen.append(event.type))
+    module._process_task = lambda task: (_ for _ in ()).throw(RuntimeError("炸了"))
+
+    module.process_frame(np.zeros((16, 16), dtype=np.uint8))
+
+    deadline = time.time() + 3.0
+    while time.time() < deadline and len(seen) < 2:
+        time.sleep(0.02)
+    module.destroy()
+
+    assert seen == [EventType.PROCESSING_COMPLETED, EventType.ERROR_OCCURRED], (
+        f"事件顺序不对，状态栏里的错误会被就绪盖掉: {seen}")
