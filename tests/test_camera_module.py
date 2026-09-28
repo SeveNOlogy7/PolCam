@@ -431,6 +431,45 @@ def test_set_roi_keeps_the_device_height_increment(camera_module):
     assert camera.Width.set.call_args.args[0] == 1024
 
 
+def test_a_centered_roi_request_is_a_fixed_point(camera_module):
+    """按着同一个视场中心反复请求 ROI，视图不该一格一格往左上漂。
+
+    真机实测（MER2-502-79U3M-HS POL，Width 步进 8）：收到放大上限后继续点放大，
+    尺寸已经不能再小，偏移却每点一次少 8（1112→1104→1096→1088）——界面一边报
+    「已达最大放大倍率」一边把视场往左拖。控制器每次都是拿"当前 ROI 的中心"发请求，
+    而向下对齐让中心系统性左移，于是每次都对不上；偏移取最近才是这个迭代的不动点。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._camera_type = CameraType.MONO
+    state = {'OffsetX': 1112, 'OffsetY': 1020, 'Width': 72, 'Height': 68}
+
+    def rw_feature(name, minimum, increment, maximum):
+        feature = MagicMock()
+        feature.get.side_effect = lambda: state[name]
+        feature.set.side_effect = lambda value: state.__setitem__(name, int(value))
+        feature.get_range.return_value = {'min': minimum, 'max': maximum, 'inc': increment}
+        return feature
+
+    camera = camera_module._camera
+    camera.SensorWidth.get.return_value = 2448
+    camera.SensorHeight.get.return_value = 2048
+    camera.Width = rw_feature('Width', 8, 8, 2448)
+    camera.Height = rw_feature('Height', 4, 2, 2048)
+    camera.OffsetX = rw_feature('OffsetX', 0, 8, 2376)
+    camera.OffsetY = rw_feature('OffsetY', 0, 2, 1980)
+
+    # 放大上限处再点一次：请求 74x69，设备只接受 72x68，中心仍是 (1148, 1054)
+    assert camera_module.set_roi(1111, 1020, 74, 69) is True
+    assert camera_module.get_roi() == (1112, 1020, 72, 68), \
+        "向下对齐把视场中心推走了 8 像素，再点一次还会继续往左走"
+
+    # 向上取整不能把 ROI 顶出右边界
+    camera_module.set_roi(2440, 1020, 74, 69)
+    ox, _, w, _ = camera_module.get_roi()
+    assert ox + w <= 2448 and ox % 8 == 0
+
+
 def test_connect_publishes_device_ranges(camera_module):
     """连接事件要带上相机的真实量程，面板才有依据设置滑条。"""
     remote = MagicMock()

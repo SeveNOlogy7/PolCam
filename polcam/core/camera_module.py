@@ -1100,6 +1100,18 @@ class CameraModule(BaseModule):
             return value
         return (value // increment) * increment
 
+    @staticmethod
+    def _align_offset(value: int, increment: int) -> int:
+        """把偏移对齐到最近的有效步进，向最近的一侧取。
+
+        尺寸可以一律向下，偏移不行：调用方（放大/缩小）是按"当前 ROI 的中心"发请求的，
+        向下对齐每次都把中心朝左上推掉最多一个步进，推完的结果又不是下一次请求的
+        不动点，于是视场一边报「已达最大放大倍率」一边一格一格往左走。
+        """
+        if increment <= 1:
+            return value
+        return ((value + increment // 2) // increment) * increment
+
     def set_roi(self, offset_x: int, offset_y: int, width: int, height: int) -> bool:
         """设置相机 ROI，自动处理流暂停/恢复
 
@@ -1156,17 +1168,15 @@ class CameraModule(BaseModule):
             width = min(width, sensor_w)
             height = min(height, sensor_h)
 
-            # 对齐偏移
-            offset_x = self._align_value(offset_x, ox_inc)
-            offset_y = self._align_value(offset_y, oy_inc)
-
-            # 钳位偏移使 ROI 不超出传感器范围
-            offset_x = max(0, min(offset_x, sensor_w - width))
-            offset_y = max(0, min(offset_y, sensor_h - height))
-
-            # 重新对齐偏移（钳位后可能不再对齐）
-            offset_x = self._align_value(offset_x, ox_inc)
-            offset_y = self._align_value(offset_y, oy_inc)
+            # 对齐偏移（取最近，理由见 _align_offset），再钳位到不超出传感器范围。
+            # 钳位上限本身先向下对齐：传感器尺寸和宽高都是步进的整数倍时它已经对齐，
+            # 万一不是，向下取也保证钳完的结果还落在合法步进上。
+            offset_x = self._align_offset(offset_x, ox_inc)
+            offset_y = self._align_offset(offset_y, oy_inc)
+            max_offset_x = self._align_value(sensor_w - width, ox_inc)
+            max_offset_y = self._align_value(sensor_h - height, oy_inc)
+            offset_x = max(0, min(offset_x, max_offset_x))
+            offset_y = max(0, min(offset_y, max_offset_y))
 
             # 停止流
             if was_streaming:
