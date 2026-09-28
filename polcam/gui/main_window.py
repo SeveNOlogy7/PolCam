@@ -374,6 +374,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.camera.is_connected():
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
+        if self._one_shot_pending:
+            # 自动调整线程正在独占设备轮询硬件（最长 5s）。真机实测这时候插一脚，两边
+            # 都坏：自动那一路 5s 不收敛被强制收回，之后单抓一帧拿到 None（SDK:
+            # RawImage.get_numpy_array: This is a incomplete image）。
+            self.status_label.setText("单次自动调整进行中，请稍候再采集")
+            return
         if self._capture_in_flight:
             # 抓一帧要占住设备（stream_on→等曝光→stream_off）。改成工作线程之后两次
             # 抓取可能重叠，真机实测重叠时后一次直接 DataStream.get_image:{-1}。
@@ -648,6 +654,12 @@ class MainWindow(QtWidgets.QMainWindow):
         它自己发的 PARAMETER_CHANGED（见 _on_parameter_changed），其余情况靠
         _on_one_shot_finished 兜底。
         """
+        if self._capture_in_flight:
+            # 抓取线程正 stream_on→等曝光→stream_off 占着设备。真机实测这时候把自动
+            # 调整也起起来，相机会停在 Once 而界面以为调整结束了，此后手动写曝光被
+            # 静默丢掉（FloatFeature_s.set:{-8}{Node is not writable}）。
+            self.status_label.setText("单帧采集进行中，请稍候再调整")
+            return
         self._one_shot_pending.add(control_type)
         self.camera_control.handle_one_shot_auto(control_type)
 

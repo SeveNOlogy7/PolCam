@@ -1089,6 +1089,70 @@ def test_single_capture_does_not_hold_the_gui_thread(qapp, main_window, monkeypa
     assert main_window._single_capture_requested is False, "失败后还留着待采集标记"
 
 
+def test_a_one_shot_auto_adjust_and_a_capture_do_not_share_the_device(qapp, main_window,
+                                                                      monkeypatch):
+    """两条各自独占设备的路不能同时在飞。
+
+    抓帧挪到工作线程之后，「单帧采集」和「单次自动曝光」可以同时跑起来，真机实测（曝光
+    500ms）两种顺序都会坏：先自动后采集，自动那一路 5s 不收敛被强制收回，之后单抓一帧拿到
+    的是 None（SDK: RawImage.get_numpy_array: This is a incomplete image）；先采集后自动，
+    采集的 stream_off 把自动打断，相机停在 Once 而界面以为调整已完成，此后手动写曝光被静默
+    丢掉。两边都得等对方让开设备。
+    """
+    release = threading.Event()
+    one_shot_threads = []
+    grab_threads = []
+
+    def fake_get_frame():
+        grab_threads.append(threading.current_thread().name)
+        time.sleep(0.25)
+        return np.zeros((8, 8), dtype=np.uint8)
+
+    def fake_exposure_once():
+        one_shot_threads.append(threading.current_thread().name)
+        release.wait(5)
+
+    monkeypatch.setattr(main_window.camera, "is_connected", lambda: True)
+    monkeypatch.setattr(main_window.camera, "get_frame", fake_get_frame)
+    monkeypatch.setattr(main_window.camera, "set_exposure_once", fake_exposure_once)
+
+    def wait_until(condition, timeout=5.0):
+        deadline = time.time() + timeout
+        while not condition() and time.time() < deadline:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        return condition()
+
+    # 采集在独占设备：单次自动调整必须让开，连线程都不能起
+    main_window.handle_capture()
+    main_window._handle_exposure_once()
+    assert one_shot_threads == [], "抓取还占着设备就起了自动调整线程"
+    assert 'exposure' not in main_window._one_shot_pending, \
+        "被让开的请求还挂在在飞表里，之后的晚到完成会点亮已经过时的控件"
+    assert "采集" in main_window.status_label.text(), "让开的时候没在界面上说原因"
+
+    assert wait_until(lambda: main_window.camera_control.capture_btn.isEnabled())
+
+    # 反过来：自动调整在轮询硬件，采集必须让开
+    main_window._handle_exposure_once()
+    assert wait_until(lambda: len(one_shot_threads) == 1)
+    grabs_before = len(grab_threads)
+    pending = set(main_window._one_shot_pending)
+    main_window.handle_capture()
+    assert pending == {'exposure'}, f"自动调整没被记成在飞: {pending}"
+    assert len(grab_threads) == grabs_before, "自动调整还没收工就起了第二路设备操作"
+    assert main_window.camera_control.capture_btn.isEnabled(), \
+        "请求被让开了却把按钮禁成了正在采集的样子"
+
+    release.set()
+    assert wait_until(lambda: not main_window._one_shot_pending)
+
+    # 让开不是永久封死：对方收工后两边照常走
+    main_window.handle_capture()
+    assert wait_until(lambda: len(grab_threads) == grabs_before + 1)
+    assert grab_threads[0] != "MainThread"
+
+
 def test_a_result_from_the_mode_the_user_left_is_dropped(main_window):
     """切走模式之后，上一个模式还在路上算完的结果不能糊到屏幕上。
 
