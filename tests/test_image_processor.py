@@ -168,6 +168,29 @@ def test_enhance_image_brightness_and_contrast_are_gains(image_processor):
     assert slightly_brighter.max() < 255, "brightness=1.1 把画面冲成了全白"
 
 
+def test_enhance_image_sharpness_blends_instead_of_rescaling(image_processor):
+    """锐化强度只能改"锐多少"，不能顺手把整幅图调暗。
+
+    原来卷积核是 [[-1..9..-1]] * sharpness，权重和从 1 变成 sharpness，于是画面亮度
+    按强度一起缩：实测 sharpness=0.1 时均值 119.77 掉到 20.60（只剩 17%），0.2 时 34%，
+    0.5 时 80%，只有 1.0 才基本不变 —— 用户一动"锐化"滑条就看到画面发黑。
+    """
+    gray = np.tile(np.arange(200, dtype=np.uint8) % 120 + 60, (64, 1))
+
+    for strength in (0.1, 0.2, 0.5, 0.8, 1.0):
+        sharpened = image_processor.enhance_image(gray, sharpness=strength)
+        ratio = sharpened.mean() / gray.mean()
+        assert 0.9 <= ratio <= 1.1, f"sharpness={strength} 把亮度改到 x{ratio:.2f}"
+        assert sharpened.std() >= gray.std() - 1e-6, f"sharpness={strength} 没有增强对比"
+
+    # 顶格 1.0 的观感必须和以前一致：只有中段被修正
+    expected = cv2.filter2D(
+        gray, -1, np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]], dtype=np.float32))
+    assert np.array_equal(image_processor.enhance_image(gray, sharpness=1.0), expected)
+
+    assert np.array_equal(image_processor.enhance_image(gray, sharpness=0.0), gray)
+
+
 def test_enhance_image_falls_back_to_the_original(image_processor):
     """增强失败时按文档返回原图。
 

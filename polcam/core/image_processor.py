@@ -288,9 +288,15 @@ class ImageProcessor:
                     result.astype(np.float32) * gain + offset, 0.0, 255.0
                 ).astype(image.dtype)
             
-            # 锐化处理
+            # 锐化：套在原图上的增量，不是整体缩放卷积核。整块乘 sharpness 的话，核的
+            # 权重和就不再是 1，等于"锐化的同时把画面按 sharpness 调暗"：实测 sharpness=0.1
+            # 时均值从 119.8 掉到 20.6（只剩 17%），0.2 时 34%，只有 1.0 才基本不变。
+            # 中心 1+8s、四周 -s 的权重和恒为 1，所以任何强度下亮度都保持，只增强对比。
             if sharpness > 0:
-                kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]]) * sharpness
+                s = float(sharpness)
+                kernel = np.array([[-s, -s, -s],
+                                   [-s, 1.0 + 8.0 * s, -s],
+                                   [-s, -s, -s]], dtype=np.float32)
                 result = cv2.filter2D(result, -1, kernel)
             
             # 降噪处理
