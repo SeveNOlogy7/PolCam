@@ -62,19 +62,32 @@ def test_device_legal_roi_sizes_round_trip(tmp_path: Path, raw_image_service: Ra
     assert raw_image_service.verify_image_size(loaded)
 
 
-def test_save_and_load_keep_16bit_depth(tmp_path: Path, raw_image_service: RawImageService):
-    """16bit 帧存成 TIFF 再读回来不该被压成 8bit。
+def test_load_image_downshifts_wide_files_and_warns(tmp_path: Path, raw_image_service: RawImageService,
+                                                    caplog):
+    """超 8bit 的文件按有效位降位读入，并留下 warning。
 
-    load_image 用的 IMREAD_GRAYSCALE 会把位深强行折到 uint8 —— 文件里确实是 uint16
-    （65535 还在），读回来只剩 255。相机出 10/12/16bit 时，自动保存的图重开就是一张
-    被量化过的近黑图。
+    处理链只吃 uint8（calculate_polarization_parameters 会直接拒收别的 dtype），所以读入
+    边界必须自己收到 8bit；实测这台相机选 Mono10 时存出来的就是 uint16。位移量按数据推：
+    文件里只有容器位宽，10bit 数据装在 uint16 里若照容器移会压成 0..3。
     """
-    frame = np.linspace(0, 65535, 16 * 16, dtype=np.uint16).reshape(16, 16)
+    import logging
 
-    loaded = raw_image_service.load_image(raw_image_service.save_image(frame, tmp_path / "u16.tiff"))
+    full_range = np.linspace(0, 65535, 16 * 16, dtype=np.uint16).reshape(16, 16)
+    ten_bit = (np.arange(16 * 16, dtype=np.uint16) * 4).reshape(16, 16)
 
-    assert loaded.dtype == np.uint16
-    assert np.array_equal(loaded, frame)
+    with caplog.at_level(logging.WARNING):
+        loaded_full = raw_image_service.load_image(
+            raw_image_service.save_image(full_range, tmp_path / "u16.tiff"))
+        loaded_ten = raw_image_service.load_image(
+            raw_image_service.save_image(ten_bit, tmp_path / "u10.tiff"))
+
+    assert loaded_full.dtype == np.uint8
+    assert np.array_equal(loaded_full, (full_range >> 8).astype(np.uint8))
+    assert loaded_ten.dtype == np.uint8
+    assert np.array_equal(loaded_ten, (ten_bit >> 2).astype(np.uint8))
+    assert loaded_ten.max() == 255, "10bit 数据被当成 16bit 容器移掉了"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2
 
 
 def test_load_image_rejects_multi_channel_file(tmp_path: Path, raw_image_service: RawImageService):

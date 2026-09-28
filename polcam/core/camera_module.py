@@ -206,9 +206,45 @@ class CameraModule(BaseModule):
             )
             return camera_type
 
-        # 4. 默认 COLOR
+        # 4. 偏振传感器的 PixelColorFilter 读不出来（实测这台 POL 相机就是
+        #    InvalidAccess），改用设备自报的可选像素格式判断黑白/彩色
+        camera_type = self._infer_camera_type_from_pixel_formats()
+        if camera_type is not None:
+            self._logger.warning(
+                f"型号不在映射表里，按设备像素格式推断为 {camera_type.value}: "
+                f"{model_name}，请确认是否偏振相机"
+            )
+            return camera_type
+
+        # 5. 默认 COLOR
         self._logger.warning(f"无法检测相机类型: {model_name}，默认为彩色偏振相机")
         return CameraType.COLOR
+
+    def _infer_camera_type_from_pixel_formats(self) -> Optional[CameraType]:
+        """用设备自报的 PixelFormat 候选列表判断传感器是黑白还是彩色。
+
+        只有 Mono* 格式 → 黑白 MPFA；出现 Bayer/RGB/BGR → 彩色 CPFA。读不到就返回
+        None，让上层按默认值走。
+        """
+        if not self._remote_feature:
+            return None
+        try:
+            entries = self._remote_feature.get_enum_feature("PixelFormat").get_range()
+        except Exception as e:
+            self._logger.warning(f"读取 PixelFormat 候选列表失败: {e}")
+            return None
+
+        if isinstance(entries, dict):
+            names = list(entries)
+        else:
+            names = [entry['symbolic'] for entry in entries]
+        if not names:
+            return None
+        if all(name.startswith('Mono') for name in names):
+            return CameraType.MONO
+        if any(name.startswith(('Bayer', 'RGB', 'BGR')) for name in names):
+            return CameraType.COLOR
+        return None
 
     def connect(self) -> bool:
         """连接相机"""

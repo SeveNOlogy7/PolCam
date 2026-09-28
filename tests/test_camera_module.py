@@ -8,7 +8,7 @@ import pytest
 import time
 from unittest.mock import MagicMock, patch
 import numpy as np
-from polcam.core.camera_module import CameraModule
+from polcam.core.camera_module import CameraModule, CameraType
 from polcam.core.events import EventType
 
 @pytest.fixture
@@ -30,6 +30,29 @@ def camera_module():
         mock_remote_feature.get_enum_feature.return_value.get.return_value = (0, "Off")
         
         yield module
+
+def test_unknown_model_uses_the_device_pixel_formats(camera_module):
+    """型号不在映射表时按设备自报的像素格式判断，而不是一律当彩色偏振。
+
+    实测偏振相机的 PixelColorFilter 不可读（InvalidAccess），所以原来那条"按
+    PixelColorFilter 推断"的路在偏振机型上永远走不到；PixelFormat 的候选列表是读得到的。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._camera.PixelColorFilter.is_implemented.return_value = False
+    camera_module._bayer_pattern = None
+
+    camera_module._remote_feature.get_enum_feature.return_value.get_range.return_value = [
+        {'value': 17301505, 'symbolic': 'Mono8'}, {'value': 17825795, 'symbolic': 'Mono10'}]
+    assert camera_module._detect_camera_type("MER9-NEW-99U3M POL") is CameraType.MONO
+
+    camera_module._remote_feature.get_enum_feature.return_value.get_range.return_value = \
+        {'BayerRG8': 7, 'Mono8': 1}
+    assert camera_module._detect_camera_type("MER9-NEW-99GC POL") is CameraType.COLOR
+
+    camera_module._remote_feature.get_enum_feature.return_value.get_range.return_value = []
+    assert camera_module._detect_camera_type("MER9-WEIRD") is CameraType.COLOR
+
 
 def test_second_connect_keeps_the_live_device(camera_module):
     """已经连着的时候再 connect() 不该去抢下一个索引。
