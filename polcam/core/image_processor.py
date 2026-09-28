@@ -137,7 +137,13 @@ class ImageProcessor:
             docp = np.clip(S3 / S0, -1, 1)
         else:
             docp = np.clip(np.abs(S3) / S0, 0, 1)
-        return dolp, aolp, docp
+        # lstsq 出来是 float64，而这三个量要进缓存、上色、还要写进 _POL.npy。真机实测
+        # 一条偏振结果因此从 57.4 MB 涨到 114.8 MB（缓存上限 128 MB 时只能留下 1 条），
+        # npy 也跟着翻倍。传感器是 8/10 bit，float32 的 1e-7 相对精度用不完，
+        # 线偏阵列那条路径本来就给的是 float32 —— 两边统一。
+        return (np.asarray(dolp, dtype=np.float32),
+                np.asarray(aolp, dtype=np.float32),
+                np.asarray(docp, dtype=np.float32))
 
     @staticmethod
     def _parameters_from_linear_array(gray_images: List[np.ndarray]) -> Tuple[

@@ -367,6 +367,32 @@ def test_solver_path_returns_signed_docp():
     assert np.allclose(docp, -0.5, atol=0.05)
 
 
+def test_both_estimators_hand_back_float32():
+    """两条估计路径必须给同一种位宽，不然缓存和 _POL.npy 白白大一倍。
+
+    真机实测（2448x2048）：无波片时三个参数量共 57.4 MB（float32），波片进光路改走
+    lstsq 后变成 114.8 MB 的 float64；结果缓存上限是 128 MB，于是要么只留得住一条，
+    要么被合成画布挤掉，存盘的 _POL.npy 也跟着翻倍。传感器只有 8/10 bit，float32 的
+    相对精度根本用不完。
+    """
+    from polcam.core.polarization_model import make_solver, measurement_matrix
+
+    images = [np.full((8, 8), int(value), dtype=np.uint8)
+              for value in measurement_matrix(0.0) @ np.array([100.0, 20.0, 0.0, -50.0])]
+
+    linear = ImageProcessor.calculate_polarization_parameters(images)
+    measured = ImageProcessor.calculate_polarization_parameters(
+        images, solver=make_solver([0.0]))
+
+    for name, arrays in (("无波片", linear), ("有波片", measured)):
+        assert all(array.dtype == np.float32 for array in arrays), \
+            f"{name} 路径的参数量不全是 float32: {[a.dtype for a in arrays]}"
+
+    # 降到 float32 不能把符号弄丢，也不能把值改到能用出来
+    assert np.allclose(measured[2], -0.5, atol=0.05)
+    assert float(np.abs(measured[2]).max()) <= 1.0
+
+
 def test_solver_path_requires_one_frame_set_per_angle():
     from polcam.core.polarization_model import make_solver
 
