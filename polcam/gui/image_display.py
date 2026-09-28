@@ -885,6 +885,20 @@ class ImageDisplay(QtWidgets.QWidget):
         self._current_roi = roi
         self._sensor_size = sensor_size
 
+    def has_roi_info(self) -> bool:
+        """当前是否知道画面来自传感器的哪块 ROI。"""
+        return self._current_roi is not None
+
+    def clear_roi_info(self):
+        """丢掉 ROI 缓存：屏幕上不再是传感器帧时，没有任何东西可以换算。
+
+        载入 RAW 文件后 `_current_roi` 还留着上一次相机的窗口，游标读数会把文件像素
+        当成传感器像素报坐标（真机实测：800x600@偏移(1200,1000) 的 ROI 缓存配上
+        1024x1024 的文件，状态栏把文件里的 (258,258) 报成"传感器 (1401,1151)"）。
+        """
+        self._current_roi = None
+        self._sensor_size = None
+
     def _get_display_geometry(self) -> Optional[Tuple[float, float, float, float]]:
         """计算图像在 QLabel 中的显示区域
 

@@ -1410,6 +1410,40 @@ def _overlay_green_centroid(overlay):
     return (xs / hits, ys / hits) if hits else None
 
 
+def test_loaded_file_loses_the_sensor_coordinate_readout(qapp, main_window, monkeypatch):
+    """载入的文件不是传感器帧，游标读数不能再报传感器坐标。
+
+    真机实测：相机 ROI=(1200,1000,800,600) 时打开一个 1024x1024 的文件，状态栏把文件
+    里的 (258, 258) 说成“传感器 (1401, 1151)”——那串数字属于上一次相机的窗口。
+    """
+    monkeypatch.setattr(main_window.camera, 'is_connected', lambda: True)
+    monkeypatch.setattr(main_window.camera, 'get_roi', lambda: (1200, 1000, 800, 600))
+    monkeypatch.setattr(main_window.camera, 'get_sensor_size', lambda: (2448, 2048))
+    display = main_window.image_display
+    display.show_image(np.zeros((600, 800, 3), dtype=np.uint8))
+    display.update_roi_info((1200, 1000, 800, 600), (2448, 2048))
+    assert display._source_to_sensor_position(10, 20) == (1210, 1020)
+
+    main_window._on_raw_file_loaded(Event(EventType.RAW_FILE_LOADED, {
+        'frame': np.full((1024, 1024), 123, dtype=np.uint8),
+        'timestamp': None,
+        'filepath': 'scene.tiff',
+    }))
+    assert not display.has_roi_info(), "载入文件后还留着相机的 ROI 缓存"
+    assert display._source_to_sensor_position(10, 20) is None
+
+    main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+        'frame': np.zeros((600, 800), dtype=np.uint8),
+        'capture_time': 1,
+        'timestamp': None,
+    }))
+    assert display.has_roi_info(), "回到实时帧后读数应恢复成传感器坐标"
+    assert display._source_to_sensor_position(10, 20) == (1210, 1020)
+
+    main_window._on_camera_disconnected(Event(EventType.CAMERA_DISCONNECTED, {}))
+    assert not display.has_roi_info(), "断开之后没有传感器可换算"
+
+
 def test_roi_changed_event_refreshes_the_display_cache(qapp, main_window):
     """ROI 变更事件要真的回填显示层缓存，不能只记日志。
 

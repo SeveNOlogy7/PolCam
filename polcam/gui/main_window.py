@@ -762,6 +762,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_info.clear()
         self._update_metrics_separator()
         self._camera_type = None
+        # 相机没了就没有"传感器坐标"可报：留着上一次的 ROI 缓存，屏幕上不管显示什么
+        # 都会被游标读数换算成传感器位置。
+        self.image_display.clear_roi_info()
         # 相机是掉线没的，不是用户点的断开：在飞的单次调整同样就此作废
         self._one_shot_pending.clear()
 
@@ -809,6 +812,11 @@ class MainWindow(QtWidgets.QMainWindow):
         timestamp = event.data.get("timestamp")
         
         if frame is not None:
+            if self.camera.is_connected() and not self.image_display.has_roi_info():
+                # 载入过文件之后缓存被清掉了；实时帧一到就把相机当前的 ROI 填回去，
+                # 游标读数就恢复成传感器坐标。只在缺失时读一次设备，不会每帧都问。
+                self.image_display.update_roi_info(
+                    self.camera.get_roi(), self.camera.get_sensor_size())
             if self._continuous_mode:
                 if self._should_refresh_continuous_ui(
                     '_last_capture_metrics_update_at',
@@ -874,7 +882,11 @@ class MainWindow(QtWidgets.QMainWindow):
             frame = event.data.get('frame')
             timestamp = event.data.get('timestamp')
             filepath = event.data.get('filepath')
-            
+
+            # 文件里的像素不属于任何传感器 ROI：缓存不清掉的话，游标读数会拿上一次
+            # 相机的窗口去换算文件坐标。
+            self.image_display.clear_roi_info()
+
             # 更新帧和显示
             self._update_frame_and_display(frame, timestamp)
             
