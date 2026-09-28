@@ -267,6 +267,79 @@ def test_one_shot_returns_early_when_the_device_finishes(camera_module):
     assert published == []
 
 
+def test_disconnect_retries_a_stream_close_that_only_lagged(camera_module):
+    """线程只是慢半拍时，断开必须把流关掉、句柄放开。
+
+    真机实测：stop_streaming 因为 join 预算太短先收手，之后没人补 stream_off，设备一直
+    停在"已打开"状态，重连就报 The device has already been opened —— 不重启进程就再也
+    用不了相机。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    slow_thread = MagicMock()
+    slow_thread.is_alive.side_effect = [True] + [False] * 5
+    camera_module._stream_thread = slow_thread
+    camera_module._is_streaming = True
+    calls = []
+    camera_module._camera.stream_off.side_effect = lambda: calls.append("stream_off")
+    camera_module._camera.close_device.side_effect = lambda: calls.append("close_device")
+
+    camera_module.disconnect()
+
+    assert calls == ["stream_off", "close_device"], calls
+    assert camera_module._camera is None
+    assert not camera_module.is_connected()
+    assert not camera_module.is_streaming(), "补做的收尾要把采集状态一起落下"
+
+
+def test_stop_streaming_after_the_device_is_gone_stays_quiet(camera_module):
+    """设备先被关掉之后 stop_streaming 不该抛 AttributeError 变成错误弹窗。"""
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._camera = None
+    camera_module._is_streaming = True
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    assert camera_module.stop_streaming() is True
+
+    assert EventType.ERROR_OCCURRED not in published
+    assert not camera_module.is_streaming()
+
+
+def test_deferred_disconnect_keeps_the_handle(camera_module):
+    """推迟关闭的时候不能把句柄引用丢掉，否则设备再也关不掉、也再也打不开。
+
+    真机实测：重置写在 finally 里，"线程还没退出所以先不关"那条分支照样把 _camera 抹成
+    None，于是 SDK 里那台设备一直停在已打开状态，之后每次 open 都报 -8
+    "The device has already been opened"，不重启进程这台相机就用不了了。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    stuck = MagicMock()
+    stuck.is_alive.return_value = True
+    camera_module._stream_thread = stuck
+    camera_module._is_streaming = True
+    closed = []
+    camera_module._camera.close_device.side_effect = lambda: closed.append(1)
+
+    camera_module.disconnect()
+
+    assert closed == [], "线程还在读，不该关设备"
+    assert camera_module._camera is not None, "推迟关闭必须留着引用"
+    assert camera_module.is_connected()
+    assert camera_module._device_indices == [1]
+
+    stuck.is_alive.return_value = False      # 线程终于从 get_image 里出来了
+    camera_module._is_streaming = False
+    camera_module.disconnect()
+
+    assert closed == [1], "补做的断开必须真的把设备关掉"
+    assert camera_module._camera is None
+    assert not camera_module.is_connected()
+    assert camera_module._device_indices == []
+
+
 def test_get_frame_while_streaming_does_not_reannounce_the_frame(camera_module):
     """连续采集时 get_frame() 不能再发一次 FRAME_CAPTURED。
 

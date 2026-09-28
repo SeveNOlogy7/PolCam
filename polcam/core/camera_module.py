@@ -138,11 +138,10 @@ class CameraModule(BaseModule):
         try:
             if self._is_streaming:
                 self.stop_streaming()
-            # 确保相机被正确关闭
             self.disconnect()
-            # 清空设备列表
-            self._device_indices = []
-            return True
+            # disconnect 自己会在真的关掉之后清索引；这里不能无条件清，否则断开被推迟时
+            # 我们既占着设备又忘了占着哪个，重连会去抢下一个索引然后失败。
+            return not self._connected
         except Exception as e:
             self._logger.error(f"停止相机模块失败: {str(e)}")
             return False
@@ -383,12 +382,26 @@ class CameraModule(BaseModule):
         """断开相机连接"""
         try:
             if self._is_streaming:
-                self.stop_streaming()
+                if not self.stop_streaming():
+                    # 上一轮 join 预算内线程没出来所以先收了手；它往往就在这句话之间退出了。
+                    # 必须再补一次 stop_streaming，否则 stream_off 永远没人调用：流一直开着，
+                    # 下面的 close_device 也只是把句柄留在"已打开"状态，之后重连就报
+                    # The device has already been opened（真机实测），不重启进程用不了相机。
+                    thread = self._stream_thread
+                    if thread:
+                        thread.join(timeout=self.STREAM_JOIN_TIMEOUT_S)
+                    self.stop_streaming()
 
             if self._stream_thread and self._stream_thread.is_alive():
                 # 抓帧线程还挂在 get_image 里，此刻 close_device() 就是当着读者的面
                 # 拆原生句柄。留着连接等它退出，也比制造 use-after-free 好。
                 self._logger.error("抓帧线程未退出，推迟关闭设备句柄")
+                return
+
+            if self._is_streaming and not self.stop_streaming():
+                # 线程走了但数据流还开着：绝不能就这么关设备。真机这样关过一次之后，
+                # 每次 open 都报 "The device has already been opened"，直到进程退出为止。
+                self._logger.error("数据流未能关闭，推迟断开以免留下不可用的设备")
                 return
 
             if self._camera:
@@ -412,8 +425,11 @@ class CameraModule(BaseModule):
                 "source": "camera",
                 "error": str(e)
             })
-        finally:
-            # 确保状态被重置
+        else:
+            # 只有真的走完关闭流程才丢开句柄。写在 finally 里的话，上面两条"推迟关闭"
+            # 的分支也会把 _camera/_connected 抹掉：设备在 SDK 里还开着，我们却没有引用
+            # 可以关它了 —— 真机实测之后每次 open 都报 -8 already been opened，不重启
+            # 进程这台相机就废了。留着状态，下一次 disconnect 才补得上。
             self._camera = None
             self._remote_feature = None
             self._connected = False
@@ -421,6 +437,7 @@ class CameraModule(BaseModule):
             self._camera_type = None
             self._bayer_pattern = None
             self._pixel_format = None
+            self._pixel_format_name = None
 
     def start_streaming(self) -> bool:
         """开始图像采集；返回是否真的在采集。"""
@@ -476,13 +493,32 @@ class CameraModule(BaseModule):
         if not self._is_streaming:
             return True
 
-        try:
+        if self._camera is None:
+            # 设备已经不在了（连接先被关掉，_is_streaming 还挂着 True）。这里没什么可关的：
+            # 原来直接走到 self._camera.stream_off() 抛 AttributeError，被下面的 except
+            # 转成一条错误事件，用户看到的是一句莫名其妙的"停止采集失败"弹窗。
             self._stop_flag = True
             thread = self._stream_thread
             if thread:
                 thread.join(timeout=self.STREAM_JOIN_TIMEOUT_S)
+            self._is_streaming = False
+            return True
+
+        try:
+            self._stop_flag = True
+            thread = self._stream_thread
+            # 线程可能正卡在 get_image 的等待里（等待窗口跟着曝光走，最长 1.5s）。只 join
+            # 一轮的话它往往"下一句就出来了"，而那时 stream_off 已经没人补做 —— 真机实测
+            # 这样关掉的设备之后每次 open 都报 "already been opened"，重连几次都救不回来。
+            # 两轮封顶，免得真卡死的线程把调用方吊在这里。
+            for _ in range(2):
+                if not thread or not thread.is_alive():
+                    break
+                thread.join(timeout=self.STREAM_JOIN_TIMEOUT_S)
+                if not thread.is_alive():
+                    break
             if thread and thread.is_alive():
-                # 抓帧线程还停在 get_image 里。这时候 stream_off()/close_device() 就是
+                # 抓帧线程还挂在 get_image 里。这时候 stream_off()/close_device() 就是
                 # 当着读者的面拆原生句柄；宁可报失败，也不拆。
                 self._logger.error("抓帧线程未能退出，跳过数据流关闭以避免破坏正在读取的句柄")
                 return False
