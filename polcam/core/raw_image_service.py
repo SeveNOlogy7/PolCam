@@ -64,6 +64,13 @@ class RawImageService:
     def save_image(self, frame: np.ndarray, file_path: Union[str, Path]) -> Path:
         if frame is None:
             raise ValueError("没有可保存的图像数据")
+        if frame.dtype.kind == "f":
+            # 实测：float32 的参数图存成 PNG/BMP 会"成功"，但 cv2 把它截成 8bit，
+            # DoLP 0..1 全被折进 0/1，出来是一张近黑的图（1024x1024 只写了 3KB），
+            # 而调用方一点提示都没有。数值图请走 .npy，图像要先上色成 uint8。
+            raise ValueError(
+                f"不能把 {frame.dtype} 的浮点数组当图像保存：PNG/BMP 会静默截成 8bit，"
+                f"数值数据请保存为 .npy")
 
         path = Path(file_path).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)

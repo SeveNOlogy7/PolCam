@@ -62,6 +62,20 @@ def test_device_legal_roi_sizes_round_trip(tmp_path: Path, raw_image_service: Ra
     assert raw_image_service.verify_image_size(loaded)
 
 
+def test_save_image_refuses_float_maps(tmp_path: Path, raw_image_service: RawImageService):
+    """浮点参数图不能被静默截成 8bit。
+
+    实测 1024x1024 的 DoLP（float32，0..1）存成 PNG 只写出 3159 字节的近黑图，
+    imencode 一路返回成功，谁都不知道数值被抹平了。
+    """
+    dolp = np.linspace(0.0, 1.0, 16 * 16, dtype=np.float32).reshape(16, 16)
+
+    with pytest.raises(ValueError, match=r"\.npy"):
+        raw_image_service.save_image(dolp, tmp_path / "dolp.png")
+
+    assert not (tmp_path / "dolp.png").exists()
+
+
 def test_load_image_downshifts_wide_files_and_warns(tmp_path: Path, raw_image_service: RawImageService,
                                                     caplog):
     """超 8bit 的文件按有效位降位读入，并留下 warning。
