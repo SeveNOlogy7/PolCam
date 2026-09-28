@@ -484,6 +484,32 @@ def test_retarder_panel_drives_the_processing_params(qapp, main_window):
     assert not main_window.camera_control.pol_control.retarder_angle_spin.isEnabled()
 
 
+def test_apply_settings_survives_a_multi_angle_fast_axis_value(qapp, main_window):
+    """一串快轴角度不能把 apply_settings 拦腰打断。
+
+    真机实测：`set_retarder_state` 对 list 做 float() 抛 TypeError
+    （float() argument must be a string or a real number, not 'list'），于是它后面的
+    处理参数循环、显示模式恢复和持久化全都没跑。而 `load_processing_settings` 的
+    `_to_angles` 恰恰会把列表原样送回来。
+    """
+    from polcam.core.processing_module import ProcessingMode
+
+    settings = main_window.build_current_settings()
+    settings.processing.retarder_in_path = True
+    settings.processing.retarder_fast_axis_deg = [0.0, 45.0]
+    settings.ui.display_mode = ProcessingMode.POLARIZATION
+
+    main_window.apply_settings(settings, persist=False)
+
+    panel = main_window.camera_control.pol_control
+    assert panel.retarder_check.isChecked()
+    assert panel.retarder_angle_spin.value() == 0.0, "面板只有一个自旋框，应回填第一个角度"
+    assert main_window.processor.get_parameters()['retarder_fast_axis_deg'] == [0.0, 45.0], \
+        "完整角度序列必须留在处理参数里"
+    assert main_window.image_display.get_current_processing_mode() == ProcessingMode.POLARIZATION, \
+        "异常发生在前面就把显示模式的应用也吃掉了"
+
+
 def test_show_polarization_quad_view_reuses_precolored_canvas(qapp):
     """测试预计算偏振画布时不会在主线程重复做伪彩映射。"""
     display = ImageDisplay()
@@ -1144,12 +1170,18 @@ def test_closed_main_window_is_released_for_gc():
     Qt 控件 —— 那就是这个仓库历史上那个 0xc0000374 堆损坏。
     """
     probe = os.path.join(os.path.dirname(__file__), "_window_gc_probe.py")
+    # 显式 UTF-8：text=True 不指定 encoding 就用 locale codec（中文 Windows 是 cp936），
+    # 探针往 stderr 打中文日志时解码线程抛 UnicodeDecodeError，stdout/stderr 变成 None,
+    # 于是断言失败信息里的 result.stderr[-1500:] 自己先 TypeError，真正的失败原因被吃掉。
     env = {**os.environ,
-           "QT_QPA_PLATFORM": os.environ.get("QT_QPA_PLATFORM", "offscreen")}
-    result = subprocess.run([sys.executable, probe], capture_output=True, text=True, env=env)
+           "QT_QPA_PLATFORM": os.environ.get("QT_QPA_PLATFORM", "offscreen"),
+           "PYTHONIOENCODING": "utf-8"}
+    result = subprocess.run([sys.executable, probe], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", env=env)
 
     assert result.returncode == 0, (
-        f"探针退出码 {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr[-1500:]}")
+        f"探针退出码 {result.returncode}\nstdout: {result.stdout or ''}\n"
+        f"stderr: {(result.stderr or '')[-1500:]}")
 
 
 
@@ -1349,16 +1381,23 @@ def test_quad_cursor_overlay_follows_the_software_crop(qapp):
 
     display = ImageDisplay()
     try:
+        # 叠加层只在四分图模式下工作，这个判据取的是显示模式 combo，不是画布
+        display.set_processing_mode(ProcessingMode.QUAD_GRAY)
         display.show_quad_view([np.full((128, 128), 40, dtype=np.uint8) for _ in range(4)])
         display.resize(700, 500)
         display.show()
         QApplication.processEvents()
+        display.set_cursor_mode(True)
         overlay = next(c for c in display.image_label.children()
                        if isinstance(c, _QuadCursorOverlay))
 
         def at(source_xy):
-            overlay.set_cursor_info({"cursor_quad_position": source_xy})
-            QApplication.processEvents()
+            # 游标状态归 ImageDisplay 管：每次重渲染都会把叠加层重新同步回
+            # display.cursor_info。实测直接写叠加层的私有字段时，一次 16ms 的 resize
+            # 刷新就能把游标抹掉，用例就变成了看时序的随机测试。
+            display.cursor_info = {"cursor_quad_position": source_xy}
+            display._update_cursor_overlay()
+            overlay.repaint()
             return _overlay_green_centroid(overlay)
 
         unzoomed_origin = at((0, 0))

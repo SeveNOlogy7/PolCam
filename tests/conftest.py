@@ -7,6 +7,7 @@ See LICENSE file for full license details.
 import pytest
 import sys
 import threading
+from pathlib import Path
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -98,17 +99,30 @@ def qapp():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def isolate_qsettings(tmp_path_factory):
-    """把 QSettings 的默认存储改到临时文件。
+def isolate_user_directories(tmp_path_factory):
+    """测试期间把用户主目录换到临时目录，真实 ~/PolCam 一个字都不能动。
 
-    SettingsService 默认用 QSettings()，也就是当前用户真实的那份配置。MainWindow.closeEvent
-    会 save_settings()，所以测试一旦关窗，就会拿测试窗口的状态盖掉用户界面上的设置。
+    两层原因：
+    1. SettingsService 现在用 ~/PolCam/settings.ini 的绝对路径构造 QSettings，
+       `QSettings.setPath` 只影响"按 organization/app 名解析默认位置"那条路，对显式
+       filePath 无效。实测跑完一轮测试后，用户配置里的 auto_save_directory 变成了
+       pytest 的临时目录，display_mode/retarder 也被测试窗口盖掉。
+    2. gallery.db 和 logs 同样在 ~/PolCam 下（gallery_service._build_default_db_path、
+       utils.logger），测试建的是真库真日志。
+    Path.home() 是这三处唯一的入口，所以按它收口，而不是逐个模块打补丁。
+    QSettings 的默认格式仍然设为 Ini+临时路径：那是 _migrate_legacy_settings 里
+    `QSettings()` 读老配置那条路，不能让它去碰注册表。
     """
+    home = tmp_path_factory.mktemp("home")
+    mpatch = pytest.MonkeyPatch()
+    mpatch.setattr(Path, "home", classmethod(lambda cls: home))
+
     path = tmp_path_factory.mktemp("qsettings") / "polcam-test.ini"
     QtCore.QSettings.setDefaultFormat(QtCore.QSettings.Format.IniFormat)
     QtCore.QSettings.setPath(QtCore.QSettings.Format.IniFormat,
                              QtCore.QSettings.Scope.UserScope, str(path))
-    return path
+    yield home
+    mpatch.undo()
 
 
 @pytest.fixture
