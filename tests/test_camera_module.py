@@ -230,6 +230,43 @@ def test_silent_starvation_is_said_once_and_resets_on_a_frame(camera_module):
     assert published.count(EventType.STATUS_MESSAGE_UPDATE) == 2
 
 
+def test_one_shot_timeout_restores_manual_mode(camera_module):
+    """单次自动不收敛时不能把设备留在 Once 状态。
+
+    真机实测：没开流时这台相机的自动曝光永远不回到 Off，5s 到点仍停在 Once，而 Once
+    状态下曝光节点不可写 —— 用户按一次"单次自动"之后手动值就再也写不进硬件。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    enum = MagicMock()
+    enum.get.return_value = (1, "Once")
+    camera_module._remote_feature.get_enum_feature.return_value = enum
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    assert camera_module._wait_auto_once("ExposureAuto", "曝光", max_wait_s=0.2) is False
+
+    written = [call.args[0] for call in enum.set.call_args_list]
+    assert written == ["Once", "Off"], written
+    assert EventType.STATUS_MESSAGE_UPDATE in published
+
+
+def test_one_shot_returns_early_when_the_device_finishes(camera_module):
+    """自动真的做完时（回到 Off）要立刻收工，不写 Off、也不报警。"""
+    camera_module.initialize()
+    camera_module.start()
+    enum = MagicMock()
+    enum.get.side_effect = [(1, "Once"), (0, "Off")]
+    camera_module._remote_feature.get_enum_feature.return_value = enum
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    assert camera_module._wait_auto_once("ExposureAuto", "曝光", max_wait_s=2.0) is True
+
+    assert [call.args[0] for call in enum.set.call_args_list] == ["Once"]
+    assert published == []
+
+
 def test_to_pipeline_uint8_downshifts_wide_frames(camera_module):
     """10bit 帧必须在进应用的那一刻降到 8bit。
 

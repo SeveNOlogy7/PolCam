@@ -846,25 +846,40 @@ class CameraModule(BaseModule):
                 "error": str(e)
             })
 
+    def _wait_auto_once(self, auto_feature: str, label: str, max_wait_s: float = 5.0) -> bool:
+        """设成 Once，等相机自己回到 Off；回不来就把模式收回，别把状态留坏。
+
+        真机实测：没开流（没有画面可看）时这台相机的自动永远不会收敛，5s 到点仍停在
+        Once；而 Once 状态下曝光/增益节点是不可写的（实测抛 InvalidAccess
+        "Node is not writable"），留着它等于用户按一次"单次自动"之后手动值就再也写不进去。
+        """
+        enum = self._remote_feature.get_enum_feature(auto_feature)
+        enum.set("Once")
+        deadline = time.time() + max_wait_s
+        while time.time() < deadline:
+            # EnumFeature.get() 返回 (枚举值, 描述字符串)，拿元组和 "Off" 比永远为假
+            _, mode = enum.get()
+            if mode == "Off":
+                return True
+            time.sleep(0.1)
+        try:
+            enum.set("Off")
+        except Exception as e:
+            self._logger.error(f"收回{label}自动模式失败: {str(e)}")
+        self._logger.warning(f"单次{label}自动未在 {max_wait_s:.0f}s 内完成，已收回手动模式")
+        self.publish_event(EventType.STATUS_MESSAGE_UPDATE, {
+            'message': f"单次{label}自动 {max_wait_s:.0f}s 内未完成（需要画面在采集才行），"
+                       f"已收回手动模式"
+        })
+        return False
+
     def set_exposure_once(self):
         """执行单次自动曝光"""
         if not self._remote_feature:
             return
             
         try:
-            self._remote_feature.get_enum_feature("ExposureAuto").set("Once")
-            # 等待自动曝光完成
-            max_wait_time = 5  # 最大等待时间（秒）
-            start_time = time.time()
-            while (time.time() - start_time) < max_wait_time:
-                # EnumFeature.get() 返回 (枚举值, 描述字符串)，直接拿元组和 "Off" 比
-                # 永远不相等，于是每次一次性调整都要把 5 秒超时烧满
-                _, exposure_auto = self._remote_feature.get_enum_feature("ExposureAuto").get()
-                if exposure_auto == "Off":
-                    break
-                time.sleep(0.1)
-            else:
-                self._logger.warning("单次自动曝光超时")
+            self._wait_auto_once("ExposureAuto", "曝光")
                 
             # 更新最后的曝光值
             self._last_params['exposure'] = self.get_exposure_time()
@@ -905,18 +920,7 @@ class CameraModule(BaseModule):
             return
             
         try:
-            self._remote_feature.get_enum_feature("GainAuto").set("Once")
-            # 等待自动增益完成
-            max_wait_time = 5  # 最大等待时间（秒）
-            start_time = time.time()
-            while (time.time() - start_time) < max_wait_time:
-                # 同上：取元组里的描述字符串来比，元组和 "Off" 比永远为假
-                _, gain_auto = self._remote_feature.get_enum_feature("GainAuto").get()
-                if gain_auto == "Off":
-                    break
-                time.sleep(0.1)
-            else:
-                self._logger.warning("单次自动增益超时")
+            self._wait_auto_once("GainAuto", "增益")
                 
             # 更新最后的增益值
             self._last_params['gain'] = self.get_gain()
