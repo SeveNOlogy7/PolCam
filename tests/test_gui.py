@@ -1314,7 +1314,7 @@ def test_a_new_frame_invalidates_the_previous_result(main_window):
     assert not main_window.toolbar.save_result_action.isEnabled()
 
 
-def test_closed_main_window_is_released_for_gc():
+def test_closed_main_window_is_released_for_gc(tmp_path):
     """关掉又丢掉引用的窗口要真的能被回收。
 
     两条 once_clicked 以前是拿 lambda 连的，lambda 的闭包握着窗口；PySide 的连接表
@@ -1338,7 +1338,8 @@ def test_closed_main_window_is_released_for_gc():
     env = {**os.environ,
            "QT_QPA_PLATFORM": os.environ.get("QT_QPA_PLATFORM", "offscreen"),
            "PYTHONIOENCODING": "utf-8"}
-    result = subprocess.run([sys.executable, probe], capture_output=True, text=True,
+    result = subprocess.run([sys.executable, probe, str(tmp_path / "gcprobe")],
+                            capture_output=True, text=True,
                             encoding="utf-8", errors="replace", env=env)
 
     assert result.returncode == 0, (

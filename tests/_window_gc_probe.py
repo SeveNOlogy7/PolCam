@@ -39,12 +39,20 @@ except ImportError:
 # 路径，下面 setDefaultFormat/setPath 那两句管不到显式 filePath，所以在本进程里
 # patch Path.home()。不要去改子进程的 HOME/USERPROFILE：大恒 SDK 也读它们，实测改了
 # 探针子进程直接 0xc0000409 崩掉。
-Path.home = classmethod(lambda cls: Path(tempfile.mkdtemp(prefix="polcam_gc_probe_home_")))
+#
+# 落地的目录由调用方（pytest 的 tmp_path）给，探针自己不往系统 Temp 里长东西：以前这里
+# 写成 lambda: Path(tempfile.mkdtemp(...))，而 SettingsService 每读一次配置就调一次
+# Path.home()，一次跑测留下 5~6 个目录、每个里还有一份 120KB 的 matplotlib 字体缓存，
+# 实测用户 Temp 里已经积了 453 个。
+BASE = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
+    tempfile.mkdtemp(prefix="polcam_gc_probe_"))
+HOME = BASE / "home"
+HOME.mkdir(parents=True, exist_ok=True)
+Path.home = classmethod(lambda cls: HOME)
 
-tmp = tempfile.mkdtemp(prefix="polcam_gc_probe_")
 QtCore.QSettings.setDefaultFormat(QtCore.QSettings.Format.IniFormat)
 QtCore.QSettings.setPath(QtCore.QSettings.Format.IniFormat,
-                         QtCore.QSettings.Scope.UserScope, os.path.join(tmp, "s.ini"))
+                         QtCore.QSettings.Scope.UserScope, str(BASE / "s.ini"))
 
 from polcam.gui.main_window import MainWindow  # noqa: E402
 
