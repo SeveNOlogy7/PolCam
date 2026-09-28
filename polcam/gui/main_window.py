@@ -703,6 +703,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_info.setText(event.data.get("device_info", ""))
         self._update_metrics_separator()
         self.status_label.setText("相机已连接")
+        # 量程以设备读数为准；缺省（无驱动/读不到）保留面板自带的默认范围
+        self.camera_control.apply_parameter_ranges(
+            event.data.get("exposure_range"), event.data.get("gain_range"))
 
         # 获取相机类型和 Bayer 排列
         self._camera_type = event.data.get("camera_type", CameraType.COLOR)

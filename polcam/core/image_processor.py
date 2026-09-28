@@ -12,6 +12,17 @@ import cv2
 from typing import List, Tuple, Union
 
 class ImageProcessor:
+    # 偏振栅格在两个轴上的重复周期。黑白偏振传感器（MPFA）是 2x2：每个角度占一个像素，
+    # 只有奇偶错位才会把四个角度错标。彩色偏振传感器（CPFA）在 4 个偏振态里再套一层
+    # 2x2 Bayer，所以周期是 4。实测 MER2-502-79U3M-HS POL：Width 步进 8、Height 步进 2。
+    MONO_CPFA_PERIOD = 2
+    COLOR_CPFA_PERIOD = 4
+
+    @staticmethod
+    def cpfa_period(mono: bool) -> int:
+        """该传感器布局要求的最小对齐周期（ROI 尺寸、偏移、RAW 校验共用这一个来源）。"""
+        return ImageProcessor.MONO_CPFA_PERIOD if mono else ImageProcessor.COLOR_CPFA_PERIOD
+
     def __init__(self):
         self._logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
 
@@ -32,8 +43,9 @@ class ImageProcessor:
         if len(raw_image.shape) != 2:
             raise ValueError("输入图像必须是2维数组")
 
-        if raw_image.shape[0] % 4 != 0 or raw_image.shape[1] % 4 != 0:
-            raise ValueError("输入图像的宽度和高度必须是4的倍数")
+        period = ImageProcessor.cpfa_period(mono)
+        if raw_image.shape[0] % period != 0 or raw_image.shape[1] % period != 0:
+            raise ValueError(f"输入图像的宽度和高度必须是{period}的倍数")
 
         if raw_image.shape[0] < 4 or raw_image.shape[1] < 4:
             raise ValueError("输入图像尺寸太小，最小需要4x4像素")
@@ -117,8 +129,11 @@ class ImageProcessor:
         # 转换到0-180度
         aolp = np.rad2deg(aolp) + 90
         
-        # 计算圆偏振度 (DoCP)（需要四分之一波片）
-        # 注意：S3的符号决定了圆偏振的旋向（正值为右旋，负值为左旋）
+        # 计算圆偏振度 (DoCP)
+        # S3 要波片才测得到：这台相机是纯线偏振的 2x2 MPFA，代入
+        # I(θ)=(S0+S1cos2θ+S2sin2θ)/2 得 S3 = (I045+I135)-(I000+I090) ≡ 0。真机实测
+        # 一帧里 S3 mean=1.60 std=2.51（S0≈60DN）、11% 的像素带负号，全是噪声，所以
+        # 只报幅值，不拿符号冒充旋向。
         docp = np.clip(np.abs(S3) / (2 * S0), 0, 1)
         
         return dolp, aolp, docp
@@ -130,7 +145,7 @@ class ImageProcessor:
         Args:
             dolp: 线偏振度 (0-1)
             aolp: 偏振角 (0-180)
-            docp: 圆偏振度 (-1到1，负值表示左旋，正值表示右旋)
+            docp: 圆偏振度幅值 (0-1)
             
         Returns:
             (dolp_colored, aolp_colored, docp_colored): 颜色映射后的图像
@@ -142,30 +157,14 @@ class ImageProcessor:
         aolp_normalized = (aolp / 180 * 255).astype(np.uint8)
         aolp_colored = cv2.applyColorMap(aolp_normalized, cv2.COLORMAP_HSV)
         
-        # DoCP: 使用改进的颜色映射，区分左旋和右旋
-        # 将-1到1的范围映射到0-255
-        # 负值（左旋）映射为蓝色系
-        # 正值（右旋）映射为红色系
-        # 0值为白色
-        docp_abs = np.abs(docp)
-        docp_colored = np.full((*docp.shape, 3), 255, dtype=np.uint8)
-        
-        # 处理左旋（负值）
-        left_mask = docp < 0
-        intensity_left = (1 - docp_abs[left_mask]) * 255
-        docp_colored[left_mask] = np.stack([
-            np.full_like(intensity_left, 255),     # B
-            intensity_left,                        # G
-            intensity_left                         # R
-        ], axis=-1)
-        
-        # 处理右旋（正值）
-        right_mask = docp > 0
-        intensity_right = (1 - docp_abs[right_mask]) * 255
-        docp_colored[right_mask] = np.stack([
-            intensity_right,                       # B
-            intensity_right,                       # G
-            np.full_like(intensity_right, 255)    # R
+        # DoCP: 0 为白、1 为红的单色渐变。带符号的左旋/右旋双色映射已经被删掉：线偏振
+        # MPFA 测不到 S3，docp 恒为非负，那个分支在真机上永远不成立（实测一帧 5,013,504
+        # 个像素里 0 个走到左旋分支）。
+        docp_intensity = ((1 - np.clip(docp, 0, 1)) * 255).astype(np.uint8)
+        docp_colored = np.stack([
+            docp_intensity,                                    # B
+            docp_intensity,                                    # G
+            np.full_like(docp_intensity, 255)                  # R
         ], axis=-1)
         
         return dolp_colored, aolp_colored, docp_colored

@@ -31,6 +31,100 @@ def camera_module():
         
         yield module
 
+def test_second_connect_keeps_the_live_device(camera_module):
+    """已经连着的时候再 connect() 不该去抢下一个索引。
+
+    真机实测：_do_start 会自动连接，此后再 connect() 会拿 index=2 去
+    open_device_by_index，只有一台相机时设备层直接报 "invalid index"，而失败路径把正在
+    用的那台关掉并置为未连接 —— 一次多余的连接请求就能把好的连接弄断。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    assert camera_module.is_connected()
+    device = camera_module._camera
+    camera_module.device_manager.open_device_by_index.reset_mock()
+
+    assert camera_module.connect() is True
+    camera_module.device_manager.open_device_by_index.assert_not_called()
+    assert camera_module._camera is device
+
+    # 显式选设备时不能被他挡住：断开后仍然要能重新打开
+    camera_module.disconnect()
+    assert camera_module.connect() is True
+
+
+def test_to_pipeline_uint8_downshifts_wide_frames(camera_module):
+    """10bit 帧必须在进应用的那一刻降到 8bit。
+
+    实测这台相机 PixelFormat 可选 Mono8/Mono10，Mono10 下 get_numpy_array() 返回右对齐
+    的 uint16（取值 0..1022）。降到 uint8 之前，偏振参数计算直接 TypeError，而
+    astype(uint8) 会按 256 回绕。
+    """
+    camera_module._pixel_format_name = "Mono10"
+    frame = np.array([[0, 511], [1022, 255]], dtype=np.uint16)
+
+    result = camera_module._to_pipeline_uint8(frame)
+
+    assert result.dtype == np.uint8
+    assert result.tolist() == [[0, 127], [255, 63]]
+
+
+def test_to_pipeline_uint8_leaves_uint8_and_none(camera_module):
+    assert camera_module._to_pipeline_uint8(None) is None
+    frame = np.zeros((4, 4), dtype=np.uint8)
+    assert camera_module._to_pipeline_uint8(frame) is frame
+
+
+def test_set_roi_keeps_the_device_height_increment(camera_module):
+    """黑白偏振相机的纵向 ROI 不必按 4 对齐，按设备步进走。
+
+    实测 MER2-502-79U3M-HS POL 的 Width 步进是 8、Height 步进是 2，MPFA 周期只有 2，
+    所以固定按 4 对齐会白丢一半纵向分辨率。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    from polcam.core.camera_module import CameraType
+    camera_module._camera_type = CameraType.MONO
+
+    def int_feature(minimum, maximum, increment, value):
+        feature = MagicMock()
+        feature.get_range.return_value = {'min': minimum, 'max': maximum,
+                                         'inc': increment, 'value': value}
+        feature.get.return_value = value
+        return feature
+
+    camera = camera_module._camera
+    camera.SensorWidth.get.return_value = 2448
+    camera.SensorHeight.get.return_value = 2048
+    camera.Width = int_feature(8, 2448, 8, 2448)
+    camera.Height = int_feature(4, 2048, 2, 2048)
+    camera.OffsetX = int_feature(0, 0, 8, 0)
+    camera.OffsetY = int_feature(0, 0, 2, 0)
+
+    assert camera_module.set_roi(0, 0, 1024, 1002) is True
+
+    # 宽度仍是设备的 8 步进，高度回到 2 步进：1002 是合法值，旧代码会砍成 1000
+    assert camera.Height.set.call_args.args[0] == 1002
+    assert camera.Width.set.call_args.args[0] == 1024
+
+
+def test_connect_publishes_device_ranges(camera_module):
+    """连接事件要带上相机的真实量程，面板才有依据设置滑条。"""
+    remote = MagicMock()
+    remote.get_float_feature.return_value.get_range.return_value = {
+        'min': 30.0, 'max': 800000.0, 'inc': 0.0, 'unit': 'us'}
+    camera_module._remote_feature = remote
+
+    assert camera_module.get_parameter_range("ExposureTime") == {
+        'min': 30.0, 'max': 800000.0, 'unit': 'us'}
+
+    remote.get_float_feature.return_value.get_range.side_effect = OSError
+    assert camera_module.get_parameter_range("Gain") is None
+
+    camera_module._remote_feature = None
+    assert camera_module.get_parameter_range("ExposureTime") is None
+
+
 def test_module_lifecycle(camera_module):
     """测试模块生命周期"""
     # 测试初始化

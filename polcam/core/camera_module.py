@@ -24,9 +24,11 @@ import weakref
 from typing import Optional, Tuple, Dict, Any
 from enum import Enum
 import queue
+import re
 import time
 from .base_module import BaseModule
 from .events import EventType, Event
+from .image_processor import ImageProcessor
 
 
 class CameraType(Enum):
@@ -83,6 +85,7 @@ class CameraModule(BaseModule):
         self._camera_type: Optional[CameraType] = None  # 相机类型（彩色/黑白）
         self._bayer_pattern: Optional[int] = None  # Bayer 排列 (PixelColorFilter 值)
         self._pixel_format: Optional[int] = None   # 像素格式 (GxPixelFormatEntry 值)
+        self._pixel_format_name: Optional[str] = None  # 像素格式名，如 'Mono10'（决定位深）
 
     def _do_initialize(self) -> bool:
         """初始化相机设备管理器"""
@@ -215,6 +218,13 @@ class CameraModule(BaseModule):
         target_device_index = self._target_device_index
         self._target_device_index = None
 
+        if target_device_index is None and self._connected and self._camera is not None:
+            # _do_start 已经连过一次。再走一遍会去取下一个空闲索引，真机实测只有一台相机
+            # 时报 "DeviceManager.open_device_by_index: invalid index"，然后失败路径把正在
+            # 用的那台关掉并标成未连接 —— 一次多余的 connect() 就能把好的连接弄断。
+            self._logger.info("相机已连接，忽略重复的连接请求")
+            return True
+
         try:
             if self.device_manager is None:
                 self._logger.error("Galaxy SDK 不可用，无法连接相机")
@@ -273,6 +283,7 @@ class CameraModule(BaseModule):
             try:
                 pixel_format_value, pixel_format_str = self._remote_feature.get_enum_feature("PixelFormat").get()
                 self._pixel_format = pixel_format_value
+                self._pixel_format_name = pixel_format_str
                 self._logger.info(f"PixelFormat: {pixel_format_str} (0x{pixel_format_value:08X})")
             except Exception as e:
                 self._logger.warning(f"查询 PixelFormat 失败: {e}")
@@ -283,6 +294,10 @@ class CameraModule(BaseModule):
                 "camera_type": self._camera_type,
                 "bayer_pattern": self._bayer_pattern,
                 "pixel_format": self._pixel_format,
+                # 量程由相机自己报，面板按它设置滑条；实测这台是 20us-1s / 0-24dB，
+                # 但换一台就不一定是这个数了
+                "exposure_range": self.get_parameter_range("ExposureTime"),
+                "gain_range": self.get_parameter_range("Gain"),
             })
 
             self._logger.info(f"相机连接成功: index={device_index}, model={display_name}")
@@ -329,6 +344,7 @@ class CameraModule(BaseModule):
             self._camera_type = None
             self._bayer_pattern = None
             self._pixel_format = None
+            self._pixel_format_name = None
             time.sleep(0.1)
             
             self.publish_event(EventType.CAMERA_DISCONNECTED)
@@ -460,6 +476,23 @@ class CameraModule(BaseModule):
                 # 钉住，弱引用形同虚设
                 module = None
 
+    def _to_pipeline_uint8(self, frame: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """把相机帧统一降到 8bit；None 原样返回。
+
+        降位只在这一个入口做。这台相机的 PixelFormat 实测可选 Mono8/Mono10，Mono10 下
+        get_numpy_array() 返回右对齐的 uint16（实测取值 0..1022），而处理链的前提是
+        8bit：demosaic 认 uint16，calculate_polarization_parameters 却直接 TypeError，
+        合并路径上的 astype(uint8) 更会按 256 回绕（合成帧实测 61% 的像素变成 0）。
+        """
+        if frame is None or frame.dtype == np.uint8 or frame.ndim != 2:
+            return frame
+        match = re.search(r"(\d+)$", self._pixel_format_name or "")
+        depth = int(match.group(1)) if match else frame.dtype.itemsize * 8
+        if depth <= 8:
+            # 报出来的位深还没超过容器宽度：取高位，别把有效位截掉
+            depth = frame.dtype.itemsize * 8
+        return np.right_shift(frame, depth - 8).astype(np.uint8)
+
     def _stream_once(self) -> None:
         """采集一帧并投递；失败时短暂退避。"""
         if self._stream_error_count >= self.STREAM_ERROR_LIMIT:
@@ -473,7 +506,7 @@ class CameraModule(BaseModule):
             raw_image = self._camera.data_stream[0].get_image(timeout=self.GRAB_TIMEOUT_MS)
             self._stream_error_count = 0
             if raw_image:
-                frame = raw_image.get_numpy_array()
+                frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
                 if frame is not None:
                     # 计算采集时间
                     t_capture = time.perf_counter() - t_start
@@ -521,7 +554,7 @@ class CameraModule(BaseModule):
         try:
             raw_image = self._camera.data_stream[0].get_image()
             if raw_image:
-                frame = raw_image.get_numpy_array()
+                frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
                 return frame
         except Exception as e:
             self._logger.error(f"获取图像失败: {str(e)}")
@@ -539,7 +572,7 @@ class CameraModule(BaseModule):
                 try:
                     raw_image = self._camera.data_stream[0].get_image()
                     if raw_image:
-                        frame = raw_image.get_numpy_array()
+                        frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
                         t_capture = time.perf_counter() - t_start
                         # 添加时间信息
                         self.publish_event(EventType.FRAME_CAPTURED, {
@@ -808,6 +841,23 @@ class CameraModule(BaseModule):
         """获取最后设置的增益值"""
         return self._last_params['gain']
 
+    def get_parameter_range(self, name: str) -> Optional[Dict[str, Any]]:
+        """读取相机自己报告的浮点参数量程。
+
+        Args:
+            name: GenICam 参数名，如 'ExposureTime'、'Gain'
+        Returns:
+            {'min': .., 'max': .., 'unit': ..}，未连接或读不到时返回 None
+        """
+        if not self._remote_feature:
+            return None
+        try:
+            rng = self._remote_feature.get_float_feature(name).get_range()
+            return {'min': rng['min'], 'max': rng['max'], 'unit': rng.get('unit', '')}
+        except Exception as e:
+            self._logger.warning(f"读取参数量程失败 {name}: {e}")
+            return None
+
     # ==================== ROI 控制 ====================
 
     def get_sensor_size(self) -> Tuple[int, int]:
@@ -916,14 +966,17 @@ class CameraModule(BaseModule):
             if sensor_w == 0 or sensor_h == 0:
                 return False
 
-            # 偏振相机需要 4 像素对齐（2x2 偏振超像素 × 2x2 Bayer = 4x4）
-            POL_ALIGN = 4
+            # 对齐下限只关乎偏振栅格的相位，设备步进由 get_roi_constraints 提供。
+            # 实测这台黑白偏振相机 Width 步进 8、Height 步进 2，而它的 MPFA 周期是 2，
+            # 所以固定按 4 对齐会白丢一半纵向 ROI 分辨率；彩色偏振的 CPFA 才是 4x4。
             is_pol = self._camera_type in (CameraType.COLOR, CameraType.MONO)
+            align = ImageProcessor.cpfa_period(self._camera_type is CameraType.MONO) \
+                if is_pol else 1
 
-            w_inc = max(constraints['width_inc'], POL_ALIGN) if is_pol else constraints['width_inc']
-            h_inc = max(constraints['height_inc'], POL_ALIGN) if is_pol else constraints['height_inc']
-            ox_inc = max(constraints['offset_x_inc'], POL_ALIGN) if is_pol else constraints['offset_x_inc']
-            oy_inc = max(constraints['offset_y_inc'], POL_ALIGN) if is_pol else constraints['offset_y_inc']
+            w_inc = max(constraints['width_inc'], align)
+            h_inc = max(constraints['height_inc'], align)
+            ox_inc = max(constraints['offset_x_inc'], align)
+            oy_inc = max(constraints['offset_y_inc'], align)
 
             # 对齐尺寸
             width = self._align_value(width, w_inc)

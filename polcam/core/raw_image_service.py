@@ -20,6 +20,10 @@ class RawImageService:
     """提供原始图像的统一保存、读取和命名能力。"""
 
     DEFAULT_EXTENSION = ".tiff"
+    # RAW 帧必须是偏振栅格周期的整数倍。取 2 是因为实测的真机（MER2-502-79U3M-HS POL）
+    # Height 步进就是 2：按 8 校验会拒掉相机自己产出的合法帧，而按角度解码真正要求的是
+    # 奇偶对齐。更严的周期（彩色偏振的 4x4）由 demosaic_polarization 按相机类型再查一遍。
+    RAW_ALIGNMENT = 2
 
     def format_timestamp(self, timestamp: Optional[Union[datetime, float]]) -> str:
         if timestamp is None:
@@ -51,7 +55,7 @@ class RawImageService:
         if data is None or len(data.shape) != 2:
             return False
         height, width = data.shape
-        return height % 8 == 0 and width % 8 == 0
+        return height % self.RAW_ALIGNMENT == 0 and width % self.RAW_ALIGNMENT == 0
 
     def save_image(self, frame: np.ndarray, file_path: Union[str, Path]) -> Path:
         if frame is None:
@@ -83,5 +87,5 @@ class RawImageService:
         if raw_data.ndim != 2:
             raise ValueError(f"原始图像必须是单通道帧，读到了 {raw_data.shape[-1]} 通道图像")
         if not self.verify_image_size(raw_data):
-            raise ValueError("图像尺寸必须是8x8马赛克的整数倍")
+            raise ValueError(f"图像尺寸必须是{self.RAW_ALIGNMENT}x{self.RAW_ALIGNMENT}偏振栅格的整数倍")
         return raw_data

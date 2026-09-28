@@ -109,6 +109,22 @@ class CameraControl(QtWidgets.QWidget):
         # 偏振分析颜色模式信号
         self.pol_control.color_mode_changed.connect(self._handle_color_mode_changed)
 
+    def apply_parameter_ranges(self, exposure_range, gain_range):
+        """按相机自己报告的量程设置滑条，读不到就保留无驱动时的默认范围。
+
+        量程不来自设备时，超出范围的输入会被 set_value 静默钳掉，面板显示的就不是相机
+        实际能取的值。实测这台相机的量程是 20us-1s / 0-24dB（恰好等于默认值），换一台
+        相机就不成立了，所以连接时按设备读数覆盖一次。
+        """
+        for control, spec in ((self.exposure_control, exposure_range),
+                              (self.gain_control, gain_range)):
+            if not spec:
+                continue
+            minimum, maximum = spec.get('min'), spec.get('max')
+            if minimum is None or maximum is None or minimum >= maximum:
+                continue
+            control.set_range(float(minimum), float(maximum))
+
     def _handle_color_mode_changed(self, is_color: bool):
         """处理颜色模式改变"""
         # 修正：使用 wb_control 而不是直接访问 checkbox 和 button

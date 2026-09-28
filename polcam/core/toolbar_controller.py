@@ -218,7 +218,7 @@ class ToolbarController(BaseModule):
         return "", False
 
     def _verify_image_size(self, data: np.ndarray) -> bool:
-        """验证图像尺寸是否为8x8马赛克的整数倍
+        """验证图像尺寸是否为偏振栅格周期的整数倍
         
         Args:
             data: 要验证的图像数据

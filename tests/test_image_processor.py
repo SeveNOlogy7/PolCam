@@ -327,3 +327,47 @@ def test_calculate_polarization_parameters_edge_cases():
     white_images = [np.full((2, 2), 255, dtype=np.uint8) for _ in range(4)]
     dolp_white, _, _ = ImageProcessor.calculate_polarization_parameters(white_images)
     assert np.all(dolp_white >= 0) and np.all(dolp_white <= 1)
+
+
+def test_demosaic_guard_matches_the_real_sensor_period():
+    """尺寸校验按传感器布局来，不是统一按 4。
+
+    实测 MER2-502-79U3M-HS POL 是 2x2 的 MPFA（Height 步进只有 2），polanalyser 的
+    Mono/RGB_EA 两种解码对这些尺寸都正常出图；固定要求 4 的倍数会把合法帧挡在门外。
+    """
+    assert ImageProcessor.cpfa_period(mono=True) == 2
+    assert ImageProcessor.cpfa_period(mono=False) == 4
+
+    odd_height = np.zeros((10, 6), dtype=np.uint8)
+    assert len(ImageProcessor.demosaic_polarization(odd_height, mono=True)) == 4
+
+    with pytest.raises(ValueError, match="必须是2的倍数"):
+        ImageProcessor.demosaic_polarization(np.zeros((10, 5), dtype=np.uint8), mono=True)
+
+    with pytest.raises(ValueError, match="必须是4的倍数"):
+        ImageProcessor.demosaic_polarization(odd_height, mono=False)
+
+
+def test_docp_colormap_is_a_single_unsigned_ramp():
+    """DoCP 上色只按幅值走。
+
+    线偏振 MPFA 测不到 S3，算出来的 docp 恒非负，带符号的双色映射里左旋分支永远走不到
+    （真机一帧 5,013,504 个像素里 0 个命中），所以那半个映射是死代码，也等于在骗用户。
+    """
+    zero = np.zeros((2, 2), dtype=np.float32)
+    full = np.ones((2, 2), dtype=np.float32)
+    dolp = np.zeros((2, 2), dtype=np.float32)
+    aolp = np.zeros((2, 2), dtype=np.float32)
+
+    _, _, white = ImageProcessor.colormap_polarization(dolp, aolp, zero)
+    _, _, red = ImageProcessor.colormap_polarization(dolp, aolp, full)
+    _, _, negative = ImageProcessor.colormap_polarization(
+        dolp, aolp, np.full((2, 2), -0.9, dtype=np.float32))
+
+    assert white[0, 0].tolist() == [255, 255, 255]
+    assert red[0, 0].tolist() == [0, 0, 255]
+    # 通道里不许出现偏蓝的值（B 永远不大于 R）：一旦允许，就是在宣称"旋向"，
+    # 而这台相机给不出这个信息
+    assert np.all(white[..., 2] >= white[..., 0])
+    assert np.all(red[..., 2] >= red[..., 0])
+    assert np.all(negative[..., 0] <= negative[..., 2]), negative[0, 0].tolist()

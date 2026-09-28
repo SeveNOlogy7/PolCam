@@ -44,8 +44,22 @@ def test_load_image_rejects_invalid_size(tmp_path: Path, raw_image_service: RawI
     image_path = tmp_path / "invalid.tiff"
     raw_image_service.save_image(frame, image_path)
 
-    with pytest.raises(ValueError, match="8x8"):
+    with pytest.raises(ValueError, match="偏振栅格"):
         raw_image_service.load_image(image_path)
+
+
+def test_device_legal_roi_sizes_round_trip(tmp_path: Path, raw_image_service: RawImageService):
+    """真机合法的 ROI 尺寸不该被当成坏帧。
+
+    实测 MER2-502-79U3M-HS POL：Height 步进是 2 而不是 8，所以按 8x8 校验会拒掉相机
+    自己产出的合法帧（1020 高的裁剪存得下、读不回来）。
+    """
+    frame = np.arange(1020 * 8, dtype=np.uint8).reshape(1020, 8)
+
+    loaded = raw_image_service.load_image(raw_image_service.save_image(frame, tmp_path / "roi.tiff"))
+
+    assert loaded.shape == (1020, 8)
+    assert raw_image_service.verify_image_size(loaded)
 
 
 def test_save_and_load_keep_16bit_depth(tmp_path: Path, raw_image_service: RawImageService):
