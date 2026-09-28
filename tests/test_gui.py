@@ -1032,6 +1032,41 @@ def test_reset_view_also_restores_a_cropped_camera_roi(qapp):
 
     assert camera.reset_roi.called, "相机 ROI 仍是裁剪状态，没有被复原"
 
+def test_a_result_from_the_mode_the_user_left_is_dropped(main_window):
+    """切走模式之后，上一个模式还在路上算完的结果不能糊到屏幕上。
+
+    真机实测：偏振度图像 + 降噪（一帧 0.6 s）做一次单帧采集，立刻切到「原始图像」；
+    1 秒后那张 4096x4896 的四联图被画上来并停在那里（单次采集没有下一帧覆盖它），
+    `_last_result` 也变成它，「保存结果」按钮跟着亮起来。
+    """
+    from polcam.core.processing_module import ProcessingResult
+
+    display = main_window.image_display
+    display.show_image(np.zeros((32, 32, 3), dtype=np.uint8))
+    display.set_processing_mode(ProcessingMode.RAW)
+    canvas_before = display._current_canvas.copy()
+    main_window.toolbar_controller._last_result = None
+    main_window.toolbar_controller.enable_save_result(False)
+
+    stale = ProcessingResult(
+        mode=ProcessingMode.POLARIZATION,
+        images=[np.zeros((16, 16), dtype=np.uint8)]
+               + [np.zeros((16, 16), dtype=np.float32) for _ in range(3)],
+        metadata={}, timestamp=0.0,
+        display_canvas=np.zeros((32, 32, 3), dtype=np.uint8))
+    event = Event(EventType.FRAME_PROCESSED, {'result': stale, 'processing_time': 0.6})
+
+    main_window._on_frame_processed(event)
+
+    assert np.array_equal(display._current_canvas, canvas_before), "过期结果把画面换掉了"
+    assert main_window.toolbar_controller._last_result is None, "过期结果成了「最近一次结果」"
+    assert not main_window.toolbar.save_result_action.isEnabled(), "过期结果把保存按钮点亮了"
+
+    display.set_processing_mode(ProcessingMode.POLARIZATION)
+    main_window._on_frame_processed(event)
+    assert len(display.current_images) == 4, "模式对得上时结果应当照常画出来"
+
+
 def test_failed_streaming_start_leaves_the_ui_out_of_capture_mode(main_window):
     """开始连续采集失败时不能谎报「连续采集中」。
 

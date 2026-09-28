@@ -520,6 +520,15 @@ class MainWindow(QtWidgets.QMainWindow):
         result = event.data.get('result')
         proc_time = event.data.get('processing_time', 0)
         if result:
+            selected_mode = self.image_display.get_current_processing_mode()
+            if result.mode != selected_mode:
+                # 结果可能是过期的：降噪一帧要 0.6s，这期间用户切了显示模式，而切模式
+                # 本身已经按新模式刷过一遍（RAW 直接画当前帧，其余重处理当前帧）。再把
+                # 上一个模式的结果画上去就停在错画面上 —— 单次采集没有下一帧来覆盖它。
+                # 真机实测：POLARIZATION+降噪的结果在切到「原始图像」1 秒后把 4096x4896
+                # 四联图糊满屏幕，_last_result 也变成它，「保存结果」按钮跟着亮起来。
+                self._logger.debug(f"丢弃过期结果: {result.mode.name} != 当前 {selected_mode.name}")
+                return
             # 更新工具栏控制器中的处理结果和时间戳。用结果自带的那一帧时间，处理慢于
             # 一帧时 self._current_frame_timestamp 已经跳到下一帧了；没带时间戳的来源
             # （如载入 RAW 文件）退回实时值。
