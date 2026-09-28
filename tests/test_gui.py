@@ -1167,12 +1167,18 @@ def test_closed_main_window_is_released_for_gc():
     那才是能被回收的写法。
 
     探针跑在子进程里，因为强行 gc.collect() 会顺带收尾本进程里其他已经没原生对象的
-    Qt 控件 —— 那就是这个仓库历史上那个 0xc0000374 堆损坏。
+    Qt 控件 —— 那就是这个仓库历史上那个 0xc0000374 堆损坏。真机接上后又实测：子进程里
+    「close → del → gc.collect()」6 次崩 4 次（0xC0000374，faulthandler 停在
+    Garbage-collecting），所以探针改成先 shiboken6.delete() 按 Qt 的顺序拆 C++ 树，再让
+    gc 判可达性；同一个流程不调 collect 时 0/6，正常退出也是 0/6，说明应用本身没有这条
+    路径，崩的是探针的做法。
     """
     probe = os.path.join(os.path.dirname(__file__), "_window_gc_probe.py")
     # 显式 UTF-8：text=True 不指定 encoding 就用 locale codec（中文 Windows 是 cp936），
-    # 探针往 stderr 打中文日志时解码线程抛 UnicodeDecodeError，stdout/stderr 变成 None,
+    # 探针往 stderr 打中文日志时解码线程抛 UnicodeDecodeError，result.stdout 成了 None，
     # 于是断言失败信息里的 result.stderr[-1500:] 自己先 TypeError，真正的失败原因被吃掉。
+    # HOME/USERPROFILE 不能在这里改：大恒 SDK 也读它们，实测改了子进程直接
+    # 0xc0000409 崩掉。配置隔离由探针自己在进程内 patch Path.home() 完成。
     env = {**os.environ,
            "QT_QPA_PLATFORM": os.environ.get("QT_QPA_PLATFORM", "offscreen"),
            "PYTHONIOENCODING": "utf-8"}
@@ -1367,6 +1373,60 @@ def _overlay_green_centroid(overlay):
             if (pixel >> 8) & 0xFF > 200 and (pixel >> 16) & 0xFF < 80 and pixel & 0xFF < 80:
                 xs += x; ys += y; hits += 1
     return (xs / hits, ys / hits) if hits else None
+
+
+def test_roi_changed_event_refreshes_the_display_cache(qapp, main_window):
+    """ROI 变更事件要真的回填显示层缓存，不能只记日志。
+
+    真机实测：外部 set_roi(1200,1000,800,600) 之后 ImageDisplay 里还是
+    (0,0,2448,2048)，游标读数和缩放用的传感器换算都按上一次的窗口算，读数差整个 ROI
+    偏移。工具栏那两条路是自己回填才碰巧没错，事件里本来就带着权威值，统一在这里回填。
+    """
+    from polcam.core.events import Event, EventType
+
+    main_window.image_display.update_roi_info((0, 0, 2448, 2048), (2448, 2048))
+
+    main_window._on_roi_changed(Event(EventType.ROI_CHANGED, {
+        'offset_x': 1200, 'offset_y': 1000, 'width': 800, 'height': 600,
+        'sensor_width': 2448, 'sensor_height': 2048}))
+
+    assert main_window.image_display._current_roi == (1200, 1000, 800, 600), \
+        f"缓存没跟上设备：{main_window.image_display._current_roi}"
+
+
+def test_cursor_readout_uses_sensor_coordinates_after_a_hardware_crop(qapp):
+    """硬件放大之后，游标读数要报传感器绝对坐标而不是画布坐标。
+
+    真机实测：ROI=(1200,1000,800,600) 时状态栏把一个物理点报成 "(1, 1)"，它的传感器
+    坐标其实是 (1201, 1001)。画布坐标在裁剪后与传感器坐标差着整个 ROI 偏移，用户照着
+    读数描述位置就会指错地方。
+    """
+    display = ImageDisplay()
+    controller = display.toolbar_controller
+    shown = []
+    # 事件总线是队列+后台线程，订阅它要等投递；直接记 `_show_status_message` 的入参，
+    # 断言只取决于读数本身
+    controller._show_status_message = shown.append
+
+    display.show_image(np.zeros((600, 800, 3), dtype=np.uint8))
+    display.update_roi_info((1200, 1000, 800, 600), (2448, 2048))
+
+    assert display._source_to_sensor_position(0, 0) == (1200, 1000)
+    assert display._source_to_sensor_position(1, 1) == (1201, 1001)
+    assert display._source_to_sensor_position(799, 599) == (1999, 1599)
+
+    # 去马赛克出来的单角度图是半分辨率，但覆盖同一视场，换算要带上这个 2x
+    display.show_quad_view([np.zeros((300, 400), dtype=np.uint8) for _ in range(4)], gray=True)
+    assert display._source_to_sensor_position(399, 299) == (1998, 1598)
+
+    controller._cursor_mode = True
+    controller._handle_cursor_position({
+        'position': (1, 1), 'sensor_position': (1201, 1001), 'mode': 'single', 'gray': 10})
+    assert shown, "游标读数没发到状态栏"
+    assert '(1201, 1001)' in shown[-1], shown[-1]
+    assert '(1, 1)' not in shown[-1], f"还在报画布坐标：{shown[-1]}"
+
+    display.deleteLater()
 
 
 def test_quad_cursor_overlay_follows_the_software_crop(qapp):

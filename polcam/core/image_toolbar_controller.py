@@ -115,18 +115,21 @@ class ImageToolbarController(BaseModule):
             x, y = info['position']
             mode = info['mode']
             quad_index = info.get('quad_index')
+            # 读数报的是传感器绝对坐标：画布坐标在硬件放大后整个少了 ROI 偏移，
+            # 用户按它去描述缺陷位置会指错地方（真机实测 ROI=(1200,1000,...) 时
+            # 旧的读数把 (1201,1001) 报成 (1,1)）。
+            sensor = info.get('sensor_position')
+            position_text = f"({sensor[0]}, {sensor[1]})" if sensor else f"({x}, {y})"
 
             if mode == 'quad':
                 # 四分图模式
                 cursor_quad_position = info.get('cursor_quad_position')
                 if cursor_quad_position and quad_index is not None:
-                    rel_x, rel_y = cursor_quad_position
                     # 获取分图标题列表
                     quad_titles = self._get_quad_titles(info)
 
                     # 确保quad_index在有效范围内
                     if 0 <= quad_index < len(quad_titles):
-                        position_text = f"({rel_x}, {rel_y})"
                         # 获取所有区域的像素值/数值
                         values_text = []
                         pixel_text = ""
@@ -155,7 +158,6 @@ class ImageToolbarController(BaseModule):
                         self._show_status_message(status_text)
             else:
                 # 单图模式
-                position_text = f"({x}, {y})"
                 if 'rgb' in info:
                     r, g, b = info['rgb']
                     pixel_text = f"RGB: ({r}, {g}, {b})"

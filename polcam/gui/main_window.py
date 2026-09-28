@@ -985,6 +985,13 @@ class MainWindow(QtWidgets.QMainWindow):
             f"size={data['width']}x{data['height']} / "
             f"sensor={data['sensor_width']}x{data['sensor_height']}"
         )
+        # 光记一条日志不够：显示层的坐标换算（游标读数、硬件缩放的传感器坐标）用的是
+        # ImageDisplay 里缓存的 ROI，以前只靠工具栏每次缩完自己回填。真机实测外部
+        # set_roi(1200,1000,800,600) 之后缓存仍是 (0,0,2448,2048)，读数差整个偏移、
+        # 传感器换算也跟着错。事件里本来就带着权威值，在这里统一回填。
+        self.image_display.update_roi_info(
+            (data['offset_x'], data['offset_y'], data['width'], data['height']),
+            (data['sensor_width'], data['sensor_height']))
 
     def restore_settings(self):
         """恢复持久化设置。"""

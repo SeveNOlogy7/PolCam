@@ -1040,6 +1040,25 @@ class ImageDisplay(QtWidgets.QWidget):
 
         return (source_x, source_y)
 
+    def _source_to_sensor_position(self, source_x: int, source_y: int) -> Optional[Tuple[int, int]]:
+        """源画布坐标 → 传感器绝对坐标，给游标读数用。
+
+        画布（去马赛克出来的单角度图、或偏振参数图）覆盖的就是当前 ROI 的整个视场，
+        所以按数组尺寸与 ROI 尺寸的比例换算再加偏移。以前状态栏直接把画布坐标当位置显示：
+        硬件放大之后同一个物理点少了整个 (OffsetX, OffsetY)（真机实测 ROI=(1200,1000,
+        800,600) 时显示 "(1, 1)"，而那个点的传感器坐标是 (1201, 1001)）。
+        """
+        if self._current_roi is None or not self.current_images:
+            return None
+
+        image_h, image_w = self.current_images[0].shape[:2]
+        if image_w <= 0 or image_h <= 0:
+            return None
+
+        roi_ox, roi_oy, roi_w, roi_h = self._current_roi
+        return (int(roi_ox + source_x * roi_w / image_w),
+                int(roi_oy + source_y * roi_h / image_h))
+
     def _get_quad_display_rect(self, display_x: int, display_y: int) -> Optional[QtCore.QRect]:
         """返回给定显示坐标所在子图的显示空间 QRect
 
@@ -1225,6 +1244,7 @@ class ImageDisplay(QtWidgets.QWidget):
             # 游标信息
             self.cursor_info = {
                 'position': cursor_quad_position,
+                'sensor_position': self._source_to_sensor_position(img_x, img_y),
                 'mode': 'quad',
                 'quad_index': quad_index,
                 'cursor_quad_position': cursor_quad_position,
@@ -1244,6 +1264,7 @@ class ImageDisplay(QtWidgets.QWidget):
             # 游标信息
             self.cursor_info = {
                 'position': (img_x, img_y),
+                'sensor_position': self._source_to_sensor_position(img_x, img_y),
                 'mode': 'single',
                 'quad_index': None,
                 'cursor_quad_position': None,
