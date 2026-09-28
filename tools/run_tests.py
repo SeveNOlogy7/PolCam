@@ -18,6 +18,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# 子进程的 stdio 一律按 UTF-8 收发。text=True 默认用 locale codec，中文 Windows 上是
+# cp936：pytest 打出 UTF-8 中文（测试里的中文 docstring、日志里的中文提示）时解码线程抛
+# UnicodeDecodeError，result.stdout 变成 None，runner 自己崩在 sys.stdout.write(None)，
+# 于是第一个非 ASCII 输出把后面所有测试文件的结果全部掩盖掉——正是这个 runner 要避免的事。
+CHILD_ENV = {"PYTHONIOENCODING": "utf-8"}
+TEXT_KWARGS = {"encoding": "utf-8", "errors": "replace"}
+
 # 单个测试文件的墙钟上限。这个 runner 存在的理由就是"某个文件能把进程卡死"：一个残留
 # 的模态框、一个不回的线程，都会让 subprocess.run 永远等下去，两条 CI 腿一起烧到 GitHub
 # 的 360 分钟超时才报错。宁可超时报错，也不要静默挂住。
@@ -63,7 +70,7 @@ def run_one(test_file: Path, extra_args: list[str]) -> str | None:
     if data_file.exists():
         data_file.unlink()
 
-    env = {**os.environ, "COVERAGE_FILE": data_file.name}
+    env = {**os.environ, "COVERAGE_FILE": data_file.name, **CHILD_ENV}
     # -o addopts= 清掉 pytest.ini 里的 --cov-report=html：子进程各写一份 htmlcov 既浪费
     # 又会留下半成品，统一报告交给下面的 combine 出一次。注意单个 --cov-report= 是追加
     # 而不是覆盖，压不住 ini 里那份。
@@ -80,7 +87,7 @@ def run_one(test_file: Path, extra_args: list[str]) -> str | None:
     ]
     try:
         result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True,
-                                timeout=PER_FILE_TIMEOUT_S)
+                                timeout=PER_FILE_TIMEOUT_S, **TEXT_KWARGS)
     except subprocess.TimeoutExpired as exc:
         partial = (exc.output or b"") if isinstance(exc.output, bytes) else (exc.output or "")
         sys.stdout.write(partial)
@@ -88,10 +95,10 @@ def run_one(test_file: Path, extra_args: list[str]) -> str | None:
                          f"没结束，已杀掉：挂住的测试会掩盖后面所有文件的结果\n")
         sys.stdout.flush()
         return f"超过 {PER_FILE_TIMEOUT_S}s 未完成（已终止）"
-    sys.stdout.write(result.stdout)
+    sys.stdout.write(result.stdout or "")
     sys.stdout.flush()
-    sys.stderr.write(result.stderr)
-    return verdict(test_file, result.returncode, result.stdout)
+    sys.stderr.write(result.stderr or "")
+    return verdict(test_file, result.returncode, result.stdout or "")
 
 
 def combine_coverage() -> str | None:
@@ -100,10 +107,11 @@ def combine_coverage() -> str | None:
         return "没有任何覆盖率数据文件，无法出报告"
     for step in (["combine"], ["html"]):
         result = subprocess.run(
-            [sys.executable, "-m", "coverage", *step], cwd=ROOT, capture_output=True, text=True
+            [sys.executable, "-m", "coverage", *step], cwd=ROOT, capture_output=True,
+            text=True, **TEXT_KWARGS
         )
         if result.returncode != 0:
-            sys.stderr.write(result.stdout + result.stderr)
+            sys.stderr.write((result.stdout or "") + (result.stderr or ""))
             return f"coverage {' '.join(step)} 失败"
     return None
 
