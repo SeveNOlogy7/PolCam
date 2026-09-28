@@ -31,6 +31,19 @@ from .events import EventType, Event
 from .image_processor import ImageProcessor
 
 
+# 写给用户看的参数名，和"谁在自动模式下接管了这个参数"，用于把 SDK 的原始报错
+# 翻成一句能照着做的话（真机实测：超范围抛 OutOfRange，自动模式开着抛
+# InvalidAccess "Node is not writable"）
+_FLOAT_FEATURE_LABELS = {
+    "ExposureTime": "曝光时间",
+    "Gain": "增益",
+}
+_FLOAT_AUTO_OWNERS = {
+    "ExposureTime": (("ExposureAuto", "自动曝光"),),
+    "Gain": (("GainAuto", "自动增益"),),
+}
+
+
 class CameraType(Enum):
     """相机类型"""
     COLOR = "color"                  # 彩色偏振相机
@@ -59,6 +72,12 @@ class CameraModule(BaseModule):
     # 前者必须明显小于后者，否则停流时读者还挂在 get_image 里。
     GRAB_TIMEOUT_MS = 100
     STREAM_JOIN_TIMEOUT_S = 2.0
+    # 曝光上限实测是 1s，等待窗口要跟着曝光走：固定 100ms 的话长曝光下每秒要空转
+    # 十次轮询，而停流也只能等下一轮才发现该收手。上限留在 join 预算之内。
+    GRAB_TIMEOUT_MAX_MS = 1500
+    # 采集在跑却一帧不来，超过多久才说话（按等待窗口的倍数与这个下限取大）
+    STARVATION_MIN_MS = 3000
+    STARVATION_FACTOR = 3.0
     # 连续失败多少次就收手。不封顶的话线一断就是每秒十条错误事件，而 GUI 每条弹一个
     # 模态框，队列涨得比人点掉的速度快。
     STREAM_ERROR_LIMIT = 20
@@ -73,6 +92,8 @@ class CameraModule(BaseModule):
         self._frame_queue = queue.Queue(maxsize=4)  # 增加队列大小
         self._stop_flag = False
         self._stream_error_count = 0  # 连续采集失败次数，成功一帧就清零
+        self._last_frame_at = 0.0     # 最近真正收到帧的时刻，用来判"采不到帧"
+        self._starvation_reported = False
         
         # 缓存最后设置的参数值
         self._last_params = {
@@ -427,6 +448,8 @@ class CameraModule(BaseModule):
             # 预算要跟着一起清：_stream_once 开头就按它早退，只复位 _stop_flag 的话
             # 重启后的线程每轮都在守卫处返回，既不报错也不退，还跳过所有退避
             self._stream_error_count = 0
+            self._last_frame_at = time.perf_counter()
+            self._starvation_reported = False
             self._camera.stream_on()
             self._is_streaming = True
             
@@ -529,6 +552,31 @@ class CameraModule(BaseModule):
             depth = frame.dtype.itemsize * 8
         return np.right_shift(frame, depth - 8).astype(np.uint8)
 
+    def _grab_timeout_ms(self) -> int:
+        """等待窗口跟着曝光走，但不超过停流能等的时长。"""
+        exposure_ms = float(self._last_params.get('exposure') or 0.0) / 1000.0
+        return int(min(self.GRAB_TIMEOUT_MAX_MS, max(self.GRAB_TIMEOUT_MS, exposure_ms + 50)))
+
+    def _report_starvation_if_due(self) -> None:
+        """采集明明开着，却一帧都不来 —— 说一次，别静默装死。
+
+        实测把 TriggerMode 留在 On（别的程序或相机用户集设的）时，get_image 只是返回
+        None，不抛异常，所以原来的错误预算完全不动：界面显示"采集中"、画面冻住、没有任何
+        提示。
+        """
+        if self._starvation_reported:
+            return
+        window_ms = max(self.STARVATION_MIN_MS,
+                        self._grab_timeout_ms() * self.STARVATION_FACTOR)
+        if (time.perf_counter() - self._last_frame_at) * 1000.0 < window_ms:
+            return
+        self._starvation_reported = True
+        exposure_ms = float(self._last_params.get('exposure') or 0.0) / 1000.0
+        message = (f"{window_ms / 1000.0:.0f}s 内没有采到帧：检查触发模式是否被设成 On、"
+                   f"曝光是否过长（当前 {exposure_ms:.0f}ms）")
+        self._logger.warning(message)
+        self.publish_event(EventType.STATUS_MESSAGE_UPDATE, {'message': message})
+
     def _stream_once(self) -> None:
         """采集一帧并投递；失败时短暂退避。"""
         if self._stream_error_count >= self.STREAM_ERROR_LIMIT:
@@ -539,32 +587,35 @@ class CameraModule(BaseModule):
 
             # 获取图像：这里的等待必须明显短于 stop_streaming 的 join 预算，
             # 否则 join 超时后就只能当着读者的面关句柄
-            raw_image = self._camera.data_stream[0].get_image(timeout=self.GRAB_TIMEOUT_MS)
+            raw_image = self._camera.data_stream[0].get_image(timeout=self._grab_timeout_ms())
             self._stream_error_count = 0
-            if raw_image:
-                frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
-                if frame is not None:
-                    # 计算采集时间
-                    t_capture = time.perf_counter() - t_start
-
-                    # 当队列满时，移除最旧的帧
-                    try:
-                        if self._frame_queue.full():
-                            self._frame_queue.get_nowait()
-                    except queue.Empty:
-                        pass
-
-                    # 将新帧放入队列
-                    self._frame_queue.put(frame)
-
-                    # 发布帧捕获事件，包含采集时间
-                    self.publish_event(EventType.FRAME_CAPTURED, {
-                        "frame": frame,
-                        "capture_time": t_capture,
-                        "timestamp": time.time()
-                    })
-            else:
+            frame = self._to_pipeline_uint8(raw_image.get_numpy_array()) if raw_image else None
+            if frame is None:
+                self._report_starvation_if_due()
                 time.sleep(0.001)  # 短暂暂停避免空转
+                return
+
+            self._last_frame_at = time.perf_counter()
+            self._starvation_reported = False
+            # 计算采集时间
+            t_capture = time.perf_counter() - t_start
+
+            # 当队列满时，移除最旧的帧
+            try:
+                if self._frame_queue.full():
+                    self._frame_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+            # 将新帧放入队列
+            self._frame_queue.put(frame)
+
+            # 发布帧捕获事件，包含采集时间
+            self.publish_event(EventType.FRAME_CAPTURED, {
+                "frame": frame,
+                "capture_time": t_capture,
+                "timestamp": time.time()
+            })
 
         except Exception as e:
             self._stream_error_count += 1
@@ -688,8 +739,49 @@ class CameraModule(BaseModule):
         if not self._remote_feature:
             return
 
-        self.set_exposure_time(self._last_params['exposure'])
-        self.set_gain(self._last_params['gain'])
+        for feature_name, setter, param_key in (
+                ("ExposureTime", self.set_exposure_time, 'exposure'),
+                ("Gain", self.set_gain, 'gain')):
+            try:
+                writable = self._remote_feature.get_float_feature(feature_name).is_writable()
+            except Exception:
+                writable = True
+            if not writable:
+                # 实测自动曝光开着时曝光节点根本不可写，硬写只会冒一条"设不成"的提示，
+                # 每次重连都要来一遍。跳过即可，设备自己会给出值。
+                self._logger.info(f"{feature_name} 由自动模式接管，跳过恢复")
+                continue
+            setter(self._last_params[param_key])
+
+    def _explain_float_write(self, feature_name: str, value: float, error: Exception) -> str:
+        """把两种"必然失败"的写入翻成一句人话。
+
+        真机实测：写 19us 抛 OutOfRange（"must be greater than or equal 20.0"），
+        自动曝光开着时写曝光抛 InvalidAccess（"Node is not writable"）。这两种都不是
+        设备故障，把 SDK 的原文塞进模态框对用户没有意义，所以给出范围/自动模式，
+        并走状态栏而不是错误弹窗。读不到辅助信息时返回空串，让调用方回退到原报错。
+        """
+        text = str(error)
+        label = _FLOAT_FEATURE_LABELS.get(feature_name, feature_name)
+        try:
+            if "must be greater than or equal" in text or "must be smaller than or equal" in text:
+                rng = self.get_parameter_range(feature_name)
+                if rng:
+                    return (f"{label} 设不成 {value}{rng.get('unit') or ''}："
+                            f"相机只接受 {rng['min']}-{rng['max']}{rng.get('unit') or ''}")
+                return f"{label} 设不成 {value}：超出相机允许范围"
+            if "not writable" in text:
+                for auto_feature, owner in _FLOAT_AUTO_OWNERS.get(feature_name, ()):
+                    try:
+                        _, mode = self._remote_feature.get_enum_feature(auto_feature).get()
+                    except Exception:
+                        continue
+                    if mode and mode != "Off":
+                        return f"{label} 当前不可写：{owner}正开着（{mode}），先关掉自动再手动设"
+                return f"{label} 当前不可写"
+        except Exception as e:
+            self._logger.debug(f"翻译写入失败时又出错: {e}")
+        return ""
 
     def set_exposure_time(self, exposure: float):
         """设置曝光时间"""
@@ -704,12 +796,7 @@ class CameraModule(BaseModule):
                 "value": exposure
             })
         except Exception as e:
-            error_msg = f"设置曝光时间失败: {str(e)}"
-            self._logger.error(error_msg)
-            self.publish_event(EventType.ERROR_OCCURRED, {
-                "source": "camera",
-                "error": error_msg
-            })
+            self._report_parameter_rejected("ExposureTime", exposure, e)
 
     def set_gain(self, gain: float):
         """设置增益值"""
@@ -724,12 +811,21 @@ class CameraModule(BaseModule):
                 "value": gain
             })
         except Exception as e:
-            error_msg = f"设置增益值失败: {str(e)}"
-            self._logger.error(error_msg)
-            self.publish_event(EventType.ERROR_OCCURRED, {
-                "source": "camera",
-                "error": error_msg
-            })
+            self._report_parameter_rejected("Gain", gain, e)
+
+    def _report_parameter_rejected(self, feature_name: str, value: float, error: Exception):
+        """ predictable 的拒绝走状态栏，真正的故障仍然按错误上报。"""
+        friendly = self._explain_float_write(feature_name, value, error)
+        if friendly:
+            self._logger.warning(f"{friendly}（SDK: {error}）")
+            self.publish_event(EventType.STATUS_MESSAGE_UPDATE, {'message': friendly})
+            return
+        error_msg = f"设置{feature_name}失败: {str(error)}"
+        self._logger.error(error_msg)
+        self.publish_event(EventType.ERROR_OCCURRED, {
+            "source": "camera",
+            "error": error_msg
+        })
 
     def set_exposure_auto(self, auto: bool):
         """设置自动曝光模式"""

@@ -23,8 +23,17 @@ def camera_module():
         mock_dm.return_value.open_device_by_index.return_value = mock_device
         mock_device.get_remote_device_feature_control.return_value = mock_remote_feature
         
-        # 设置默认参数值
-        mock_remote_feature.get_float_feature.return_value.get.return_value = 10000.0
+        # 浮点参数替身要像真机那样"写进去再读回来"。真机实测：超量程或被自动模式接管的
+        # 写入会被静默丢掉，回读值才是设备的真实状态，所以不能把 get 钉死在一个常数上。
+        float_holdings = {'ExposureTime': 10000.0, 'Gain': 0.0}
+
+        def fake_float_feature(name):
+            feature = MagicMock()
+            feature.set.side_effect = lambda value: float_holdings.__setitem__(name, float(value))
+            feature.get.side_effect = lambda: float_holdings[name]
+            return feature
+
+        mock_remote_feature.get_float_feature.side_effect = fake_float_feature
         # EnumFeature.get() 返回 (枚举值, 描述字符串)，替身必须照真实形状给，
         # 给成裸字符串会让“按字符串比较”的错误代码看起来也是对的
         mock_remote_feature.get_enum_feature.return_value.get.return_value = (0, "Off")
@@ -74,6 +83,151 @@ def test_second_connect_keeps_the_live_device(camera_module):
     # 显式选设备时不能被他挡住：断开后仍然要能重新打开
     camera_module.disconnect()
     assert camera_module.connect() is True
+
+
+def _device_float_feature(camera_module, held, accepts=True):
+    """给一个"写进去能读回来"的浮点参数替身（真机的行为），accepts=False 用来模拟拒绝。"""
+    feature = MagicMock()
+
+    def apply(value):
+        if accepts:
+            held[0] = float(value)
+
+    feature.set.side_effect = apply
+    feature.get.side_effect = lambda: held[0]
+    camera_module._remote_feature.get_float_feature.side_effect = lambda name: feature
+    return feature
+
+
+def test_out_of_range_exposure_reports_the_device_range_not_a_modal(camera_module):
+    """超范围写入要说清范围并走状态栏，不该把 SDK 原文塞进错误弹窗。
+
+    真机实测：量程 20us-1s，写 19us 抛
+    OutOfRange{-11}{Value 19.0 must be greater than or equal 20.0}。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    feature = MagicMock()
+    feature.set.side_effect = RuntimeError(
+        "FloatFeature_s.set:{-11}{Value 19.000000 must be greater than or equal 20.000000.}")
+    feature.get_range.return_value = {'min': 20.0, 'max': 1000000.0, 'inc': 0.0, 'unit': 'us'}
+    camera_module._remote_feature.get_float_feature.side_effect = lambda name: feature
+    published = {}
+
+    def record(event_type, data=None):
+        published.setdefault(event_type, []).append(data)
+
+    camera_module.publish_event = record
+
+    camera_module.set_exposure_time(19.0)
+
+    assert EventType.STATUS_MESSAGE_UPDATE in published
+    message = published[EventType.STATUS_MESSAGE_UPDATE][0]['message']
+    assert "20.0" in message and "1000000.0" in message, message
+    assert EventType.ERROR_OCCURRED not in published, "可预见的拒绝不该弹模态框"
+    assert camera_module.get_last_exposure() == 10000.0, "写没成就该保持原值，别记一个假值"
+
+
+def test_write_owned_by_auto_exposure_names_the_auto_mode(camera_module):
+    """自动曝光接管时写曝光抛的是 InvalidAccess，得告诉用户先关自动。"""
+    camera_module.initialize()
+    camera_module.start()
+    feature = MagicMock()
+    feature.set.side_effect = RuntimeError("FloatFeature_s.set:{-8}{Node is not writable.}")
+    camera_module._remote_feature.get_float_feature.side_effect = lambda name: feature
+    camera_module._remote_feature.get_enum_feature.return_value.get.return_value = (1, "Continuous")
+    messages = []
+
+    def record(event_type, data=None):
+        if event_type == EventType.STATUS_MESSAGE_UPDATE:
+            messages.append((data or {}).get('message', ''))
+
+    camera_module.publish_event = record
+
+    camera_module.set_exposure_time(20000.0)
+
+    assert messages and "自动曝光" in messages[0] and "Continuous" in messages[0], messages
+
+
+def test_reconnect_skips_parameters_the_device_refuses(camera_module):
+    """重连时不要硬写被自动模式接管的参数：每次重连冒一条"设不成"的提示是噪音。"""
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._last_params['exposure'] = 20000.0
+    feature = MagicMock()
+    feature.is_writable.return_value = False
+
+    def explode(value):
+        raise AssertionError("不可写的参数不该被写")
+
+    feature.set.side_effect = explode
+    camera_module._remote_feature.get_float_feature.side_effect = lambda name: feature
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    camera_module._restore_cached_parameters()
+
+    assert EventType.STATUS_MESSAGE_UPDATE not in published
+    assert EventType.ERROR_OCCURRED not in published
+
+
+def test_accepted_exposure_write_publishes_no_complaint(camera_module):
+    camera_module.initialize()
+    camera_module.start()
+    held = [10000.0]
+    _device_float_feature(camera_module, held, accepts=True)
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    camera_module.set_exposure_time(20000.0)
+
+    assert camera_module.get_last_exposure() == 20000.0
+    assert published == [EventType.PARAMETER_CHANGED]
+
+
+def test_grab_timeout_follows_exposure_but_stays_under_the_join_budget(camera_module):
+    """500ms 曝光不该用 100ms 轮询；但等待窗口必须留在停流预算之内。"""
+    camera_module._last_params['exposure'] = 10000.0
+    assert camera_module._grab_timeout_ms() == camera_module.GRAB_TIMEOUT_MS
+
+    camera_module._last_params['exposure'] = 500000.0
+    assert camera_module._grab_timeout_ms() == 550
+
+    camera_module._last_params['exposure'] = 1000000.0
+    timeout = camera_module._grab_timeout_ms()
+    assert timeout == 1050, "1s 曝光留 50ms 余量"
+    assert timeout / 1000.0 < camera_module.STREAM_JOIN_TIMEOUT_S
+    camera_module._last_params['exposure'] = 5000000.0
+    assert camera_module._grab_timeout_ms() == camera_module.GRAB_TIMEOUT_MAX_MS
+
+
+def test_silent_starvation_is_said_once_and_resets_on_a_frame(camera_module):
+    """采集开着却一帧不来（实测触发模式为 On 就是这样），要说一次而不是永远不说。"""
+    camera_module.initialize()
+    camera_module.start()
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+    camera_module._is_streaming = True
+
+    empty = MagicMock()
+    empty.get_numpy_array.return_value = None
+    camera_module._camera.data_stream[0].get_image.return_value = empty
+    camera_module._last_frame_at = time.perf_counter() - 10.0
+
+    camera_module._stream_once()
+    camera_module._stream_once()
+    assert published.count(EventType.STATUS_MESSAGE_UPDATE) == 1, "重复刷屏或干脆不说都不对"
+
+    filled = MagicMock()
+    filled.get_numpy_array.return_value = np.zeros((8, 8), dtype=np.uint8)
+    camera_module._camera.data_stream[0].get_image.return_value = filled
+    camera_module._stream_once()
+    assert EventType.FRAME_CAPTURED in published
+
+    camera_module._camera.data_stream[0].get_image.return_value = empty
+    camera_module._last_frame_at = time.perf_counter() - 10.0
+    camera_module._stream_once()
+    assert published.count(EventType.STATUS_MESSAGE_UPDATE) == 2
 
 
 def test_to_pipeline_uint8_downshifts_wide_frames(camera_module):
