@@ -83,3 +83,74 @@ def test_toolbar_controller_destroy_disconnects_every_action(qapp):
 
     toolbar.open_raw_action.trigger()
     assert len(calls) == 2, f"一次点击触发了 {len(calls) - 1} 次打开对话框"
+
+
+def test_save_result_writes_the_file_set_verified_on_the_device(tmp_path, qapp, monkeypatch):
+    """「保存处理结果」在偏振分析模式该写出哪几个文件，用真机核对过，现在锁住。
+
+    真机（MER2-502-79U3M-HS POL，2448x2048）实测写出 6 个文件：合成图是 2D 灰度，
+    DOLP/AOLP/DOCP 都是上色后的 3 通道 uint8，另有一份四分合成图和 _POL.npy（float32
+    原值 + docp_signed）。这段代码在测试里从没跑过，而浮点参数图一旦被直接当图像存盘就会
+    被静默截成 8bit（DoLP 0..1 折进 0/1，出来一张近黑的图）—— 原值必须走 .npy。
+    """
+    import cv2
+    import numpy as np
+    from unittest.mock import MagicMock
+    from qtpy import QtWidgets
+    from polcam.core.processing_module import ProcessingMode, ProcessingResult
+
+    main_window = SimpleNamespace(toolbar=ToolBar(), camera=MagicMock(), status_label=MagicMock(),
+                                  settings_service=MagicMock())
+    controller = ToolbarController(main_window)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    names = []
+
+    def fake_name(self, title, timestamp=None, mode_str=""):
+        names.append(mode_str)
+        return str(tmp_path / f"shot{len(names)}"), ".tiff", True
+
+    monkeypatch.setattr(ToolbarController, "_get_save_filename", fake_name)
+
+    dolp = np.full((16, 16), 0.5, dtype=np.float32)
+    controller._last_result = ProcessingResult(
+        mode=ProcessingMode.POLARIZATION,
+        images=[np.zeros((16, 16), dtype=np.uint8), dolp,
+                np.full((16, 16), 90.0, dtype=np.float32),
+                np.full((16, 16), -0.25, dtype=np.float32)],
+        metadata={'type': ['merged', 'dolp', 'aolp', 'docp'], 'is_color': False,
+                  'pol_wb_enabled': False, 'docp_signed': True,
+                  'retarder': {'in_path': True, 'angles_deg': (45.0,)}},
+        timestamp=0.0, capture_timestamp=0.0)
+    controller._last_result_timestamp = 0.0
+
+    controller._handle_save_result()
+
+    written = sorted(p.name for p in tmp_path.iterdir())
+    assert written == ['shot1_AOLP.tiff', 'shot1_DOCP.tiff', 'shot1_DOLP.tiff',
+                       'shot1_MERGED_GRAY.tiff', 'shot1_POL.npy',
+                       'shot1_POLARIZATION_QUAD_COMPOSITE.tiff'], written
+
+    params = np.load(tmp_path / "shot1_POL.npy", allow_pickle=True).item()
+    assert params['dolp'].dtype == np.float32 and params['dolp'].shape == (16, 16)
+    assert params['docp_signed'] is True
+    assert params['retarder']['angles_deg'] == (45.0,)
+    for suffix in ('DOLP', 'AOLP', 'DOCP'):
+        img = cv2.imdecode(np.fromfile(str(tmp_path / f"shot1_{suffix}.tiff"), dtype=np.uint8),
+                           cv2.IMREAD_UNCHANGED)
+        assert img.shape == (16, 16, 3) and img.dtype == np.uint8, f"{suffix} 没有被上色成 3 通道"
+
+    # 四角度灰度：四个角度各一张 + 一张 2x 尺寸的四分合成图（真机同样核对过 5 个文件）
+    controller._last_result = ProcessingResult(
+        mode=ProcessingMode.QUAD_GRAY,
+        images=[np.full((16, 16), v, dtype=np.uint8) for v in (10, 20, 30, 40)],
+        metadata={'angles': [0, 45, 90, 135], 'wb_enabled': False,
+                  'quad_titles': ['0 deg', '45 deg', '90 deg', '135 deg']},
+        timestamp=0.0, capture_timestamp=0.0)
+    controller._handle_save_result()
+
+    quad_files = sorted(p.name for p in tmp_path.iterdir() if p.name.startswith("shot2"))
+    assert quad_files == ['shot2_GRAY_0.tiff', 'shot2_GRAY_135.tiff', 'shot2_GRAY_45.tiff',
+                          'shot2_GRAY_90.tiff', 'shot2_GRAY_QUAD_COMPOSITE.tiff'], quad_files
+    tile = cv2.imdecode(np.fromfile(str(tmp_path / "shot2_GRAY_45.tiff"), dtype=np.uint8),
+                        cv2.IMREAD_UNCHANGED)
+    assert tile.shape == (16, 16) and int(tile[0, 0]) == 20, "45° 那张存的不是 45° 的角度图"
