@@ -45,7 +45,8 @@ def test_retarder_solver_follows_the_task_params():
 
     two = module._get_retarder_solver(
         {'retarder_in_path': True, 'retarder_fast_axis_deg': [0.0, 45.0]})
-    assert two.complete
+    # 逐角度采集还没接上：单帧只能按第一个角度解，否则估计式会因为缺 4N 张图每帧报错
+    assert two.fast_axis_degrees == (0.0,)
     assert module._get_retarder_solver(
         {'retarder_in_path': True, 'retarder_fast_axis_deg': []}) is None
 
@@ -74,6 +75,66 @@ def test_polarization_result_records_the_waveplate_state():
     assert plain.metadata['docp_signed'] is False
     assert plain.metadata['retarder'] is None
     assert plain.images[3].min() >= 0, "没有波片时 DoCP 只能是幅值"
+
+
+def test_waveplate_limitation_is_said_once_not_every_frame():
+    """波片提示按状态说一次、发到状态栏，多给角度也不能把任务抛死。
+
+    真机实测两处：同一个 α 在连续采集下每个成功帧写一条 WARNING（3 秒 4 帧就是 4 条），
+    而且只进日志，用户在界面上根本看不见那句"DoLP/AoLP 是部分量"；参数里给到第二个角度
+    时估计式因为只收到 4 张而不是 8 张图，每一帧都抛"必须提供8个角度的图像"，偏振视图
+    彻底停住。
+    """
+    from polcam.core.processing_module import ProcessingMode, ProcessingTask
+
+    module = ProcessingModule()
+    module.initialize()
+    messages = []
+    module.subscribe_event(
+        EventType.STATUS_MESSAGE_UPDATE, lambda e: messages.append(e.data['message']))
+    params = dict(module.get_parameters())
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+
+    steps = iter(range(1, 200))
+
+    def run(retarder_params, times):
+        result = None
+        for _ in range(times):
+            # 帧内容必须每步都换：_process_task 命中结果缓存会直接返回旧结果，
+            # 那就根本没走到提示这段，测的就不是提示而是缓存了
+            result = module._process_task(
+                ProcessingTask(frame=frame + next(steps), mode=ProcessingMode.POLARIZATION,
+                               params=dict(params, **retarder_params), priority=0))
+        return result
+
+    run({'retarder_in_path': True, 'retarder_fast_axis_deg': 0.0}, 5)
+    assert len(messages) == 1, f"同一个角度说了 {len(messages)} 次"
+    assert '只能定住' in messages[0]
+
+    run({'retarder_in_path': True, 'retarder_fast_axis_deg': 45.0}, 3)
+    assert len(messages) == 2, "换了一个角度应当重新提醒一次"
+
+    run({'retarder_in_path': True, 'retarder_fast_axis_deg': 45.0}, 3)
+    assert len(messages) == 2, "角度没变就不该再说"
+
+    multi = run({'retarder_in_path': True, 'retarder_fast_axis_deg': [0.0, 45.0]}, 3)
+    assert len(messages) == 3, f"多给角度要说一次，实际收到 {messages[2:]}"
+    assert '只按' in messages[2] and '没参与' in messages[2]
+    assert multi is not None, "逐角度采集没接上时不能把任务抛死"
+    assert multi.metadata['retarder']['fast_axis_degrees'] == (0.0,)
+
+    run({'retarder_in_path': True, 'retarder_fast_axis_deg': 0.0}, 3)
+    assert len(messages) == 4, "回到单角度要重新提醒"
+
+    run({'retarder_in_path': False}, 3)
+    assert len(messages) == 4, "波片拿掉了没什么可提醒的"
+
+    run({'retarder_in_path': True, 'retarder_fast_axis_deg': 0.0}, 3)
+    assert len(messages) == 5, "再放进去要重新提醒一次"
+
+    run({'retarder_in_path': True, 'retarder_fast_axis_deg': []}, 4)
+    assert len(messages) == 6, f"没有角度时应该提醒按无波片解算，实际收到 {messages[5:]}"
+    assert '没有快轴角度' in messages[-1]
 
 
 def _processing_loop_threads():

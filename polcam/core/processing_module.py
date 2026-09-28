@@ -204,6 +204,8 @@ class ProcessingModule(BaseModule):
         self._wb_cache = WhiteBalanceCache(valid_duration=2.0)
         # (角度组) -> StokesSolver：拨片每走一步都会换角度，测量矩阵不必每帧重算
         self._solver_cache: Dict[tuple, object] = {}
+        # 上一次说出口的波片提示的判据，用来把"每帧一条"压成"每个状态一条"
+        self._last_retarder_notice_key: Optional[tuple] = None
         
     def _worker_ref(self):
         """指向本模块的弱引用；模块被回收时把停止信号塞进队列。
@@ -583,12 +585,9 @@ class ProcessingModule(BaseModule):
                 dolp, aolp, docp = self._processor.calculate_polarization_parameters(
                     decoded, solver=solver)
                 docp_signed = bool(solver is not None and solver.docp_determined)
-                if solver is not None and not solver.complete:
-                    # 单个快轴角度只能定住 3 个 Stokes 分量：伪逆把缺的那个填成 0，
-                    # 那是最小范数解不是测量值，必须让用户看见
-                    self._logger.warning(
-                        f"波片在 {solver.fast_axis_degrees}° 时只能定住 {solver.determined}，"
-                        f"DoLP/AoLP 是部分量；多转几个角度再采一次才能同时定住四个分量")
+                # 单个快轴角度只能定住 3 个 Stokes 分量：伪逆把缺的那个填成 0，
+                # 那是最小范数解不是测量值，必须让用户看见（而且要说一次，不是每帧一条）
+                self._report_retarder_notice(self._retarder_notice(task.params, solver))
                 
                 # 保存处理结果
                 images = [merged, dolp, aolp, docp]
@@ -666,9 +665,9 @@ class ProcessingModule(BaseModule):
     def _get_retarder_solver(self, params: Dict[str, Any]):
         """按任务参数造 StokesSolver；波片不在光路里就返回 None（用线偏阵列原式）。
 
-        `retarder_fast_axis_deg` 允许单个角度或角度序列：手动放一片时是一个数，自动转角的
-        拨片到位后可以一次给多个角度、每个角度各采一帧，那时设计矩阵叠到 4N 行，四个
-        Stokes 分量才同时定得住。
+        `retarder_fast_axis_deg` 允许单个角度或角度序列：模型和估计式都按 N 个角度准备
+        好了（设计矩阵叠到 4N 行才能同时定住四个 Stokes 分量），但逐角度采集还没接上，
+        所以这里只按第一个角度建解算器，多给的角度由 `_retarder_notice` 说明。
         """
         if not params.get('retarder_in_path', False):
             return None
@@ -678,8 +677,13 @@ class ProcessingModule(BaseModule):
         else:
             angles = (float(raw_angles),)
         if not angles:
-            self._logger.warning("波片已放入光路但没有快轴角度，按无波片解算")
             return None
+        if len(angles) > 1:
+            # 多个 α 需要每个角度各采一帧，叠到 4N 行才解得出四个 Stokes 分量；
+            # 逐角度采集还没接上，单帧喂给 4N 行的估计式只会每帧抛
+            # "必须提供8个角度的图像"，偏振视图彻底不动。先按第一个角度解，
+            # 并把降级这件事交给 _retarder_notice 说一次。
+            angles = (angles[0],)
 
         key = angles
         solver = self._solver_cache.get(key)
@@ -689,6 +693,44 @@ class ProcessingModule(BaseModule):
                 self._solver_cache.clear()
             self._solver_cache[key] = solver
         return solver
+
+    def _retarder_notice(self, params: Dict[str, Any], solver) -> Tuple[tuple, str]:
+        """当前波片状态该提醒用户什么，返回 (判据, 文本)；无需提醒时文本为空。
+
+        判据带上角度和"能定住哪些分量"：连续采集时每帧都会走到这里，只有状态真的变了
+        才算一条新提示。波片拿掉判据就变成"不在光路"，再放进去会重新提醒一次。
+        """
+        raw_angles = params.get('retarder_fast_axis_deg', 0.0)
+        if (params.get('retarder_in_path', False)
+                and isinstance(raw_angles, (list, tuple)) and len(raw_angles) > 1):
+            return (('multi_angle', tuple(raw_angles)),
+                    f"一次给了 {len(raw_angles)} 个快轴角度，但逐角度采集还没接上："
+                    f"现在只按 {float(raw_angles[0])}° 解算，其余角度没参与")
+        if solver is not None:
+            if solver.complete:
+                return ('complete', solver.fast_axis_degrees), ""
+            return (('partial', solver.fast_axis_degrees),
+                    f"波片在 {solver.fast_axis_degrees}° 时只能定住 {solver.determined}，"
+                    f"DoLP/AoLP 是部分量；再多测一个角度才能同时定住四个分量")
+        if params.get('retarder_in_path', False):
+            return ('no_angle',), "波片已放入光路但没有快轴角度，按无波片解算"
+        return ('out_of_path',), ""
+
+    def _report_retarder_notice(self, notice: Tuple[tuple, str]):
+        """把波片提示说一次，而不是每帧一条。
+
+        实测真机连续采集时每一个成功帧都写一条 WARNING（3 秒 4 帧就是 4 条），采集久
+        了日志全是同一句话；而且只写日志，用户在界面上根本看不见"DoLP/AoLP 是部分量"，
+        所以同一判据只发一次并同步到状态栏。
+        """
+        key, message = notice
+        if key == self._last_retarder_notice_key:
+            return
+        self._last_retarder_notice_key = key
+        if not message:
+            return
+        self._logger.warning(message)
+        self.publish_event(EventType.STATUS_MESSAGE_UPDATE, {'message': message})
 
     def _convert_bayer_to_bgr(self, frame: np.ndarray) -> np.ndarray:
         """使用 gxipy ImageFormatConvert 将 Bayer 原始帧转换为 BGR 图像
