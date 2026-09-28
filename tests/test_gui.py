@@ -1322,11 +1322,6 @@ def _overlay_green_centroid(overlay):
     return (xs / hits, ys / hits) if hits else None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="裁剪后游标仍按源图坐标画，且 quad_size 还是裁剪前的值（实测裁剪到 64x64 后"
-           "它仍是 128x128）——要改的是四图合成与视图状态的换算，不在这里顺手猜",
-)
 def test_quad_cursor_overlay_follows_the_software_crop(qapp):
     """游标画在裁剪后的哪一格，得按裁剪窗口算，不能拿源图坐标直接乘。
 

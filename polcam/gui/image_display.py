@@ -1380,8 +1380,24 @@ class _QuadCursorOverlay(QtWidgets.QWidget):
 
         x_offset, y_offset, display_width, display_height = geom
         canvas_h, canvas_w = rendered_shape
-        quad_h, quad_w = display.quad_size
         rel_x, rel_y = cursor_pos
+
+        # quad_positions 是源画布坐标，geom/scale 却按真正渲染出来的那张画布算。软件
+        # 裁剪让两者不再相等：直接把源坐标乘 scale，会把窗外的点画进视图、把窗内的点
+        # 推到画布外。先折算成"第几格 + 格内比例"，再按渲染后的格子大小落位。
+        view = display._get_current_view_roi()
+        if view is None:
+            return
+        view_x, view_y, view_w, view_h = view
+        col_positions = sorted({quad_x for _, quad_x in display.quad_positions})
+        row_positions = sorted({quad_y for quad_y, _ in display.quad_positions})
+        tile_w = canvas_w / len(col_positions) if canvas_w else 0.0
+        tile_h = canvas_h / len(row_positions) if canvas_h else 0.0
+        u = (rel_x - view_x) / view_w if view_w else 0.0
+        v = (rel_y - view_y) / view_h if view_h else 0.0
+        if not (0.0 <= u < 1.0 and 0.0 <= v < 1.0):
+            # 这一点根本不在当前视图里，四格里哪一格都不该画
+            return
 
         scale_x = display_width / canvas_w if canvas_w else 1.0
         scale_y = display_height / canvas_h if canvas_h else 1.0
@@ -1400,30 +1416,31 @@ class _QuadCursorOverlay(QtWidgets.QWidget):
         painter.setPen(green_pen)
         painter.setBrush(QtGui.QColor(0, 255, 0))
 
-        for quad_y, quad_x in display.quad_positions:
-            center_x = x_offset + (quad_x + rel_x) * scale_x
-            center_y = y_offset + (quad_y + rel_y) * scale_y
-            left = x_offset + quad_x * scale_x
-            right = x_offset + (quad_x + quad_w) * scale_x
-            top = y_offset + quad_y * scale_y
-            bottom = y_offset + (quad_y + quad_h) * scale_y
+        for row, quad_y in enumerate(row_positions):
+            for col, quad_x in enumerate(col_positions):
+                center_x = x_offset + (col + u) * tile_w * scale_x
+                center_y = y_offset + (row + v) * tile_h * scale_y
+                left = x_offset + col * tile_w * scale_x
+                right = x_offset + (col + 1) * tile_w * scale_x
+                top = y_offset + row * tile_h * scale_y
+                bottom = y_offset + (row + 1) * tile_h * scale_y
 
-            painter.setPen(green_pen)
-            painter.drawLine(
-                QtCore.QPointF(center_x - cursor_size, center_y),
-                QtCore.QPointF(center_x + cursor_size, center_y),
-            )
-            painter.drawLine(
-                QtCore.QPointF(center_x, center_y - cursor_size),
-                QtCore.QPointF(center_x, center_y + cursor_size),
-            )
-            painter.drawEllipse(QtCore.QPointF(center_x, center_y), dot_radius, dot_radius)
+                painter.setPen(green_pen)
+                painter.drawLine(
+                    QtCore.QPointF(center_x - cursor_size, center_y),
+                    QtCore.QPointF(center_x + cursor_size, center_y),
+                )
+                painter.drawLine(
+                    QtCore.QPointF(center_x, center_y - cursor_size),
+                    QtCore.QPointF(center_x, center_y + cursor_size),
+                )
+                painter.drawEllipse(QtCore.QPointF(center_x, center_y), dot_radius, dot_radius)
 
-            painter.setPen(white_pen)
-            painter.drawLine(QtCore.QPointF(left, center_y), QtCore.QPointF(center_x - cursor_size, center_y))
-            painter.drawLine(QtCore.QPointF(center_x + cursor_size, center_y), QtCore.QPointF(right, center_y))
-            painter.drawLine(QtCore.QPointF(center_x, top), QtCore.QPointF(center_x, center_y - cursor_size))
-            painter.drawLine(QtCore.QPointF(center_x, center_y + cursor_size), QtCore.QPointF(center_x, bottom))
+                painter.setPen(white_pen)
+                painter.drawLine(QtCore.QPointF(left, center_y), QtCore.QPointF(center_x - cursor_size, center_y))
+                painter.drawLine(QtCore.QPointF(center_x + cursor_size, center_y), QtCore.QPointF(right, center_y))
+                painter.drawLine(QtCore.QPointF(center_x, top), QtCore.QPointF(center_x, center_y - cursor_size))
+                painter.drawLine(QtCore.QPointF(center_x, center_y + cursor_size), QtCore.QPointF(center_x, bottom))
 
         painter.end()
 
