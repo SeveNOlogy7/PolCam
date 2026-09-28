@@ -11,6 +11,34 @@ from qtpy import QtCore
 from polcam.core.settings import SettingsService
 
 
+def test_settings_live_in_a_dedicated_file(tmp_path: Path):
+    """配置要落在一个确定的文件里，跨进程、跨启动方式都还在。
+
+    默认的 QSettings() 在 Windows 上取 registry 里的 organizationName/applicationName；
+    没设过这两个时该存储是 invalid —— 实测 org='' app='python' 时 setValue 静默失败，
+    读回来永远是默认值，等于用户选的目录白选。
+    """
+    ini = tmp_path / "PolCam" / "settings.ini"
+    first = SettingsService(ini_path=ini)
+    wanted = str(tmp_path / "shots")
+    first.set_auto_save_directory(wanted)
+    first.set_last_directory(str(tmp_path / "last"))
+
+    assert ini.exists()
+    second = SettingsService(ini_path=ini)
+    assert second.get_auto_save_directory() == wanted
+    assert second.get_last_directory() == str(tmp_path / "last")
+
+
+def test_default_service_path_is_under_the_app_directory(tmp_path: Path, monkeypatch):
+    """默认路径 = ~/PolCam/settings.ini，和日志、图库在同一个目录下。"""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    service = SettingsService()
+
+    assert service.settings_path().endswith("settings.ini")
+    assert "PolCam" in service.settings_path()
+
+
 def test_retarder_settings_survive_the_round_trip(tmp_path: Path):
     """波片状态和角度存进去要能原样读回来，多个 α 的列表也不行。
 

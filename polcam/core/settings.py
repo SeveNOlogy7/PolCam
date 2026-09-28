@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from qtpy import QtCore
 
@@ -78,10 +78,48 @@ class AppSettings:
 
 
 class SettingsService:
-    """基于 QSettings 的轻量配置服务。"""
+    """基于 QSettings 的轻量配置服务。
 
-    def __init__(self, settings: Optional[QtCore.QSettings] = None):
-        self._settings = settings or QtCore.QSettings()
+    默认写到 ~/PolCam/settings.ini，而不是靠进程元数据的 `QSettings()`。默认的
+    QSettings 在 Windows 上取 registry 的 organizationName/applicationName，两者没设过
+    时这个存储是 invalid —— setValue 静默失败、读出来永远是默认值，而日志和图库都已经在
+    ~/PolCam 下面了，配置也该在同一处才能被用户找到。
+    """
+
+    SETTINGS_FILE = "settings.ini"
+
+    def __init__(self, settings: Optional[QtCore.QSettings] = None,
+                 ini_path: Optional[Union[str, Path]] = None):
+        if settings is not None:
+            self._settings = settings
+            return
+        path = Path(ini_path) if ini_path is not None else \
+            Path(self.get_app_data_directory()) / self.SETTINGS_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._settings = QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+        self._migrate_legacy_settings(path)
+
+    @staticmethod
+    def _migrate_legacy_settings(target_path: Path):
+        """把老版本存在 registry（organizationName/applicationName）里的配置搬过来一次。
+
+        1.0.x 的用户配好过目录和参数，换了存储位置不能让他们以为设置被清了。
+        """
+        if target_path.exists():
+            return
+        legacy = QtCore.QSettings()
+        if legacy.status() != QtCore.QSettings.Status.NoError or not legacy.allKeys():
+            return
+        target = QtCore.QSettings(str(target_path), QtCore.QSettings.Format.IniFormat)
+        for key in legacy.allKeys():
+            value = legacy.value(key)
+            if value is not None:
+                target.setValue(key, value)
+        target.sync()
+
+    def settings_path(self) -> str:
+        """当前配置文件的位置（诊断用，也让设置对话框能告诉用户去哪儿找）。"""
+        return self._settings.fileName()
 
     def load(self) -> AppSettings:
         return AppSettings(
