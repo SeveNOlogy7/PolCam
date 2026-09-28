@@ -110,6 +110,9 @@ def isolate_user_directories(tmp_path_factory):
     2. gallery.db 和 logs 同样在 ~/PolCam 下（gallery_service._build_default_db_path、
        utils.logger），测试建的是真库真日志。
     Path.home() 是这三处唯一的入口，所以按它收口，而不是逐个模块打补丁。
+    注意：这个补丁只在本进程有效。会另起 python 跑 PolCam 代码的测试（test_gui 里的 GC
+    探针）要在子进程自己 patch Path.home()——不能改 HOME/USERPROFILE，大恒 SDK 也读它们，
+    实测改了探针子进程直接 0xc0000409 崩掉。
     QSettings 的默认格式仍然设为 Ini+临时路径：那是 _migrate_legacy_settings 里
     `QSettings()` 读老配置那条路，不能让它去碰注册表。
     """
