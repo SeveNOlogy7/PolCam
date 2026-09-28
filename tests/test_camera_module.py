@@ -267,6 +267,42 @@ def test_one_shot_returns_early_when_the_device_finishes(camera_module):
     assert published == []
 
 
+def test_get_frame_while_streaming_does_not_reannounce_the_frame(camera_module):
+    """连续采集时 get_frame() 不能再发一次 FRAME_CAPTURED。
+
+    入队那一刻这帧已经广播过；再发一遍 GUI 会把同一帧解码+处理两次，而且这里的
+    t_capture 量的是排队等待时间，报出去的"采集耗时"是假的。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._is_streaming = True
+    frame = np.zeros((8, 8), dtype=np.uint8)
+    camera_module._frame_queue.put(frame)
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    assert camera_module.get_frame() is frame
+    assert EventType.FRAME_CAPTURED not in published
+
+
+def test_get_frame_while_stopped_announces_the_frame_once(camera_module):
+    """没在采集时的单帧采集要靠事件把帧告诉 GUI，而且只播一次。"""
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._is_streaming = False
+    image = MagicMock()
+    image.get_numpy_array.return_value = np.ones((8, 8), dtype=np.uint8)
+    camera_module._camera.data_stream[0].get_image.return_value = image
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append(event_type)
+
+    frame = camera_module.get_frame()
+
+    assert frame is not None and frame.shape == (8, 8)
+    assert published == [EventType.FRAME_CAPTURED]
+    assert not camera_module.is_streaming(), "临时开流结束后必须收干净"
+
+
 def test_to_pipeline_uint8_downshifts_wide_frames(camera_module):
     """10bit 帧必须在进应用的那一刻降到 8bit。
 

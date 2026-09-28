@@ -673,17 +673,11 @@ class CameraModule(BaseModule):
                     self._camera.stream_off()
                     time.sleep(0.1)  # 等待数据流关闭
             else:
-                # 连续采集模式下增加等待时间
+                # 这一帧在入队的那一刻就已经广播过一次了，这里再发一遍就是重复事件：
+                # GUI 会把同一帧再解码再处理一次，而此处 t_capture 量到的是排队等待时间，
+                # 显示出来的"采集耗时"是假的。所以只把帧交回去。
                 try:
-                    frame = self._frame_queue.get(timeout=0.1)
-                    t_capture = time.perf_counter() - t_start
-                    # 添加时间信息
-                    self.publish_event(EventType.FRAME_CAPTURED, {
-                        "frame": frame,
-                        "capture_time": t_capture,
-                        "timestamp": time.time()
-                    })
-                    return frame
+                    return self._frame_queue.get(timeout=0.1)
                 except queue.Empty:
                     self._logger.error("图像队列为空")
                     return None
