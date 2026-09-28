@@ -10,6 +10,37 @@ from polcam.core.toolbar_controller import ToolbarController
 from polcam.gui.widgets.tool_bar import ToolBar
 
 
+def test_loading_a_file_is_refused_while_the_stream_is_running(tmp_path, qapp):
+    """采集中不能加载文件：屏幕会被实时帧冲掉，而 _current_frame 已经变成文件内容。
+
+    真机实测：1024x1024、均值 200 的文件在连续采集中打开，画面一直是实时帧
+    （2448x2048、均值 15），用户看不到任何反应；紧接着按「保存原始图像」，写盘的是那个
+    旧文件的像素（存回均值 200），不是屏幕上正在看的画面。
+    """
+    import cv2
+    import numpy as np
+    from unittest.mock import MagicMock
+
+    live_frame = np.full((8, 8), 15, dtype=np.uint8)
+    path = tmp_path / "old.tiff"
+    cv2.imwrite(str(path), np.full((16, 16), 200, dtype=np.uint8))
+
+    main_window = SimpleNamespace(toolbar=ToolBar(), camera=MagicMock(),
+                                  status_label=MagicMock())
+    main_window.camera.is_streaming.return_value = True
+    controller = ToolbarController(main_window)
+    controller.update_current_frame(live_frame)
+
+    assert controller.load_raw_file(str(path)) is None, "采集中仍然把文件加载进来了"
+    assert controller._current_frame is live_frame, "_current_frame 被换成了文件内容"
+    main_window.status_label.setText.assert_called_once()
+    assert "停止采集" in main_window.status_label.setText.call_args[0][0]
+
+    main_window.camera.is_streaming.return_value = False
+    loaded = controller.load_raw_file(str(path), publish_event=False)
+    assert loaded is not None and loaded.shape == (16, 16), "停止采集后应该照常打开"
+
+
 def test_polarization_npy_records_the_signed_docp_contract(tmp_path, qapp):
     """导出的 npy 要自带"符号有没有物理意义"，否则读的人会拿噪声当旋向。"""
     import numpy as np

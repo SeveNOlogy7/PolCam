@@ -232,8 +232,18 @@ class ToolbarController(BaseModule):
         """将指定帧保存到目标文件。"""
         self._raw_image_service.save_image(frame, file_path)
 
-    def load_raw_file(self, file_path: str, publish_event: bool = True) -> np.ndarray:
-        """读取原始图像文件，并按需发布加载事件。"""
+    def load_raw_file(self, file_path: str, publish_event: bool = True) -> Optional[np.ndarray]:
+        """读取原始图像文件，并按需发布加载事件。
+
+        连续采集进行中时拒绝加载。真机实测两条后果：采集线程每帧都重画图像区，打开的
+        1024x1024（均值 200）文件根本看不到，画面始终是实时帧（2448x2048，均值 15）；
+        更糟的是 `_current_frame` 被换成了文件内容，这时按「保存原始图像」写盘的是那个
+        旧文件的像素，不是用户正在看的画面。让用户先停采集，比悄悄做错两遍强。
+        """
+        if self._main_window is not None and self._main_window.camera.is_streaming():
+            self._main_window.status_label.setText("连续采集中，请先停止采集再打开图像")
+            return None
+
         raw_data = self._raw_image_service.load_image(file_path)
 
         timestamp = datetime.now()
