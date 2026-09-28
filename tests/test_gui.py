@@ -1032,6 +1032,63 @@ def test_reset_view_also_restores_a_cropped_camera_roi(qapp):
 
     assert camera.reset_roi.called, "相机 ROI 仍是裁剪状态，没有被复原"
 
+def test_single_capture_does_not_hold_the_gui_thread(qapp, main_window, monkeypatch):
+    """单帧采集不能把一整个曝光的等待压在 GUI 线程里。
+
+    真机实测：没有连续采集时点「单帧采集」，`handle_capture()` 占住 GUI 244ms（曝光
+    10ms）/ 350ms（200ms）/ 650ms（500ms），这期间 10ms 周期的定时器一格都不走 ——
+    整个窗口是冻住的。采集完按钮必须自己恢复，失败也要能在界面上看到原因。
+    """
+    calls = {}
+
+    def fake_get_frame():
+        calls["starts"] = calls.get("starts", 0) + 1
+        calls["thread"] = threading.current_thread().name
+        time.sleep(0.12)
+        return np.zeros((8, 8), dtype=np.uint8)
+
+    monkeypatch.setattr(main_window.camera, "is_connected", lambda: True)
+    monkeypatch.setattr(main_window.camera, "get_frame", fake_get_frame)
+
+    main_window.handle_capture()
+    assert not main_window.camera_control.capture_btn.isEnabled(), "采集期间按钮没禁用"
+    assert not main_window.camera_control.connect_btn.isEnabled(), \
+        "抓取还占着设备时不该能断开相机"
+
+    # 抓取没结束前重复请求必须被忽略：真机实测两次 get_frame 重叠时后一次抛
+    # DataStream.get_image:{-1}Unknown exception
+    main_window.handle_capture()
+
+    def wait_until(condition, timeout=5.0):
+        deadline = time.time() + timeout
+        while not condition() and time.time() < deadline:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        return condition()
+
+    assert wait_until(lambda: main_window.camera_control.capture_btn.isEnabled()), \
+        "收尾后采集按钮没恢复"
+    assert calls.get("thread") not in (None, "MainThread"), f"抓帧还跑在 GUI 线程里: {calls}"
+    assert calls.get("starts") == 1, f"重复请求没被挡掉，一共起了 {calls.get('starts')} 轮抓帧"
+    assert main_window.camera_control.stream_btn.isEnabled()
+
+    boxes = []
+    from qtpy import QtWidgets
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning",
+                        staticmethod(lambda parent, title, text, *a, **k: boxes.append(text)))
+
+    def boom():
+        calls["failed_thread"] = threading.current_thread().name
+        raise RuntimeError("设备没响应")
+
+    monkeypatch.setattr(main_window.camera, "get_frame", boom)
+    main_window.handle_capture()
+    assert wait_until(lambda: boxes), "采集失败没有反馈到界面上"
+    assert "设备没响应" in boxes[0], boxes
+    assert wait_until(lambda: main_window.camera_control.capture_btn.isEnabled())
+    assert main_window._single_capture_requested is False, "失败后还留着待采集标记"
+
+
 def test_a_result_from_the_mode_the_user_left_is_dropped(main_window):
     """切走模式之后，上一个模式还在路上算完的结果不能糊到屏幕上。
 

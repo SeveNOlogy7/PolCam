@@ -36,6 +36,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # 从单次调整的工作线程发出；跨线程连接会自动排回 GUI 线程
     _one_shot_finished = QtCore.Signal(str)
+    # 单帧采集的收尾：None 表示成功，否则是错误文字。同样从工作线程发出
+    _capture_finished = QtCore.Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -50,6 +52,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._one_shot_pending = set()  # 哪几路单次自动调整还在等报回（可以叠着发）
         self._last_camera_error_dialog_at = 0.0
         self._one_shot_finished.connect(self._on_one_shot_finished)
+        self._capture_finished.connect(self._on_capture_finished)
         self._event_bridge = _MainThreadEventBridge(self)
         self._event_bridge.dispatch_event.connect(
             self._dispatch_gui_event,
@@ -123,6 +126,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_process_time = 0.0  # 添加处理时间缓存
         self._continuous_mode = False  # 添加连续采集模式标志
         self._single_capture_requested = False  # 标记显式单帧采集请求
+        self._capture_in_flight = False  # 有一次单帧采集正占着设备，不允许重叠
+        self._capture_thread = None  # 那次抓取所在的工作线程，关窗口前要先收它
         self._current_frame_timestamp = None  # 添加时间戳属性
         self._camera_type = None  # 相机类型（彩色/黑白）
         self._last_capture_metrics_update_at = 0.0
@@ -369,21 +374,56 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.camera.is_connected():
             QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
             return
+        if self._capture_in_flight:
+            # 抓一帧要占住设备（stream_on→等曝光→stream_off）。改成工作线程之后两次
+            # 抓取可能重叠，真机实测重叠时后一次直接 DataStream.get_image:{-1}。
+            # 按钮本来就禁着，这里挡的是任何绕过按钮的调用方。
+            self._logger.debug("上一次单帧采集还没结束，忽略本次请求")
+            return
+        self._capture_in_flight = True
         self._set_capture_buttons_enabled(False)
         self._single_capture_requested = True
-        try:
-            self.camera.get_frame() # 采集一帧图像，后续通过事件处理显示
-        except Exception as e:
-            self._single_capture_requested = False
-            QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {str(e)}")
-            self.status_indicator.setProcessing(False) 
-        finally:
-            self._set_capture_buttons_enabled(True)
+
+        def run():
+            """没在连续采集时 get_frame() 要 stream_on→等一整个曝光→stream_off，
+            全在调用线程里睡：真机实测 GUI 被占住 244ms(10ms 曝光)/350ms(200ms)/
+            650ms(500ms)，期间 10ms 的定时器一格都没走 —— 整个界面就是冻住的。
+            和曝光/增益的单次调整一样挪到工作线程，收尾交给信号回 GUI 线程。
+            """
+            error = None
+            try:
+                self.camera.get_frame()
+            except Exception as e:
+                error = str(e)
+                self._logger.error(f"单帧采集失败: {error}")
+            finally:
+                if not self.close_flag:
+                    self._capture_finished.emit(error)
+
+        self._capture_thread = threading.Thread(
+            target=run, name="PolCam-Capture", daemon=True)
+        self._capture_thread.start()
+
+    def _on_capture_finished(self, error):
+        """单帧采集收工：恢复按钮，失败时把原因摆到界面上（都在 GUI 线程）。"""
+        self._capture_in_flight = False
+        self._set_capture_buttons_enabled(True)
+        if error is None:
+            return
+        self._single_capture_requested = False
+        self.status_indicator.setProcessing(False)
+        QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {error}")
 
     def _set_capture_buttons_enabled(self, enabled: bool):
-        """设置采集按钮的启用状态"""
+        """设置采集相关按钮的启用状态。
+
+        抓一帧会独占设备（stream_on→等曝光→stream_off），期间连"断开相机"也不能按：
+        真机实测一次抓取还没结束就再抓一次，后一次直接
+        DataStream.get_image:{-1}Unknown exception。
+        """
         self.camera_control.capture_btn.setEnabled(enabled)
         self.camera_control.stream_btn.setEnabled(enabled)
+        self.camera_control.connect_btn.setEnabled(enabled)
 
     def _update_timing_display(self):
         """更新时间显示
@@ -689,6 +729,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event: QtGui.QCloseEvent):
         """处理窗口关闭事件"""
         self.close_flag = True  # 设置关闭标志
+
+        # 抓帧的工作线程还压在设备上时不能先拆相机：真机实测与另一次 get_frame 重叠
+        # 会抛 DataStream.get_image:{-1}Unknown exception，收尾时同理。等它自己回来，
+        # 最长就是一个曝光的时长（旧实现是同步抓的，本来也要等这么久）。
+        capture_thread = self._capture_thread
+        if capture_thread is not None and capture_thread.is_alive():
+            capture_thread.join(timeout=2.0)
         
         try:
             # 先断掉总线订阅，再拆模块：拆的过程里还会发布事件，订阅留着就会

@@ -6,6 +6,7 @@ See LICENSE file for full license details.
 
 import pytest
 import numpy as np
+import time
 from unittest.mock import MagicMock, patch
 from polcam.core.events import Event, EventType
 from polcam.core.image_processor import ImageProcessor
@@ -258,6 +259,11 @@ def test_error_propagation(qapp, main_window, mock_camera):
     with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as mock_warning:
         # 测试单帧采集错误处理
         main_window.handle_capture()
+        # 采集改在工作线程里跑，警告由信号排回 GUI 线程 → 不转事件循环等不到它
+        deadline = time.time() + 5.0
+        while not mock_warning.called and time.time() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
         # 验证错误警告是否被显示
         assert mock_warning.called
         assert error_message in mock_warning.call_args[0][2]  # 完整的错误消息
