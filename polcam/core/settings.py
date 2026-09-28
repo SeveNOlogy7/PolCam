@@ -35,6 +35,9 @@ class ProcessingSettings:
     selected_angle: int = int(DEFAULT_PROCESSING_PARAMS["selected_angle"])
     pol_color_mode: bool = bool(DEFAULT_PROCESSING_PARAMS["pol_color_mode"])
     pol_wb_auto: bool = bool(DEFAULT_PROCESSING_PARAMS["pol_wb_auto"])
+    retarder_in_path: bool = bool(DEFAULT_PROCESSING_PARAMS["retarder_in_path"])
+    # 单个角度（float）或角度序列（拨片一次给多个 α）都要能原样装回去
+    retarder_fast_axis_deg: Any = DEFAULT_PROCESSING_PARAMS["retarder_fast_axis_deg"]
 
     def to_params(self) -> Dict[str, Any]:
         return {
@@ -46,6 +49,8 @@ class ProcessingSettings:
             "selected_angle": self.selected_angle,
             "pol_color_mode": self.pol_color_mode,
             "pol_wb_auto": self.pol_wb_auto,
+            "retarder_in_path": self.retarder_in_path,
+            "retarder_fast_axis_deg": self.retarder_fast_axis_deg,
         }
 
     @classmethod
@@ -61,6 +66,8 @@ class ProcessingSettings:
             selected_angle=int(defaults["selected_angle"]),
             pol_color_mode=bool(defaults["pol_color_mode"]),
             pol_wb_auto=bool(defaults["pol_wb_auto"]),
+            retarder_in_path=bool(defaults["retarder_in_path"]),
+            retarder_fast_axis_deg=defaults["retarder_fast_axis_deg"],
         )
 
 
@@ -115,7 +122,29 @@ class SettingsService:
             selected_angle=self._to_int(self._settings.value("processing/selected_angle", defaults.selected_angle), defaults.selected_angle),
             pol_color_mode=self._to_bool(self._settings.value("processing/pol_color_mode", defaults.pol_color_mode)),
             pol_wb_auto=self._to_bool(self._settings.value("processing/pol_wb_auto", defaults.pol_wb_auto)),
+            retarder_in_path=self._to_bool(self._settings.value("processing/retarder_in_path", defaults.retarder_in_path)),
+            retarder_fast_axis_deg=self._to_angles(
+                self._settings.value("processing/retarder_fast_axis_deg", defaults.retarder_fast_axis_deg),
+                defaults.retarder_fast_axis_deg),
         )
+
+    def _to_angles(self, value: Any, default: Any) -> Any:
+        """快轴角度：可能是单个数，也可能是自动拨片给的一串角度。
+
+        QSettings 把列表读回成字符串列表，所以逐项转 float；转不动就退回默认值，
+        别让一个坏条目把整个设置加载搞崩。
+        """
+        if value is None:
+            return default
+        if isinstance(value, (list, tuple)):
+            try:
+                return [float(item) for item in value]
+            except (TypeError, ValueError):
+                return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     def save_processing_settings(self, processing_settings: ProcessingSettings):
         params = processing_settings.to_params()

@@ -20,6 +20,7 @@ from enum import Enum, auto
 from .base_module import BaseModule
 from .events import EventType, Event
 from .image_processor import ImageProcessor
+from .polarization_model import make_solver
 from .caching import WhiteBalanceCache
 from .camera_module import CameraType
 from .image_plotter import ImagePlotter
@@ -104,7 +105,9 @@ DEFAULT_PROCESSING_PARAMS = {
     'denoise': 0.0,             # 降噪强度
     'selected_angle': 0,        # 选择的角度 (0, 45, 90, 135)
     'pol_color_mode': False,    # 偏振分析模式下合成图像是否为彩色
-    'pol_wb_auto': False        # 偏振分析模式下彩色图像的白平衡开关
+    'pol_wb_auto': False,       # 偏振分析模式下彩色图像的白平衡开关
+    'retarder_in_path': False,  # 四分之一波片是否在光路中（决定用哪套解算式）
+    'retarder_fast_axis_deg': 0.0  # 波片快轴角度，自动拨片到货后由它写入
 }
 
 # 结果缓存的内存上限。QUAD_COLOR 在 2048x2048 下一条就有 ~50MB（4 张 BGR 全尺寸图
@@ -199,6 +202,8 @@ class ProcessingModule(BaseModule):
 
         # 替换原有的白平衡缓存
         self._wb_cache = WhiteBalanceCache(valid_duration=2.0)
+        # (角度组) -> StokesSolver：拨片每走一步都会换角度，测量矩阵不必每帧重算
+        self._solver_cache: Dict[tuple, object] = {}
         
     def _worker_ref(self):
         """指向本模块的弱引用；模块被回收时把停止信号塞进队列。
@@ -573,8 +578,17 @@ class ProcessingModule(BaseModule):
                         wb_image = self._processor.apply_wb_gains(merged, gains)
                     merged = wb_image
 
-                # 计算偏振参数
-                dolp, aolp, docp = self._processor.calculate_polarization_parameters(decoded)
+                # 计算偏振参数：波片在光路里时按测量矩阵解 Stokes，否则用线偏阵列原式
+                solver = self._get_retarder_solver(task.params)
+                dolp, aolp, docp = self._processor.calculate_polarization_parameters(
+                    decoded, solver=solver)
+                docp_signed = bool(solver is not None and solver.docp_determined)
+                if solver is not None and not solver.complete:
+                    # 单个快轴角度只能定住 3 个 Stokes 分量：伪逆把缺的那个填成 0，
+                    # 那是最小范数解不是测量值，必须让用户看见
+                    self._logger.warning(
+                        f"波片在 {solver.fast_axis_degrees}° 时只能定住 {solver.determined}，"
+                        f"DoLP/AoLP 是部分量；多转几个角度再采一次才能同时定住四个分量")
                 
                 # 保存处理结果
                 images = [merged, dolp, aolp, docp]
@@ -583,6 +597,14 @@ class ProcessingModule(BaseModule):
                     'is_color': is_color,
                     'pol_wb_enabled': wb_enabled,
                     'quad_titles': ['IMAGE', 'DOLP', 'AOLP', 'DOCP'],
+                    'docp_signed': docp_signed,
+                    'retarder': None if solver is None else {
+                        'fast_axis_degrees': solver.fast_axis_degrees,
+                        'retardance_deg': solver.retardance_deg,
+                        'rank': solver.rank,
+                        'condition': solver.condition,
+                        'determined': solver.determined,
+                    },
                 }
                 
             else:
@@ -606,7 +628,9 @@ class ProcessingModule(BaseModule):
                     max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
                 )
             elif task.mode == ProcessingMode.POLARIZATION:
-                precolored = [images[0], *ImageProcessor.colormap_polarization(images[1], images[2], images[3])]
+                precolored = [images[0], *ImageProcessor.colormap_polarization(
+                    images[1], images[2], images[3],
+                    docp_signed=metadata.get('docp_signed', False))]
                 metadata['precolored_polarization'] = precolored
                 display_canvas, _, _ = ImagePlotter.create_quad_canvas(
                     precolored,
@@ -638,6 +662,33 @@ class ProcessingModule(BaseModule):
         except Exception as e:
             self._logger.error(f"处理任务失败: {str(e)}")
             raise
+
+    def _get_retarder_solver(self, params: Dict[str, Any]):
+        """按任务参数造 StokesSolver；波片不在光路里就返回 None（用线偏阵列原式）。
+
+        `retarder_fast_axis_deg` 允许单个角度或角度序列：手动放一片时是一个数，自动转角的
+        拨片到位后可以一次给多个角度、每个角度各采一帧，那时设计矩阵叠到 4N 行，四个
+        Stokes 分量才同时定得住。
+        """
+        if not params.get('retarder_in_path', False):
+            return None
+        raw_angles = params.get('retarder_fast_axis_deg', 0.0)
+        if isinstance(raw_angles, (list, tuple)):
+            angles = tuple(float(angle) for angle in raw_angles)
+        else:
+            angles = (float(raw_angles),)
+        if not angles:
+            self._logger.warning("波片已放入光路但没有快轴角度，按无波片解算")
+            return None
+
+        key = angles
+        solver = self._solver_cache.get(key)
+        if solver is None:
+            solver = make_solver(angles)
+            if len(self._solver_cache) > 32:
+                self._solver_cache.clear()
+            self._solver_cache[key] = solver
+        return solver
 
     def _convert_bayer_to_bgr(self, frame: np.ndarray) -> np.ndarray:
         """使用 gxipy ImageFormatConvert 将 Bayer 原始帧转换为 BGR 图像
@@ -725,7 +776,9 @@ class ProcessingModule(BaseModule):
         # 结果发给另一帧。
         frame_hash = hash(task.frame.tobytes())
         frame_shape = f"{task.frame.shape}_{task.frame.dtype}"
-        params_hash = hash(frozenset(task.params.items()))
+        # repr 而不是 frozenset：多个 α 时 retarder_fast_axis_deg 是个 list，
+        # frozenset((k, v)) 会直接 TypeError: unhashable type: 'list'
+        params_hash = hash(repr(sorted(task.params.items(), key=lambda item: item[0])))
         return f"{frame_hash}_{frame_shape}_{task.mode}_{params_hash}"
 
     def get_current_mode(self) -> ProcessingMode:

@@ -469,6 +469,21 @@ def test_main_window_dispatches_gui_events_on_main_thread(main_window, qapp):
     assert recorder.python_thread_id == threading.main_thread().ident
 
 
+def test_retarder_panel_drives_the_processing_params(qapp, main_window):
+    """面板上的波片开关和角度要真的落到处理参数上。"""
+    main_window.camera_control.pol_control.retarder_check.setChecked(True)
+
+    assert main_window.processor.get_parameters()['retarder_in_path'] is True
+    assert main_window.camera_control.pol_control.retarder_angle_spin.isEnabled()
+
+    main_window.camera_control.pol_control.retarder_angle_spin.setValue(30.0)
+    assert main_window.processor.get_parameters()['retarder_fast_axis_deg'] == 30.0
+
+    main_window.camera_control.pol_control.retarder_check.setChecked(False)
+    assert main_window.processor.get_parameters()['retarder_in_path'] is False
+    assert not main_window.camera_control.pol_control.retarder_angle_spin.isEnabled()
+
+
 def test_show_polarization_quad_view_reuses_precolored_canvas(qapp):
     """测试预计算偏振画布时不会在主线程重复做伪彩映射。"""
     display = ImageDisplay()

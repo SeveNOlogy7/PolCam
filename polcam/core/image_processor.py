@@ -11,6 +11,8 @@ import polanalyser as pa
 import cv2
 from typing import List, Tuple, Union
 
+from .polarization_model import solve_stokes
+
 class ImageProcessor:
     # 偏振栅格在两个轴上的重复周期。黑白偏振传感器（MPFA）是 2x2：每个角度占一个像素，
     # 只有奇偶错位才会把四个角度错标。彩色偏振传感器（CPFA）在 4 个偏振态里再套一层
@@ -81,32 +83,66 @@ class ImageProcessor:
             return _to_gray(color_images)
 
     @staticmethod
-    def calculate_polarization_parameters(color_images: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def calculate_polarization_parameters(color_images: List[np.ndarray],
+                                          solver=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """计算偏振参数：线偏振度(DoLP)、偏振角(AoLP)和圆偏振度(DoCP)
-        
-        根据四个偏振态图像计算偏振参数
+
+        Args:
+            color_images: 没有波片时是 0/45/90/135 四张图；给了 solver 则是
+                4 * len(solver.fast_axis_degrees) 张（每个快轴角度一组四张）
+            solver: polarization_model.StokesSolver，光路里有波片时按它的测量矩阵解算
+        Returns:
+            (dolp, aolp, docp)；docp 只有在 solver.docp_determined 为真时才带符号
         """
         # 验证输入
         if not isinstance(color_images, list):
             raise TypeError("输入必须是图像列表")
-            
-        if len(color_images) != 4:
-            raise ValueError("必须提供4个角度的图像")
-            
+
+        expected = 4 if solver is None else 4 * len(solver.fast_axis_degrees)
+        if len(color_images) != expected:
+            raise ValueError(f"必须提供{expected}个角度的图像，收到 {len(color_images)} 张")
+
         # 确保图像类型和尺寸一致
         for img in color_images:
             if not isinstance(img, np.ndarray):
                 raise TypeError("输入图像必须是numpy数组")
             if img.dtype != np.uint8:
                 raise TypeError("输入图像必须是uint8类型")
-        
+
         # 确保输入都是灰度图
         gray_images = [
             img if len(img.shape) == 2 
             else cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2GRAY) 
             for img in color_images
         ]
-        
+
+        if solver is None:
+            return ImageProcessor._parameters_from_linear_array(gray_images)
+        return ImageProcessor._parameters_from_measurement(gray_images, solver)
+
+    @staticmethod
+    def _parameters_from_measurement(gray_images: List[np.ndarray], solver) -> Tuple[
+            np.ndarray, np.ndarray, np.ndarray]:
+        """按波片+线偏阵列的测量矩阵解 Stokes，再出三个偏振量。
+
+        秩不到 4 时伪逆给出的是最小范数解：没定住的那个分量会被填成 0 之类的假值，所以
+        DoCP 只在 S3 定住时才带符号，其余情况退回幅值，由调用方按 solver 的判据提示用户。
+        """
+        S0, S1, S2, S3 = solve_stokes(gray_images, solver)
+        S0 = np.where(S0 == 0, 1e-6, S0)
+
+        dolp = np.clip(np.sqrt(S1 ** 2 + S2 ** 2) / S0, 0, 1)
+        aolp = np.rad2deg(np.arctan2(S2, S1)) / 2 + 90
+        if solver.docp_determined:
+            docp = np.clip(S3 / S0, -1, 1)
+        else:
+            docp = np.clip(np.abs(S3) / S0, 0, 1)
+        return dolp, aolp, docp
+
+    @staticmethod
+    def _parameters_from_linear_array(gray_images: List[np.ndarray]) -> Tuple[
+            np.ndarray, np.ndarray, np.ndarray]:
+        """光路里没有波片：2x2 线偏阵列直接给的三个量。"""
         I_000, I_045, I_090, I_135 = (
             img.astype(np.float32) for img in gray_images
         )
@@ -142,13 +178,16 @@ class ImageProcessor:
         return dolp, aolp, docp
 
     @staticmethod
-    def colormap_polarization(dolp: np.ndarray, aolp: np.ndarray, docp: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def colormap_polarization(dolp: np.ndarray, aolp: np.ndarray, docp: np.ndarray,
+                              docp_signed: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """对偏振参数进行颜色映射
         
         Args:
             dolp: 线偏振度 (0-1)
             aolp: 偏振角 (0-180)
-            docp: 圆偏振度幅值 (0-1)
+            docp: 圆偏振度；docp_signed 时为 -1..1（负值左旋、正值右旋，旋向标签按
+                polarization_model 的约定，等拨片标定），否则是 0-1 的幅值
+            docp_signed: 这次解算真的定住了 S3（光路里有波片且角度够）
             
         Returns:
             (dolp_colored, aolp_colored, docp_colored): 颜色映射后的图像
@@ -160,15 +199,19 @@ class ImageProcessor:
         aolp_normalized = (aolp / 180 * 255).astype(np.uint8)
         aolp_colored = cv2.applyColorMap(aolp_normalized, cv2.COLORMAP_HSV)
         
-        # DoCP: 0 为白、1 为红的单色渐变。带符号的左旋/右旋双色映射已经被删掉：线偏振
-        # MPFA 测不到 S3，docp 恒为非负，那个分支在真机上永远不成立（实测一帧 5,013,504
-        # 个像素里 0 个走到左旋分支）。
-        docp_intensity = ((1 - np.clip(docp, 0, 1)) * 255).astype(np.uint8)
-        docp_colored = np.stack([
-            docp_intensity,                                    # B
-            docp_intensity,                                    # G
-            np.full_like(docp_intensity, 255)                  # R
-        ], axis=-1)
+        # DoCP: 幅值模式是白→红的单色渐变；有波片定住 S3 时才用白→红/白→蓝的双色，
+        # 因为符号在没波片时只是噪声（实测一帧 5,013,504 个像素里 0 个落在负号一侧）
+        magnitude = np.abs(np.clip(docp, -1.0, 1.0))
+        intensity = ((1.0 - magnitude) * 255).astype(np.uint8)
+        saturated = np.full_like(intensity, 255)
+        if docp_signed:
+            negative = docp < 0
+            blue = np.where(negative, saturated, intensity)
+            red = np.where(negative, intensity, saturated)
+        else:
+            blue = intensity
+            red = saturated
+        docp_colored = np.stack([blue, intensity, red], axis=-1)
         
         return dolp_colored, aolp_colored, docp_colored
 

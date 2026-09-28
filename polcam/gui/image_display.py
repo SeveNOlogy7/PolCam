@@ -487,7 +487,7 @@ class ImageDisplay(QtWidgets.QWidget):
             if self._display_content_kind == 'polarization' and len(cropped_images) == 4:
                 image, dolp, aolp, docp = cropped_images
                 dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
-                    dolp, aolp, docp
+                    dolp, aolp, docp, docp_signed=getattr(self, '_docp_signed', False)
                 )
                 images = [image, dolp_colored, aolp_colored, docp_colored]
             else:
@@ -678,17 +678,20 @@ class ImageDisplay(QtWidgets.QWidget):
                                   dolp: np.ndarray, aolp: np.ndarray,
                                   docp: np.ndarray,
                                   precolored: Optional[List[np.ndarray]] = None,
-                                  canvas: Optional[np.ndarray] = None):
+                                  canvas: Optional[np.ndarray] = None,
+                                  docp_signed: bool = False):
         """显示偏振分析的四视图"""
         # 保存原始图像列表的副本
         self.current_images = [img.copy() for img in [image, dolp, aolp, docp] if img is not None]
         self._display_content_kind = 'polarization'
         self._quad_titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
         self._quad_gray_mode = False
+        # 裁剪重上色时要用同一个判据，不能自己猜 docp 的符号有没有意义
+        self._docp_signed = bool(docp_signed)
 
         if precolored is None:
             dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
-                dolp, aolp, docp)
+                dolp, aolp, docp, docp_signed=self._docp_signed)
             precolored = [image, dolp_colored, aolp_colored, docp_colored]
 
         if canvas is None:

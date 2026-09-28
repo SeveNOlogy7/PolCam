@@ -329,6 +329,44 @@ def test_calculate_polarization_parameters_edge_cases():
     assert np.all(dolp_white >= 0) and np.all(dolp_white <= 1)
 
 
+def test_solver_path_returns_signed_docp():
+    """波片把 S3 定住了，DoCP 才允许带符号。"""
+    from polcam.core.polarization_model import make_solver, measurement_matrix
+
+    solver = make_solver([0.0])
+    true_stokes = np.array([100.0, 20.0, 0.0, -50.0])
+    frames = [np.full((4, 4), int(value), dtype=np.uint8)
+              for value in measurement_matrix(0.0) @ true_stokes]
+
+    _, _, docp = ImageProcessor.calculate_polarization_parameters(frames, solver=solver)
+
+    assert docp.min() < 0, "带符号解算却给不出负值"
+    assert np.allclose(docp, -0.5, atol=0.05)
+
+
+def test_solver_path_requires_one_frame_set_per_angle():
+    from polcam.core.polarization_model import make_solver
+
+    solver = make_solver([0.0, 45.0])
+    four = [np.zeros((4, 4), dtype=np.uint8) for _ in range(4)]
+
+    with pytest.raises(ValueError, match="8个角度的图像"):
+        ImageProcessor.calculate_polarization_parameters(four, solver=solver)
+
+
+def test_docp_colormap_shows_handedness_only_when_told_to():
+    """同一份负值数据，幅值模式不许偏蓝，带符号模式才许。"""
+    dolp = np.zeros((2, 2), dtype=np.float32)
+    aolp = np.zeros((2, 2), dtype=np.float32)
+    docp = np.full((2, 2), -0.9, dtype=np.float32)
+
+    _, _, unsigned = ImageProcessor.colormap_polarization(dolp, aolp, docp)
+    _, _, signed = ImageProcessor.colormap_polarization(dolp, aolp, docp, docp_signed=True)
+
+    assert np.all(unsigned[..., 0] <= unsigned[..., 2])
+    assert signed[0, 0][0] > signed[0, 0][2], "带符号的负 DoCP 应该偏蓝"
+
+
 def test_demosaic_guard_matches_the_real_sensor_period():
     """尺寸校验按传感器布局来，不是统一按 4。
 

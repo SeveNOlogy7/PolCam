@@ -222,6 +222,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.pol_control.color_mode_changed.connect(self._handle_pol_color_mode_changed)
         self.camera_control.pol_control.wb_auto_changed.connect(self._handle_pol_wb_auto_changed)
         self.camera_control.pol_control.wb_once_clicked.connect(self._handle_pol_wb_once)
+        self.camera_control.pol_control.retarder_changed.connect(self._handle_retarder_changed)
+        self.camera_control.pol_control.retarder_angle_changed.connect(self._handle_retarder_angle_changed)
 
         self.gallery_panel.imageActivated.connect(self._handle_gallery_item_activated)
         self.gallery_panel.deleteRequested.connect(self._handle_gallery_item_delete)
@@ -570,6 +572,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 *images,
                 precolored=result.metadata.get('precolored_polarization'),
                 canvas=result.display_canvas,
+                docp_signed=bool(result.metadata.get('docp_signed', False)),
             )
 
         self.image_display.toolbar_controller.sync_zoom_coordinate_space()
@@ -658,6 +661,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _handle_pol_wb_auto_changed(self, auto: bool):
         """处理偏振分析模式下的自动白平衡改变"""
         self.processor.set_parameter('pol_wb_auto', auto)
+        self._reprocessing_from_current_frame()
+
+    def _handle_retarder_changed(self, in_path: bool):
+        """波片放进/拿出光路：切换解算式"""
+        self.processor.set_parameter('retarder_in_path', in_path)
+        self._reprocessing_from_current_frame()
+
+    def _handle_retarder_angle_changed(self, angle_deg: float):
+        """快轴角度：手动填或以后自动拨片上报都走这里"""
+        self.processor.set_parameter('retarder_fast_axis_deg', float(angle_deg))
         self._reprocessing_from_current_frame()
 
     def _handle_pol_wb_once(self):
@@ -1005,6 +1018,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.set_selected_angle(settings.processing.selected_angle)
         self.camera_control.set_pol_color_mode(settings.processing.pol_color_mode)
         self.camera_control.set_pol_wb_auto(settings.processing.pol_wb_auto)
+        self.camera_control.pol_control.set_retarder_state(
+            settings.processing.retarder_in_path, settings.processing.retarder_fast_axis_deg)
 
         for name, value in settings.processing.to_params().items():
             self.processor.set_parameter(name, value)

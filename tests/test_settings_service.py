@@ -11,6 +11,29 @@ from qtpy import QtCore
 from polcam.core.settings import SettingsService
 
 
+def test_retarder_settings_survive_the_round_trip(tmp_path: Path):
+    """波片状态和角度存进去要能原样读回来，多个 α 的列表也不行。
+
+    save_processing_settings 是遍历 to_params 写的，而 load 是逐字段拼的——只补一半的
+    话，设置里看着存了，重启后被默认值悄悄覆盖。
+    """
+    from polcam.core.settings import ProcessingSettings
+
+    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    service = SettingsService(settings)
+    service.save_processing_settings(ProcessingSettings(
+        retarder_in_path=True, retarder_fast_axis_deg=[0.0, 45.0]))
+
+    loaded = service.load_processing_settings()
+    assert loaded.retarder_in_path is True
+    assert [float(angle) for angle in loaded.retarder_fast_axis_deg] == [0.0, 45.0]
+
+    service.save_processing_settings(ProcessingSettings(
+        retarder_in_path=True, retarder_fast_axis_deg=30.0))
+    single = service.load_processing_settings()
+    assert single.retarder_fast_axis_deg == 30.0
+
+
 def test_default_directories_are_under_user_polcam(tmp_path: Path):
     settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
     service = SettingsService(settings)

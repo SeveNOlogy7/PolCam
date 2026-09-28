@@ -13,6 +13,69 @@ from polcam.core.events import EventType
 from polcam.core.processing_module import ProcessingModule
 
 
+def test_cache_key_tolerates_a_list_valued_param():
+    """多个 α 时角度是列表，缓存键不能被它炸掉，而且换角度必须换键。"""
+    from polcam.core.processing_module import ProcessingMode, ProcessingTask
+
+    module = ProcessingModule()
+    frame = np.zeros((8, 8), dtype=np.uint8)
+
+    def key_with(angles):
+        params = dict(module.get_parameters(), retarder_fast_axis_deg=angles)
+        return module._get_cache_key(ProcessingTask(
+            frame=frame, mode=ProcessingMode.POLARIZATION, params=params, priority=0))
+
+    assert key_with([0.0, 45.0]) != key_with([0.0, 60.0])
+    assert key_with([0.0, 45.0]) == key_with([0.0, 45.0])
+
+
+def test_retarder_solver_follows_the_task_params():
+    """波片状态与快轴角度是参数，解算器跟着走，并且按角度缓存。"""
+    module = ProcessingModule()
+
+    assert module._get_retarder_solver(
+        {'retarder_in_path': False, 'retarder_fast_axis_deg': 30.0}) is None
+
+    params = {'retarder_in_path': True, 'retarder_fast_axis_deg': 0.0}
+    solver = module._get_retarder_solver(params)
+    assert solver is not None
+    assert solver.fast_axis_degrees == (0.0,)
+    assert solver.docp_determined
+    assert module._get_retarder_solver(params) is solver, "同一角度不该每帧重算伪逆"
+
+    two = module._get_retarder_solver(
+        {'retarder_in_path': True, 'retarder_fast_axis_deg': [0.0, 45.0]})
+    assert two.complete
+    assert module._get_retarder_solver(
+        {'retarder_in_path': True, 'retarder_fast_axis_deg': []}) is None
+
+
+def test_polarization_result_records_the_waveplate_state():
+    """结果里必须带着"这次是不是按波片解的、符号有没有意义"，显示和导出都靠它。"""
+    from polcam.core.processing_module import ProcessingMode, ProcessingTask
+
+    module = ProcessingModule()
+    module.initialize()
+    params = dict(module.get_parameters())
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+
+    with_retarder = dict(params, retarder_in_path=True, retarder_fast_axis_deg=0.0)
+    result = module._process_task(
+        ProcessingTask(frame=frame, mode=ProcessingMode.POLARIZATION,
+                       params=with_retarder, priority=0))
+    assert result.metadata['docp_signed'] is True
+    assert result.metadata['retarder']['fast_axis_degrees'] == (0.0,)
+    assert result.metadata['retarder']['rank'] == 3
+
+    without = dict(params, retarder_in_path=False)
+    plain = module._process_task(
+        ProcessingTask(frame=frame + 1, mode=ProcessingMode.POLARIZATION,
+                       params=without, priority=0))
+    assert plain.metadata['docp_signed'] is False
+    assert plain.metadata['retarder'] is None
+    assert plain.images[3].min() >= 0, "没有波片时 DoCP 只能是幅值"
+
+
 def _processing_loop_threads():
     return [
         t for t in threading.enumerate()

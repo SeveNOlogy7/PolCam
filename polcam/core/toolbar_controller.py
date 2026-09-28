@@ -305,8 +305,9 @@ class ToolbarController(BaseModule):
             dolp = self._last_result.images[1]
             aolp = self._last_result.images[2]
             docp = self._last_result.images[3]
+            docp_signed = bool(self._last_result.metadata.get('docp_signed', False))
             dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
-                dolp, aolp, docp
+                dolp, aolp, docp, docp_signed=docp_signed
             )
             images = [merged, dolp_colored, aolp_colored, docp_colored]
             titles = ['IMAGE', 'DOLP', 'AOLP', 'DOCP']
@@ -318,7 +319,9 @@ class ToolbarController(BaseModule):
         return composite, suffix
 
     def _save_polarization_data(self, dolp: np.ndarray, aolp: np.ndarray, docp: np.ndarray, 
-                               save_dir: str, base_name: str) -> bool:
+                               save_dir: str, base_name: str,
+                               docp_signed: bool = False,
+                               retarder: Optional[dict] = None) -> bool:
         """保存原始偏振数据
         
         Args:
@@ -335,7 +338,11 @@ class ToolbarController(BaseModule):
             pol_data = {
                 'dolp': dolp,  # 原始偏振度数据
                 'aolp': aolp,  # 原始偏振角数据
-                'docp': docp   # 原始圆偏振度数据
+                'docp': docp,  # 原始圆偏振度数据
+                # 读回来的人必须知道 docp 的符号有没有物理意义，否则一片噪声也会被当成
+                # 旋向；波片配置一起存，以后多个 α 的采集序列也放这里
+                'docp_signed': docp_signed,
+                'retarder': retarder,
             }
             npy_filename = os.path.join(save_dir, f"{base_name}_POL.npy")
             np.save(npy_filename, pol_data, allow_pickle=True)  # type: ignore[arg-type]
@@ -402,16 +409,20 @@ class ToolbarController(BaseModule):
                 dolp = self._last_result.images[1]    # 原始偏振度数据
                 aolp = self._last_result.images[2]    # 原始偏振角数据
                 docp = self._last_result.images[3]    # 原始圆偏振度数据
+                metadata = self._last_result.metadata
+                docp_signed = bool(metadata.get('docp_signed', False))
                 
                 # 保存原始偏振数据
                 save_npy_success = self._save_polarization_data(
                     dolp, aolp, docp,
-                    save_dir, base_name
+                    save_dir, base_name,
+                    docp_signed=docp_signed,
+                    retarder=metadata.get('retarder'),
                 )
                 
                 # 对偏振参数进行颜色映射用于可视化保存
                 dolp_colored, aolp_colored, docp_colored = ImageProcessor.colormap_polarization(
-                    dolp, aolp, docp
+                    dolp, aolp, docp, docp_signed=docp_signed
                 )
                 
                 # 准备文件名

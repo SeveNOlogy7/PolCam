@@ -116,6 +116,8 @@ class SettingsDialog(QtWidgets.QDialog):
     def _load_settings(self, settings: AppSettings):
         ui_settings = settings.ui
         processing_settings = settings.processing
+        # 波片状态不在本对话框里编辑，保存时要沿用当前生效的值，别把它重置回默认
+        self._processing_baseline = processing_settings
 
         index = self.display_mode_combo.findData(ui_settings.display_mode)
         self.display_mode_combo.setCurrentIndex(index if index >= 0 else 0)
@@ -161,6 +163,9 @@ class SettingsDialog(QtWidgets.QDialog):
                 selected_angle=int(self.angle_combo.currentData(QtCore.Qt.ItemDataRole.UserRole)),
                 pol_color_mode=self.pol_color_mode_check.isChecked(),
                 pol_wb_auto=self.pol_wb_auto_check.isChecked(),
+                retarder_in_path=getattr(self._processing_baseline, 'retarder_in_path', False),
+                retarder_fast_axis_deg=getattr(
+                    self._processing_baseline, 'retarder_fast_axis_deg', 0.0),
             )
         )
 
