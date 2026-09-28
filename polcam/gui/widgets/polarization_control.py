@@ -64,8 +64,16 @@ class PolarizationControl(ControlGroup):
         self.retarder_angle_spin.setEnabled(enabled)
         self.retarder_changed.emit(enabled)
 
-    def set_retarder_state(self, enabled: bool, angle_deg: float):
-        """回填设置时不要反过来触发一次参数变更。"""
+    def set_retarder_state(self, enabled: bool, angle_deg):
+        """回填设置时不要反过来触发一次参数变更。
+
+        angle_deg 可能是一串角度：设置文件读回来就是 list（`_to_angles`），以后拨片也能
+        一次给多个 α。这里只有一个 QDoubleSpinBox，所以按第一个角度回填，完整序列照旧
+        留在处理参数里，由 ProcessingModule 说明"只按第一个角度解算"。直接 float(list)
+        会抛 TypeError，把 apply_settings 拦腰打断（后面的处理参数和显示模式都不再应用）。
+        """
+        if isinstance(angle_deg, (list, tuple)):
+            angle_deg = angle_deg[0] if len(angle_deg) else 0.0
         for widget in (self.retarder_check, self.retarder_angle_spin):
             widget.blockSignals(True)
         self.retarder_check.setChecked(bool(enabled))

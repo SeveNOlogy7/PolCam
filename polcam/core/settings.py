@@ -169,20 +169,26 @@ class SettingsService:
     def _to_angles(self, value: Any, default: Any) -> Any:
         """快轴角度：可能是单个数，也可能是自动拨片给的一串角度。
 
-        QSettings 把列表读回成字符串列表，所以逐项转 float；转不动就退回默认值，
+        IniFormat 把 list 写成同一行里的 `0, 45`，读回来是**字符串**，逐项转 float 之前
+        得先按逗号拆开（实测：写进去 [0.0, 45.0]，重启后 float("0, 45") 抛 ValueError,
+        角度被静默退回默认 0.0，用户以为波片还按两个角度解算）。转不动就退回默认值，
         别让一个坏条目把整个设置加载搞崩。
         """
         if value is None:
             return default
         if isinstance(value, (list, tuple)):
-            try:
-                return [float(item) for item in value]
-            except (TypeError, ValueError):
-                return default
+            items = list(value)
+        elif isinstance(value, str) and "," in value:
+            items = value.split(",")
+        else:
+            items = [value]
         try:
-            return float(value)
+            numbers = [float(item) for item in items if str(item).strip() != ""]
         except (TypeError, ValueError):
             return default
+        if not numbers:
+            return default
+        return numbers[0] if len(numbers) == 1 else numbers
 
     def save_processing_settings(self, processing_settings: ProcessingSettings):
         params = processing_settings.to_params()
