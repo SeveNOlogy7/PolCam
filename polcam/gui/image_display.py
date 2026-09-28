@@ -243,6 +243,10 @@ class ImageDisplay(QtWidgets.QWidget):
             modes = COLOR_MODES
         self._populate_display_modes(modes)
 
+    def get_active_modes(self) -> List[ProcessingMode]:
+        """当前这台相机真正可用的显示模式（已按相机类型裁剪）。"""
+        return list(self._active_modes)
+
     def set_processing_mode(self, mode: ProcessingMode) -> bool:
         """设置当前显示模式。"""
         try:

@@ -547,7 +547,9 @@ class ToolbarController(BaseModule):
 
     def _handle_settings(self):
         """处理设置事件"""
-        dialog = SettingsDialog(self._main_window.build_current_settings(), self._main_window)
+        dialog = SettingsDialog(self._main_window.build_current_settings(),
+                                self._main_window,
+                                available_modes=self._main_window.image_display.get_active_modes())
         if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
             self._main_window.apply_settings(dialog.get_settings())
             self._main_window.status_label.setText("设置已更新")

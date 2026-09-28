@@ -484,6 +484,79 @@ def test_retarder_panel_drives_the_processing_params(qapp, main_window):
     assert not main_window.camera_control.pol_control.retarder_angle_spin.isEnabled()
 
 
+def test_settings_dialog_offers_only_the_modes_this_camera_can_show(qapp, main_window):
+    """设置里的"默认显示模式"不能列出接上的相机根本显示不了的模式。
+
+    真机（MER2-502-79U3M-HS POL，黑白偏振，只有 5 个可用模式）实测：对话框仍然列 8 个，
+    选了「四角度彩色」点确定之后 set_processing_mode 找不到就退回第一项，用户每次启动
+    都拿到「原始图像」，而那个不可能的偏好已经被写进 INI。
+    """
+    from polcam.core.camera_module import CameraType
+    from polcam.gui.settings_dialog import SettingsDialog
+
+    main_window.image_display.set_camera_modes(CameraType.MONO)
+    available = main_window.image_display.get_active_modes()
+    assert ProcessingMode.QUAD_COLOR not in available, "替身场景不对：黑白机不该有彩色模式"
+
+    dialog = SettingsDialog(main_window.build_current_settings(), main_window,
+                            available_modes=available)
+    listed = [dialog.display_mode_combo.itemData(i)
+              for i in range(dialog.display_mode_combo.count())]
+    assert listed == available, f"对话框列出的模式和相机能给的不一致: {listed}"
+
+    dialog.display_mode_combo.setCurrentIndex(len(available) - 1)
+    chosen = dialog.get_settings().ui.display_mode
+    assert chosen == available[-1] and chosen in available
+
+
+def test_settings_menu_passes_the_camera_modes_to_the_dialog(qapp, main_window, monkeypatch):
+    """打开设置菜单时要把当前相机的可用模式带进对话框，不能让它写死一份彩色清单。"""
+    from polcam.core.camera_module import CameraType
+    from polcam.gui.settings_dialog import SettingsDialog
+
+    main_window.image_display.set_camera_modes(CameraType.MONO)
+    available = main_window.image_display.get_active_modes()
+
+    seen = {}
+    real_init = SettingsDialog.__init__
+
+    def spy(self, current_settings, parent=None, available_modes=None):
+        seen['modes'] = available_modes
+        real_init(self, current_settings, parent, available_modes)
+
+    monkeypatch.setattr(SettingsDialog, "__init__", spy)
+    monkeypatch.setattr(SettingsDialog, "exec_", lambda self: 0)
+    main_window.toolbar_controller._handle_settings()
+
+    assert seen.get('modes') == available, \
+        f"对话框没拿到相机的模式列表，而是自己那份: {seen.get('modes')}"
+
+
+def test_restore_defaults_keeps_the_waveplate_where_the_user_left_it(qapp, main_window):
+    """设置对话框的「恢复默认」不能把波片从光路里收走。
+
+    真机实测：侧栏设成"1/4 波片在光路 / 快轴 45°"之后那一帧的解算是 rank=3、DoCP 带符号；
+    这时打开设置页（本页根本没有波片控件），只点了「恢复默认」再确定，参数就变成
+    retarder_in_path=False、快轴=0.0。对话框自己的注释写着波片不在本页编辑、保存时要沿用
+    当前生效的值，可 _restore_defaults 连基线一起换成了出厂值，用户没碰过的物理状态被改了。
+    """
+    from polcam.gui.settings_dialog import SettingsDialog
+
+    settings = main_window.build_current_settings()
+    settings.processing.retarder_in_path = True
+    settings.processing.retarder_fast_axis_deg = 45.0
+    main_window.apply_settings(settings, persist=False)
+
+    dialog = SettingsDialog(main_window.build_current_settings(), main_window)
+    dialog.max_zoom_spin.setValue(50.0)
+    dialog._restore_defaults()
+    restored = dialog.get_settings()
+
+    assert restored.processing.retarder_in_path is True, "恢复默认把波片挪出光路了"
+    assert float(restored.processing.retarder_fast_axis_deg) == 45.0, "快轴角度被重置"
+    assert restored.ui.max_zoom == 1000.0, "其余偏好该回到默认却没回"
+
+
 def test_apply_settings_survives_a_multi_angle_fast_axis_value(qapp, main_window):
     """一串快轴角度不能把 apply_settings 拦腰打断。
 

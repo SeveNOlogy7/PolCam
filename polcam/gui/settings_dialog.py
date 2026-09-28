@@ -17,9 +17,12 @@ from .image_display import COLOR_MODES, MODE_LABELS
 
 
 class SettingsDialog(QtWidgets.QDialog):
-    def __init__(self, current_settings: AppSettings, parent=None):
+    def __init__(self, current_settings: AppSettings, parent=None, available_modes=None):
         super().__init__(parent)
         self._current_settings = current_settings
+        # 默认显示模式只能从这台相机真能显示的模式里挑：黑白偏振机少了 3 个彩色模式，
+        # 列出选不了的项只会让用户存下一个永远落不了地的偏好。
+        self._available_modes = list(available_modes) if available_modes else list(COLOR_MODES)
         self.setWindowTitle("设置")
         self.setModal(True)
         self.resize(520, 420)
@@ -33,7 +36,7 @@ class SettingsDialog(QtWidgets.QDialog):
         app_form = QtWidgets.QFormLayout(app_group)
 
         self.display_mode_combo = QtWidgets.QComboBox()
-        for mode in COLOR_MODES:
+        for mode in self._available_modes:
             self.display_mode_combo.addItem(MODE_LABELS[mode], mode)
         app_form.addRow("默认显示模式", self.display_mode_combo)
 
@@ -135,7 +138,17 @@ class SettingsDialog(QtWidgets.QDialog):
         self.denoise_spin.setValue(processing_settings.denoise)
 
     def _restore_defaults(self):
-        self._load_settings(AppSettings())
+        """把偏好恢复到默认，但波片留在用户放好的位置。
+
+        波片在不在光路、快轴多少度是光路里的物理状态，本页没有它的控件；把它一起
+        重置回出厂值等于偷偷换了 Stokes 解算式（真机实测：设成"在光路/45°"后点一次
+        恢复默认，参数就变成 False/0.0）。所以这两项沿用对话框打开时生效的值。
+        """
+        defaults = AppSettings()
+        defaults.processing.retarder_in_path = self._processing_baseline.retarder_in_path
+        defaults.processing.retarder_fast_axis_deg = (
+            self._processing_baseline.retarder_fast_axis_deg)
+        self._load_settings(defaults)
 
     def _browse_directory(self, target_edit: QtWidgets.QLineEdit, title: str):
         start_dir = target_edit.text().strip() or str(Path.home() / "PolCam" / "capture")
