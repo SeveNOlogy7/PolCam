@@ -50,6 +50,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_settings = AppSettings()
         self.close_flag = False
         self._one_shot_pending = set()  # 哪几路单次自动调整还在等报回（可以叠着发）
+        # 抓取线程随帧带回来的设备参数：存图库时要写"这一帧是用什么拍的"，
+        # 而不是保存那一刻再问设备（长曝光中间用户改曝光就会写错）
+        self._last_capture_settings = None
         self._last_camera_error_dialog_at = 0.0
         self._one_shot_finished.connect(self._on_one_shot_finished)
         self._capture_finished.connect(self._on_capture_finished)
@@ -871,6 +874,9 @@ class MainWindow(QtWidgets.QMainWindow):
         timestamp = event.data.get("timestamp")
         
         if frame is not None:
+            # 连续采集的帧不带这个键（参数在流里由设备随时变），取不到就归 None，
+            # 免得上一张单帧的快照被当成这一张的
+            self._last_capture_settings = event.data.get("settings")
             if self.camera.is_connected() and not self.image_display.has_roi_info():
                 # 载入过文件之后缓存被清掉了；实时帧一到就把相机当前的 ROI 填回去，
                 # 游标读数就恢复成传感器坐标。只在缺失时读一次设备，不会每帧都问。
@@ -969,7 +975,15 @@ class MainWindow(QtWidgets.QMainWindow):
             metadata['dtype'] = str(frame.dtype)
             metadata['shape'] = list(frame.shape)
 
-        if self.camera.is_connected():
+        # 优先用抓取随帧带回来的那一份：它描述的是这些像素；现场再问设备，
+        # 长曝光期间用户动过的曝光/裁剪会串进来（真机实测串过一次）。
+        snapshot = self._last_capture_settings or {}
+        if snapshot:
+            metadata['exposure_us'] = snapshot.get('exposure_us')
+            metadata['gain_db'] = snapshot.get('gain_db')
+            metadata['roi'] = snapshot.get('roi')
+            metadata['sensor_size'] = snapshot.get('sensor_size')
+        elif self.camera.is_connected():
             metadata['exposure_us'] = self.camera.get_exposure_time()
             metadata['gain_db'] = self.camera.get_gain()
             metadata['roi'] = list(self.camera.get_roi())

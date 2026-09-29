@@ -1806,3 +1806,26 @@ def test_quad_cursor_mapping_survives_a_software_crop(qapp):
         # 显式按 Qt 要求的顺序拆掉这棵已经 realized 的控件树：留给解释器退出时的垃圾回收
         # 就是本仓库那个 0xC0000374 堆损坏（conftest 关窗口用的是同一招）。
         shiboken6.delete(display)
+
+
+def test_auto_save_records_the_frame_not_the_device_now(qapp, main_window, monkeypatch):
+    """图库元数据必须写"这一帧是用什么参数拍的"，不是保存那一刻设备上的值。
+
+    真机实测：400 ms 曝光的抓取还在飞的时候把曝光改成 20 ms，存进图库的那条记录
+    exposure_us 就成了 20000.0，而文件的像素是 400 ms 的（均值 43.78）；裁剪同理。
+    抓帧挪到工作线程之后，抓取到存盘之间隔着一整个曝光，所以这个值必须在抓取那边抄。
+    """
+    main_window._last_capture_settings = {
+        'exposure_us': 400000.0, 'gain_db': 3.0,
+        'roi': [0, 0, 2448, 2048], 'sensor_size': [2448, 2048]}
+    monkeypatch.setattr(main_window.camera, "is_connected", lambda: True)
+    monkeypatch.setattr(main_window.camera, "get_exposure_time", lambda: 20000.0)
+    monkeypatch.setattr(main_window.camera, "get_gain", lambda: 0.0)
+    monkeypatch.setattr(main_window.camera, "get_roi", lambda: (1200, 1000, 800, 600))
+    monkeypatch.setattr(main_window.camera, "get_sensor_size", lambda: (2448, 2048))
+
+    meta = main_window._build_capture_metadata(np.zeros((8, 8), dtype=np.uint8), 1.0)
+
+    assert meta['exposure_us'] == 400000.0, "记的是保存那一刻的曝光，不是这一帧的"
+    assert meta['gain_db'] == 3.0
+    assert meta['roi'] == [0, 0, 2448, 2048]

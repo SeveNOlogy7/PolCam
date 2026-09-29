@@ -683,11 +683,28 @@ class CameraModule(BaseModule):
             self._logger.error(f"获取图像失败: {str(e)}")
         return None
 
+    def get_capture_settings(self) -> Dict[str, Any]:
+        """把设备当前的曝光/增益/ROI 抄成一份可序列化的字典。
+
+        只在单帧采集的抓取路径上调，读的是"这一帧即将用/刚用过的参数"；GUI 事后现问
+        设备的话，长曝光期间用户动一下滑条，存进图库的元数据就描述错帧了。
+        """
+        return {
+            'exposure_us': self.get_exposure_time(),
+            'gain_db': self.get_gain(),
+            'roi': list(self.get_roi()),
+            'sensor_size': list(self.get_sensor_size()),
+        }
+
     def get_frame(self) -> Optional[np.ndarray]:
         """获取最新图像帧"""
         try:
             t_start = time.perf_counter()
             if not self._is_streaming:
+                # 参数必须在开流**之前**抄：曝光一开始，这一帧就锁定用当时的值，而抓取
+                # 途中用户动滑条只影响下一帧。真机实测在抓取结束后才读的话，记下来的是
+                # 改过之后的 20ms，而像素是 400ms 曝的。
+                settings = self.get_capture_settings()
                 # 单帧采集时，临时开启数据流
                 self._camera.stream_on()
                 time.sleep(0.1)  # 等待数据流启动
@@ -697,10 +714,11 @@ class CameraModule(BaseModule):
                     if raw_image:
                         frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
                         t_capture = time.perf_counter() - t_start
-                        # 添加时间信息
+                        # 添加时间信息；settings 是开流前抄的那份（见上）
                         self.publish_event(EventType.FRAME_CAPTURED, {
                             "frame": frame,
                             "capture_time": t_capture,
+                            "settings": settings,
                             "timestamp": time.time()
                         })
                         return frame

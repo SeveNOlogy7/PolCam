@@ -1250,3 +1250,45 @@ def test_a_failed_connect_does_not_leave_the_chosen_device_for_next_time(camera_
     camera_module.device_manager.update_all_device_list.return_value = (1, [{"model_name": "只有一台"}])
     assert camera_module.connect() is True
     camera_module.device_manager.open_device_by_index.assert_called_with(1)
+
+
+def test_one_shot_frame_carries_the_settings_that_exposed_it(camera_module):
+    """单帧采集事件必须带上"这一帧是用什么参数曝的"，否则存盘的元数据会说谎。
+
+    真机实测（MER2-502-79U3M-HS POL）：曝光 400 ms 的抓取在飞时把曝光改成 20 ms，
+    存进图库的那条记录写着 `exposure_us=20000.0`，而像素是 400 ms 的（均值 43.78）。
+    元数据是采集时刻的属性，不该在保存那一刻现问设备——抓帧挪到工作线程之后，
+    这个窗口从一个都没有变成了整整一个曝光时间。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._is_streaming = False
+    image = MagicMock()
+    image.get_numpy_array.return_value = np.ones((8, 8), dtype=np.uint8)
+
+    def get_image_changing_the_device(*_args, **_kwargs):
+        # 曝光还在开着的时候用户动了滑条：这一帧仍然是按 400ms 曝的，
+        # 但设备节点上已经是 20ms 了 —— 抓取结束后再读设备就会记错
+        camera_module.set_exposure_time(20000.0)
+        return image
+
+    camera_module._camera.data_stream[0].get_image.side_effect = get_image_changing_the_device
+    # 设备的浮点值走夹具那份"写进去再读回来"的状态，别去桩 .get()
+    camera_module.set_exposure_time(400000.0)
+    camera_module.set_gain(3.0)
+    camera_module._camera.SensorWidth.get.return_value = 2448
+    camera_module._camera.SensorHeight.get.return_value = 2048
+    for name, value in (('OffsetX', 1200), ('OffsetY', 1000), ('Width', 800), ('Height', 600)):
+        getattr(camera_module._camera, name).get.return_value = value
+    events = []
+    camera_module.publish_event = lambda event_type, data=None: events.append((event_type, data))
+
+    camera_module.get_frame()
+
+    payloads = [data for etype, data in events if etype == EventType.FRAME_CAPTURED]
+    assert len(payloads) == 1, f"FRAME_CAPTURED 播了 {len(payloads)} 次"
+    settings = payloads[0]['settings']
+    assert settings['exposure_us'] == 400000.0,         "曝光是在抓取途中读的，拿到的已经是用户改过之后的值"
+    assert settings['gain_db'] == 3.0
+    assert settings['roi'] == [1200, 1000, 800, 600]
+    assert settings['sensor_size'] == [2448, 2048]
