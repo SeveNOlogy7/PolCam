@@ -1740,3 +1740,69 @@ def test_quad_cursor_overlay_follows_the_software_crop(qapp):
         import shiboken6
         if shiboken6.isValid(display):
             shiboken6.delete(display)
+
+
+def test_quad_cursor_mapping_survives_a_software_crop(qapp):
+    """四分图 + 软件裁剪时，游标必须仍然指着"看上去那一格的那个位置"。
+
+    真机实测（四角度灰度，4 张 2448x2048，软件放大到 view=(680,568,1088,910)、倍率 5.06）：
+    左上/右上/右下三格的源画布位置、四张角度图的像素值、传感器读数、所在格序号与独立算出的
+    期望值全部一致。这段"控件 → 渲染画布 → 第几格的格内比例 → 源画布 → 传感器"的折算此前只
+    在无裁剪时被测过：裁剪之后渲染画布是 2x2 个"裁剪后的格子"拼的，`quad_size` 也跟着变小，
+    按源画布尺寸换算就会指到别的格子、别的像素。
+    """
+    import shiboken6
+
+    display = ImageDisplay()
+    xs = np.arange(80, dtype=np.uint8)
+    ys = np.arange(80, dtype=np.uint8)
+    # 每格每张图都随位置递增且互不相同：错位一格或错一个像素都能看出来
+    tiles = [(60 * i + np.add.outer(ys, xs) + i).astype(np.uint8) for i in range(4)]
+
+    try:
+        display.resize(800, 600)
+        display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+        display.show_quad_view(tiles, gray=True)
+        display.show()
+        qapp.processEvents()
+        display.set_cursor_mode(True)
+        display.update_roi_info((100, 200, 320, 240), (640, 480))
+        display.apply_software_zoom_click(40, 40, 'zoom_in', zoom_factor=2.0)
+
+        view = display._get_current_view_roi()
+        geom = display._get_display_geometry()
+        assert geom is not None and view is not None, "离屏窗口没拿到几何，折算测不到"
+        rc_h, rc_w = display._rendered_canvas_shape
+        assert (rc_w, rc_h) == (view[2] * 2, view[3] * 2), \
+            f"渲染画布应当是 2x2 个裁剪格: {rc_w}x{rc_h} view={view}"
+
+        gx, gy, dw, dh = geom
+        for fx, fy, expected_index in ((0.12, 0.10, 0), (0.88, 0.15, 1),
+                                       (0.15, 0.90, 2), (0.90, 0.88, 3)):
+            wx, wy = int(gx + dw * fx), int(gy + dh * fy)
+            rx, ry = int((wx - gx) * rc_w / dw), int((wy - gy) * rc_h / dh)
+            col, row = 0 if rx < rc_w / 2 else 1, 0 if ry < rc_h / 2 else 1
+            exp_src = (int(view[0] + (rx - col * rc_w / 2) / (rc_w / 2) * view[2]),
+                       int(view[1] + (ry - row * rc_h / 2) / (rc_h / 2) * view[3]))
+            exp_values = [int(tiles[i][exp_src[1], exp_src[0]]) for i in range(4)]
+            # ROI (100,200,320,240) 覆盖 80x80 的源图：横每像素 4、纵每像素 3 个传感器像素
+            exp_sensor = (100 + exp_src[0] * 320 // 80, 200 + exp_src[1] * 240 // 80)
+
+            event = QtGui.QMouseEvent(QtCore.QEvent.Type.MouseMove, QtCore.QPointF(wx, wy),
+                                      QtCore.Qt.MouseButton.NoButton, QtCore.Qt.MouseButton.NoButton,
+                                      QtCore.Qt.KeyboardModifier.NoModifier)
+            display._on_mouse_move(event)
+
+            info = display.cursor_info
+            assert info is not None, f"第 {expected_index} 格没有游标读数"
+            assert info['quad_index'] == expected_index, \
+                f"光标在第 {expected_index} 格，读数指到了 {info['quad_index']}"
+            assert tuple(info['position']) == exp_src, \
+                f"({fx}, {fy}) 处源画布位置: 期望 {exp_src} 实得 {info['position']}"
+            assert [int(v) for v in info['quad_gray_values']] == exp_values
+            assert tuple(info['sensor_position']) == exp_sensor, \
+                f"传感器读数: 期望 {exp_sensor} 实得 {info['sensor_position']}"
+    finally:
+        # 显式按 Qt 要求的顺序拆掉这棵已经 realized 的控件树：留给解释器退出时的垃圾回收
+        # 就是本仓库那个 0xC0000374 堆损坏（conftest 关窗口用的是同一招）。
+        shiboken6.delete(display)
