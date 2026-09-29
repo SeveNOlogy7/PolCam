@@ -839,6 +839,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if is_mono:
             self.camera_control.set_wb_controls_visible(False)
 
+        # 先把「自动」的勾放下来：连接时 `_init_camera_parameters()` 一律把
+        # ExposureAuto/GainAuto 写成 Off，真机实测勾选自动曝光后断开重连，复选框还挂着勾、
+        # 数值框仍然只读且去掉箭头 —— 界面宣称在自动曝光，实际既没有自动，用户也改不了曝光。
+        # 走 setChecked 这条路，控件自己那套复位（只读、箭头、单次按钮可用性）才会跟着走。
+        self.camera_control.exposure_control.auto_check.setChecked(False)
+        self.camera_control.gain_control.auto_check.setChecked(False)
+
         # 使用相机当前值更新控制面板
         self.camera_control.update_exposure_value(self.camera.get_last_exposure())
         self.camera_control.update_gain_value(self.camera.get_last_gain())

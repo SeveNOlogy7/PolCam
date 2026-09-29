@@ -1696,6 +1696,33 @@ def test_a_camera_without_the_current_mode_lands_on_one_it_supports(main_window)
     assert main_window.camera_control.wb_control.isHidden(), "RAW/合成模式下白平衡组还在显示"
 
 
+def test_a_reconnect_leaves_no_auto_flag_the_device_does_not_have(qapp, main_window):
+    """勾着「自动」断开再重连：连接时设备被写回手动，面板的勾必须一起回来。
+
+    真机实测（MER2-502-79U3M-HS POL）：勾选自动曝光后设备 ExposureAuto=Continuous、数值框
+    只读且去掉箭头；断开再连接，`_init_camera_parameters()` 把设备写成 Off，而复选框还挂着
+    勾、数值框仍然只读无箭头 —— 界面宣称在自动曝光，实际既没有自动，用户也改不了曝光数值，
+    只能靠猜出"把勾去掉"这一招。
+    """
+    from polcam.core.events import Event, EventType
+    from polcam.core.camera_module import CameraType
+
+    exp = main_window.camera_control.exposure_control
+    gain = main_window.camera_control.gain_control
+    exp.auto_check.setChecked(True)
+    gain.auto_check.setChecked(True)
+    assert exp.value_spin.isReadOnly(), "前提：勾着自动时数值框是只读的"
+
+    main_window._on_camera_connected(Event(EventType.CAMERA_CONNECTED, {
+        "device_info": "黑白偏振相机", "camera_type": CameraType.MONO}))
+
+    assert not exp.auto_check.isChecked(), "面板还在宣称自动曝光，设备已经是手动"
+    assert not gain.auto_check.isChecked(), "同上，增益"
+    assert not exp.value_spin.isReadOnly(), "用户仍然改不动曝光数值"
+    assert not gain.value_spin.isReadOnly()
+    assert exp.once_btn.isEnabled(), "「单次」还因为挂着自动而被禁用"
+
+
 def test_hardware_zoom_area_selection_respects_configured_max_zoom(qapp):
     """框选放大也要受最大放大倍率约束。
 
