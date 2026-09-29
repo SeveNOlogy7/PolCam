@@ -2095,6 +2095,68 @@ def test_cursor_readout_uses_sensor_coordinates_after_a_hardware_crop(qapp):
     display.deleteLater()
 
 
+def test_a_prebuilt_quad_canvas_is_rendered_without_being_rebuilt(qapp, monkeypatch):
+    """处理侧已经拼好的画布不该在 GUI 线程上再裁再上色再拼一遍。
+
+    真机实测（2048x2448）：一条带 display_canvas 的结果走完整显示，QUAD_GRAY 花 49.6ms 并
+    把 create_quad_canvas 再跑一次，POLARIZATION 花 119.7ms 并把 colormap_polarization 和拼图
+    各再跑一次；直接把那张现成的画布推给渲染层是 12.9 / 15.8ms。这段全跑在界面线程上，
+    连续采集时就是掉帧和窗口发卡的来源。
+    """
+    from polcam.core.image_plotter import ImagePlotter
+    from polcam.core.image_processor import ImageProcessor
+
+    calls = {"canvas": 0, "colormap": 0}
+    orig_canvas = ImagePlotter.create_quad_canvas
+    orig_color = ImageProcessor.colormap_polarization
+
+    def spy_canvas(*args, **kwargs):
+        calls["canvas"] += 1
+        return orig_canvas(*args, **kwargs)
+
+    def spy_color(*args, **kwargs):
+        calls["colormap"] += 1
+        return orig_color(*args, **kwargs)
+
+    monkeypatch.setattr(ImagePlotter, "create_quad_canvas", staticmethod(spy_canvas))
+    monkeypatch.setattr(ImageProcessor, "colormap_polarization", staticmethod(spy_color))
+
+    display = ImageDisplay()
+    try:
+        display.set_processing_mode(ProcessingMode.POLARIZATION)
+        image = np.full((64, 64), 40, dtype=np.uint8)
+        dolp = np.full((64, 64), 0.5, dtype=np.float32)
+        aolp = np.full((64, 64), 90.0, dtype=np.float32)
+        docp = np.full((64, 64), -0.25, dtype=np.float32)
+        colored = list(ImageProcessor.colormap_polarization(dolp, aolp, docp, docp_signed=True))
+        prebuilt, _, _ = ImagePlotter.create_quad_canvas(
+            [image, *colored], ['IMAGE', 'DOLP', 'AOLP', 'DOCP'],
+            draw_titles=False, max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE)
+        calls.update(canvas=0, colormap=0)
+
+        display.show_polarization_quad_view(image, dolp, aolp, docp,
+                                            precolored=[image, *colored],
+                                            canvas=prebuilt, docp_signed=True)
+
+        assert calls["canvas"] == 0, f"现成的画布又被重拼了一次：{calls['canvas']}"
+        assert calls["colormap"] == 0, f"现成的上色图又被重算了一次：{calls['colormap']}"
+        assert display._rendered_canvas_shape == tuple(prebuilt.shape[:2])
+        assert display.quad_size == (64, 64), f"四格几何没跟着画布：{display.quad_size}"
+
+        # 软件裁剪之后仍然必须重拼：那是另一张画布
+        display.apply_software_zoom_click(32, 32, 'zoom_in', zoom_factor=2.0)
+        calls.update(canvas=0, colormap=0)
+        display.refresh_current_image()
+        assert calls["canvas"] == 1, "裁剪视图没有重拼画布，屏上会是整幅"
+
+        # 退回整幅时四格几何要按原画布复原，不能留着裁剪那一轮缩小过的尺寸
+        calls.update(canvas=0, colormap=0)
+        display.reset_software_view()
+        assert display.quad_size == (64, 64), f"复原后四格几何还是裁剪那轮的：{display.quad_size}"
+    finally:
+        display.deleteLater()
+
+
 def test_quad_cursor_overlay_follows_the_software_crop(qapp):
     """游标画在裁剪后的哪一格，得按裁剪窗口算，不能拿源图坐标直接乘。
 

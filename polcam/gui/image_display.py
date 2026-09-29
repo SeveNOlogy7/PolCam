@@ -486,6 +486,22 @@ class ImageDisplay(QtWidgets.QWidget):
         )
 
         if has_valid_quad_source:
+            # 没做软件裁剪时，处理侧拼好的那张画布就是这一帧要显示的东西，直接交回去。
+            # 真机实测（2048x2448）重算一遍要在 GUI 线程上多花 37ms（QUAD_GRAY）到
+            # 104ms（POLARIZATION，连上色带拼图整套重来），连续采集时这就是掉帧和窗口发卡的来源。
+            # 但必须把四格几何一起按这张画布重算：上一轮如果是裁剪视图，quad_size 已经被
+            # 缩小过，只换画布不换它们就会让右边/下面那几格的选区落到画布外。
+            view_roi = self._get_current_view_roi()
+            full_roi = self._get_full_view_roi()
+            if (self._current_canvas is not None and view_roi is not None
+                    and full_roi is not None and tuple(view_roi) == tuple(full_roi)):
+                canvas = self._current_canvas
+                canvas_h, canvas_w = canvas.shape[:2]
+                quad_h, quad_w = canvas_h // 2, canvas_w // 2
+                self.quad_positions = [(0, 0), (0, quad_w), (quad_h, 0), (quad_h, quad_w)]
+                self.quad_size = (quad_h, quad_w)
+                return canvas
+
             cropped_images = [self._crop_to_current_view(image) for image in self.current_images]
 
             if self._display_content_kind == 'polarization' and len(cropped_images) == 4:
