@@ -470,6 +470,43 @@ def test_a_centered_roi_request_is_a_fixed_point(camera_module):
     assert ox + w <= 2448 and ox % 8 == 0
 
 
+def test_an_in_flight_one_shot_grab_holds_off_roi_writes(camera_module):
+    """单帧采集握着设备的这段时间里，ROI 写入必须在碰设备之前就被挡下。
+
+    真机实测（MER2-502-79U3M-HS POL）：连续采集→硬件放大→停止采集→单帧采集，抓帧线程
+    还停在 stream_on/stream_off（含收尾 0.1s）里时点「视图复原」，Width/Height/
+    OffsetX/OffsetY 四个节点全部报 is not writeable，set_roi 走异常分支弹一个「相机错误」
+    对话框，状态栏被改成「错误」，而用户要的复原一次都没生效。设备拒绝是正确行为，
+    所以该由调用方在写之前让开，而不是拿一次注定的失败去换一条看不懂的报错。
+    """
+    camera_module.initialize()
+    camera_module.start()
+    camera_module._is_streaming = False
+    camera_module.get_roi_constraints = lambda: {
+        'width_inc': 8, 'height_inc': 2, 'width_min': 8, 'height_min': 4,
+        'offset_x_inc': 8, 'offset_y_inc': 2}
+    camera = camera_module._camera
+    camera.SensorWidth.get.return_value = 2448
+    camera.SensorHeight.get.return_value = 2048
+    image = MagicMock()
+    image.get_numpy_array.return_value = np.ones((8, 8), dtype=np.uint8)
+
+    outcomes = {}
+    events = []
+    camera_module.publish_event = lambda event_type, data=None: events.append(event_type)
+
+    def get_image():
+        outcomes['roi'] = camera_module.set_roi(0, 0, 1024, 1024)
+        return image
+
+    camera.data_stream[0].get_image.side_effect = get_image
+    camera_module.get_frame()
+
+    assert outcomes['roi'] is False, "抓取还占着设备，ROI 写入却被放过去了"
+    assert not camera.Width.set.called, "设备被占用时仍然写了 Width"
+    assert EventType.ERROR_OCCURRED not in events, "代码自己能挡住的拒绝不该弹「相机错误」"
+
+
 def test_connect_publishes_device_ranges(camera_module):
     """连接事件要带上相机的真实量程，面板才有依据设置滑条。"""
     remote = MagicMock()

@@ -244,6 +244,10 @@ class ImageToolbarController(BaseModule):
         sensor_w, sensor_h = self._camera_module.get_sensor_size()
         return (roi_w, roi_h) < (sensor_w, sensor_h)
 
+    def _device_busy(self) -> bool:
+        """有一次单帧抓取正占着设备，此时 ROI 写入会被设备直接拒掉。"""
+        return bool(self._camera_module and self._camera_module.is_capturing_frame())
+
     def _handle_reset_view(self):
         """处理视图复原 — 重置 ROI 为全传感器尺寸"""
         self.sync_zoom_coordinate_space()
@@ -251,6 +255,10 @@ class ImageToolbarController(BaseModule):
         # 否则游标/放大仍然武装，而按钮已经是未选中态，再点一次变成“开启”
         self._handle_zoom_area(False)
         self._handle_cursor_mode(False)
+
+        if self._device_busy():
+            self._show_status_message("单帧采集进行中，请稍候再复原视图")
+            return
 
         if self._should_use_software_zoom():
             reset_anything = False
@@ -299,6 +307,10 @@ class ImageToolbarController(BaseModule):
                     self._show_status_message(f"已达最大放大倍率（面积） {zoom_ratio:.1f}x")
                 else:
                     self._show_status_message(f"缩放: {zoom_ratio:.1f}x（面积）")
+            return
+
+        if self._device_busy():
+            self._show_status_message("单帧采集进行中，请稍候再缩放")
             return
 
         if not self._camera_module or not self._camera_module.is_connected():
@@ -369,6 +381,10 @@ class ImageToolbarController(BaseModule):
                     self._show_status_message(f"选区已调整到最大放大倍率 {zoom_ratio:.1f}x")
                 else:
                     self._show_status_message(f"区域放大: {zoom_ratio:.1f}x")
+            return
+
+        if self._device_busy():
+            self._show_status_message("单帧采集进行中，请稍候再缩放")
             return
 
         if not self._camera_module or not self._camera_module.is_connected():

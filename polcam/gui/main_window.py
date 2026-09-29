@@ -390,6 +390,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self._logger.debug("上一次单帧采集还没结束，忽略本次请求")
             return
         self._capture_in_flight = True
+        # 占设备要在受理这一次就完成，不能等抓取线程进 get_frame：真机实测线程起步前
+        # 的这一次「视图复原」照样把 ROI 写进了正在采集的设备，节点写了却不生效，界面
+        # 还说"视图已重置"。
+        self.camera.claim_frame_capture()
         self._set_capture_buttons_enabled(False)
         self._single_capture_requested = True
 
@@ -416,6 +420,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_capture_finished(self, error):
         """单帧采集收工：恢复按钮，失败时把原因摆到界面上（都在 GUI 线程）。"""
         self._capture_in_flight = False
+        self.camera.release_frame_capture()
         self._set_capture_buttons_enabled(True)
         if error is None:
             return

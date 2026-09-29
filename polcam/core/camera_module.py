@@ -88,6 +88,8 @@ class CameraModule(BaseModule):
         self._camera = None
         self._remote_feature = None
         self._is_streaming = False
+        # 有一次单帧抓取正占着设备（stream_on→等曝光→stream_off），ROI 写入要等它结束
+        self._one_shot_grab = False
         self._stream_thread: Optional[threading.Thread] = None
         self._frame_queue = queue.Queue(maxsize=4)  # 增加队列大小
         self._stop_flag = False
@@ -705,27 +707,33 @@ class CameraModule(BaseModule):
                 # 途中用户动滑条只影响下一帧。真机实测在抓取结束后才读的话，记下来的是
                 # 改过之后的 20ms，而像素是 400ms 曝的。
                 settings = self.get_capture_settings()
-                # 单帧采集时，临时开启数据流
-                self._camera.stream_on()
-                time.sleep(0.1)  # 等待数据流启动
-                
+                # 单帧采集时，临时开启数据流。整段抓取都对设备有独占性：真机实测这期间
+                # 写 Width/Height/OffsetX/OffsetY 一律 is not writeable，所以标记要罩住
+                # 含收尾 sleep 的整段，让 set_roi 在碰设备之前就挡下来。
+                self.claim_frame_capture()
                 try:
-                    raw_image = self._camera.data_stream[0].get_image()
-                    if raw_image:
-                        frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
-                        t_capture = time.perf_counter() - t_start
-                        # 添加时间信息；settings 是开流前抄的那份（见上）
-                        self.publish_event(EventType.FRAME_CAPTURED, {
-                            "frame": frame,
-                            "capture_time": t_capture,
-                            "settings": settings,
-                            "timestamp": time.time()
-                        })
-                        return frame
+                    self._camera.stream_on()
+                    time.sleep(0.1)  # 等待数据流启动
+
+                    try:
+                        raw_image = self._camera.data_stream[0].get_image()
+                        if raw_image:
+                            frame = self._to_pipeline_uint8(raw_image.get_numpy_array())
+                            t_capture = time.perf_counter() - t_start
+                            # 添加时间信息；settings 是开流前抄的那份（见上）
+                            self.publish_event(EventType.FRAME_CAPTURED, {
+                                "frame": frame,
+                                "capture_time": t_capture,
+                                "settings": settings,
+                                "timestamp": time.time()
+                            })
+                            return frame
+                    finally:
+                        # 确保数据流被关闭
+                        self._camera.stream_off()
+                        time.sleep(0.1)  # 等待数据流关闭
                 finally:
-                    # 确保数据流被关闭
-                    self._camera.stream_off()
-                    time.sleep(0.1)  # 等待数据流关闭
+                    self.release_frame_capture()
             else:
                 # 这一帧在入队的那一刻就已经广播过一次了，这里再发一遍就是重复事件：
                 # GUI 会把同一帧再解码再处理一次，而此处 t_capture 量到的是排队等待时间，
@@ -1017,6 +1025,26 @@ class CameraModule(BaseModule):
         """返回是否正在采集图像"""
         return self._is_streaming
 
+    def is_capturing_frame(self) -> bool:
+        """返回是否有一次单帧抓取正占着设备。
+
+        这段窗口里（含开流前后的 sleep）设备的 Width/Height/OffsetX/OffsetY 一律
+        is not writeable，任何 ROI 写入都得先让开。
+        """
+        return self._one_shot_grab
+
+    def claim_frame_capture(self) -> None:
+        """占住设备。
+
+        由受理请求的一方（GUI）同步调用：抓取线程起步要等调度，等它进 get_frame 再立
+        标记的话，中间这一次点击照样会把 ROI 写进正在采集的设备里。
+        """
+        self._one_shot_grab = True
+
+    def release_frame_capture(self) -> None:
+        """交还设备，与 claim_frame_capture 成对。"""
+        self._one_shot_grab = False
+
     def get_last_exposure(self) -> float:
         """获取最后设置的曝光值"""
         return self._last_params['exposure']
@@ -1149,6 +1177,12 @@ class CameraModule(BaseModule):
             是否成功
         """
         if not self._camera:
+            return False
+
+        if self._one_shot_grab:
+            # 抓取占着设备时这四个节点全是 is not writeable（真机实测），写下去只会
+            # 换来一条用户看不懂的「相机错误」对话框，而他要的操作其实没做成。
+            self._logger.debug("单帧采集进行中，跳过本次 ROI 设置")
             return False
 
         was_streaming = self._is_streaming

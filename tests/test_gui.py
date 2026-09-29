@@ -336,6 +336,7 @@ def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qap
     mock_camera = MagicMock()
     mock_camera.is_connected.return_value = True
     mock_camera.is_streaming.return_value = True
+    mock_camera.is_capturing_frame.return_value = False
     mock_camera.get_roi.return_value = (0, 0, 10, 10)
     mock_camera.get_sensor_size.return_value = (1000, 1000)
     mock_camera.set_roi.return_value = True
@@ -365,6 +366,7 @@ def test_image_toolbar_controller_reset_view_uses_software_path_for_static_image
     mock_camera = MagicMock()
     mock_camera.is_connected.return_value = True
     mock_camera.is_streaming.return_value = False
+    mock_camera.is_capturing_frame.return_value = False
     # 复原要不要碰相机，取决于 ROI 是否还被裁着；这里给一个满幅 ROI 表示“没裁”
     mock_camera.get_roi.return_value = (0, 0, 1600, 1200)
     mock_camera.get_sensor_size.return_value = (1600, 1200)
@@ -1096,6 +1098,7 @@ def test_reset_view_also_restores_a_cropped_camera_roi(qapp):
     camera = MagicMock()
     camera.is_connected.return_value = True
     camera.is_streaming.return_value = False
+    camera.is_capturing_frame.return_value = False
     camera.get_roi.return_value = (0, 0, 50, 50)
     camera.get_sensor_size.return_value = (100, 100)
     camera.reset_roi.return_value = True
@@ -1104,6 +1107,55 @@ def test_reset_view_also_restores_a_cropped_camera_roi(qapp):
     controller._handle_reset_view()
 
     assert camera.reset_roi.called, "相机 ROI 仍是裁剪状态，没有被复原"
+
+
+def test_reset_view_waits_for_an_in_flight_capture(qapp):
+    """单帧采集还握着设备时点「复原」，要等一次，别拿注定失败的写入换一条报错。
+
+    真机实测：抓取线程还停在 stream_on/stream_off 里时点复原，ROI 四个节点全部
+    is not writeable，界面弹「相机错误：设置 ROI 失败」，而用户要的复原毫无效果。
+    """
+    display = ImageDisplay()
+    display.show_image(np.zeros((100, 100, 3), dtype=np.uint8))
+    controller = display.toolbar_controller
+
+    camera = MagicMock()
+    camera.is_connected.return_value = True
+    camera.is_streaming.return_value = False
+    camera.get_roi.return_value = (0, 0, 50, 50)
+    camera.get_sensor_size.return_value = (100, 100)
+    camera.is_capturing_frame.return_value = True
+    controller.set_camera_module(camera)
+
+    messages = []
+    controller.publish_event = lambda event_type, data=None: messages.append((event_type, data))
+
+    controller._handle_reset_view()
+
+    assert not camera.reset_roi.called, "采集还没结束就去写 ROI，设备会直接拒绝"
+    text = " ".join(str(d.get('message')) for t, d in messages
+                    if t == EventType.STATUS_MESSAGE_UPDATE and d)
+    assert "采集" in text, f"只说了失败，没告诉用户是在等采集结束：{text!r}"
+
+
+def test_hardware_zoom_waits_for_an_in_flight_capture(qapp):
+    """没有显示图像时放大走的是硬件 ROI，同样不能插进一次正在进行的抓取。"""
+    controller = ImageDisplay().toolbar_controller
+
+    camera = MagicMock()
+    camera.is_connected.return_value = True
+    camera.is_streaming.return_value = False
+    camera.get_roi.return_value = (0, 0, 100, 100)
+    camera.get_sensor_size.return_value = (100, 100)
+    camera.is_capturing_frame.return_value = True
+    controller.set_camera_module(camera)
+    assert not controller._should_use_software_zoom(), "该用例要走硬件 ROI 分支"
+
+    controller._handle_zoom_in(True)
+    controller._handle_zoom_click(50, 50)
+
+    assert not camera.set_roi.called, "抓取途中仍然下发 ROI 写入"
+
 
 def test_single_capture_does_not_hold_the_gui_thread(qapp, main_window, monkeypatch):
     """单帧采集不能把一整个曝光的等待压在 GUI 线程里。
@@ -1127,6 +1179,10 @@ def test_single_capture_does_not_hold_the_gui_thread(qapp, main_window, monkeypa
     assert not main_window.camera_control.capture_btn.isEnabled(), "采集期间按钮没禁用"
     assert not main_window.camera_control.connect_btn.isEnabled(), \
         "抓取还占着设备时不该能断开相机"
+    # 占用标记必须在 handle_capture 这一次调用里就立起来：真机实测抓取线程还没起步时
+    # GUI 点「视图复原」，set_roi 照样下发到设备，节点写被采集吞掉（界面报"视图已重置"
+    # 而 ROI 仍裁着）。等 worker 进 get_frame 再立标记就晚了。
+    assert main_window.camera.is_capturing_frame(), "请求已经受理，设备占用状态却看不出来"
 
     # 抓取没结束前重复请求必须被忽略：真机实测两次 get_frame 重叠时后一次抛
     # DataStream.get_image:{-1}Unknown exception
@@ -1141,6 +1197,7 @@ def test_single_capture_does_not_hold_the_gui_thread(qapp, main_window, monkeypa
 
     assert wait_until(lambda: main_window.camera_control.capture_btn.isEnabled()), \
         "收尾后采集按钮没恢复"
+    assert not main_window.camera.is_capturing_frame(), "抓取结束了却没交还设备"
     assert calls.get("thread") not in (None, "MainThread"), f"抓帧还跑在 GUI 线程里: {calls}"
     assert calls.get("starts") == 1, f"重复请求没被挡掉，一共起了 {calls.get('starts')} 轮抓帧"
     assert main_window.camera_control.stream_btn.isEnabled()
@@ -1488,6 +1545,7 @@ def test_hardware_zoom_area_selection_respects_configured_max_zoom(qapp):
 
     mock_camera = MagicMock()
     mock_camera.is_connected.return_value = True
+    mock_camera.is_capturing_frame.return_value = False
     mock_camera.get_sensor_size.return_value = (1000, 1000)
     mock_camera.get_roi.return_value = (0, 0, 31, 31)
     mock_camera.set_roi.return_value = True
