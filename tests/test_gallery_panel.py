@@ -174,3 +174,65 @@ def test_gallery_panel_emits_multiple_ids_for_delete(qtbot, tmp_path: Path):
     panel._delete_selected_item()
 
     assert deleted_ids == [[1, 2]]
+
+
+def test_a_refresh_keeps_the_items_the_user_had_selected(qtbot, tmp_path: Path):
+    """采集后的自动刷新不许把用户刚选中的项洗掉。
+
+    refresh_gallery() 每次自动保存后都会跑，而 set_items 是 `preview_list.clear()` +
+    `table.setRowCount(0)` 整表重建：真机实测选中一项后按「单帧采集」，选区当场清空、
+    「读取」/「删除」变灰（禁用状态的 QPushButton 点了没有任何反应），用户只能回头重选。
+    """
+    panel = GalleryPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+
+    items = [_make_gallery_item(tmp_path, i) for i in (1, 2, 3)]
+    panel.set_items(items)
+
+    panel.preview_list.item(1).setSelected(True)
+    panel.preview_list.item(2).setSelected(True)
+    assert panel.selected_item_ids() == [2, 3], "前提：缩略图视图里的多选应当读得到"
+    assert panel.delete_button.isEnabled()
+
+    panel.set_items(items)
+
+    assert panel.selected_item_ids() == [2, 3], f"刷新把选区清了：{panel.selected_item_ids()}"
+    assert panel.delete_button.isEnabled(), "选区回来了但按钮还是灰的"
+
+
+def test_a_refresh_in_table_view_keeps_the_selection_too(qtbot, tmp_path: Path):
+    """列表视图那条路同样要保住选区 —— 两种视图共用一次刷新。"""
+    panel = GalleryPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+
+    items = [_make_gallery_item(tmp_path, i) for i in (1, 2, 3)]
+    panel.set_items(items)
+    panel.view_mode_combo.setCurrentIndex(1)
+
+    flags = QtCore.QItemSelectionModel.SelectionFlag.Select | QtCore.QItemSelectionModel.SelectionFlag.Rows
+    panel.table.selectionModel().select(panel.table.model().index(0, 0), flags)
+
+    panel.set_items(items)
+
+    assert panel.selected_item_ids() == [1], f"表格视图刷新后选区：{panel.selected_item_ids()}"
+    assert panel.open_button.isEnabled(), "单选一项时「读取」应当可用"
+
+
+def test_a_refresh_only_keeps_the_selection_that_still_exists(qtbot, tmp_path: Path):
+    """被删掉的那一项不能凭空回到选区。"""
+    panel = GalleryPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+
+    items = [_make_gallery_item(tmp_path, i) for i in (1, 2, 3)]
+    panel.set_items(items)
+    panel.preview_list.item(0).setSelected(True)
+    panel.preview_list.item(1).setSelected(True)
+
+    panel.set_items([items[2]])
+
+    assert panel.selected_item_ids() == []
+    assert not panel.open_button.isEnabled()
+    assert not panel.delete_button.isEnabled()

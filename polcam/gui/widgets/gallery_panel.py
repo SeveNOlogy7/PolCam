@@ -127,6 +127,9 @@ class GalleryPanel(QtWidgets.QWidget):
 
     def set_items(self, items: Iterable[GalleryItem]):
         items = list(items)
+        # 清空之前先把选中的项记下来：每次自动保存后都会刷新一次，而 clear()/setRowCount(0)
+        # 会把选区整个抹掉，用户那边表现为「刚点的项没了，读取/删除当场变灰」。
+        kept_ids = set(self.selected_item_ids())
         self._items_by_id = {item.id: item for item in items}
         # 缓存随面板上还有没有这张图走，不然一个长会话里解过的缩略图会一直攒着
         live_paths = {item.file_path for item in items}
@@ -140,9 +143,37 @@ class GalleryPanel(QtWidgets.QWidget):
             self._append_preview_item(item)
             self._append_table_row(item)
 
+        self._restore_selection(kept_ids)
         self.count_label.setText(f"{len(items)} 项")
         self._set_empty_state(len(items) == 0)
         self._update_action_state()
+
+    def _restore_selection(self, item_ids: set):
+        """把刷新前选中的那些项重新选上；已经不存在的项自然落选。"""
+        if not item_ids:
+            return
+        if self.stack.currentIndex() == self.VIEW_PREVIEW:
+            for row in range(self.preview_list.count()):
+                entry = self.preview_list.item(row)
+                item_id = entry.data(QtCore.Qt.ItemDataRole.UserRole)
+                if item_id is not None and int(item_id) in item_ids:
+                    entry.setSelected(True)
+            return
+
+        selection_model = self.table.selectionModel()
+        if selection_model is None:
+            return
+        flags = (QtCore.QItemSelectionModel.SelectionFlag.Select
+                 | QtCore.QItemSelectionModel.SelectionFlag.Rows)
+        for row in range(self.table.rowCount()):
+            cell = self.table.item(row, 0)
+            if cell is None:
+                continue
+            item_id = cell.data(QtCore.Qt.ItemDataRole.UserRole)
+            if item_id is not None and int(item_id) in item_ids:
+                # 逐行 select 天然是并集（Select 不带 Clear 时不会洗掉已选的行），
+                # 这里要的就是把多选一项项叠回来
+                selection_model.select(selection_model.model().index(row, 0), flags)
 
     def _append_preview_item(self, item: GalleryItem):
         list_item = QtWidgets.QListWidgetItem(self._create_thumbnail_icon(item.file_path), item.file_name)
