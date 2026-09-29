@@ -376,7 +376,10 @@ class CameraModule(BaseModule):
             self._target_device_index = None  # 失败时也清除
             self.publish_event(EventType.ERROR_OCCURRED, {
                 "source": "camera",
-                "error": str(e)
+                "error": str(e),
+                # 用户主动点「连接相机」导致的失败：界面必须每次都报，不能并进采集线程
+                # 错误的那个海量合并里（真机实测第二次点击一个框都不弹）
+                "from_connect": True,
             })
             return False
 

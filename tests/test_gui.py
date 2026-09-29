@@ -1311,6 +1311,36 @@ def test_a_frame_dropped_by_the_busy_gate_is_not_lost(qapp, main_window, monkeyp
     main_window._on_processing_completed(Event(EventType.PROCESSING_COMPLETED))
     assert submitted == [b], f"忙完之后要补交最近的一帧，实际提交了 {len(submitted)} 帧"
 
+def test_a_repeated_failed_connect_still_speaks_up(qapp, main_window, monkeypatch):
+    """用户主动点「连接相机」的失败，每一次都要报，不能被流错误的合并窗口吞掉。
+
+    真机实测（只有一台相机、被另一个进程占着）：第一次点「连接相机」弹一个框；隔几秒再点
+    一次，一个框都没有、状态栏文字一模一样 —— 界面上就像按钮坏了。那个去抖是给采集线程的
+    错误洪流准备的（一条重复错误弹一次框会把界面钉住），用户自己点的这一下不该被它压掉。
+    """
+    boxes = []
+    from qtpy import QtWidgets
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning",
+                        staticmethod(lambda parent, title, text, *a, **k: boxes.append(text)))
+    main_window._last_camera_error_dialog_at = 0.0
+
+    def camera_error(text, from_connect):
+        data = {"source": "camera", "error": text}
+        if from_connect:
+            data["from_connect"] = True
+        main_window._on_error(Event(EventType.ERROR_OCCURRED, data))
+
+    camera_error("连接相机失败: -1004 The device has been open", True)
+    camera_error("连接相机失败: -1004 The device has been open", True)
+    assert len(boxes) == 2, f"两次主动连接失败只报了 {len(boxes)} 次"
+
+    boxes.clear()
+    main_window._last_camera_error_dialog_at = 0.0
+    camera_error("采流线程出错", False)
+    camera_error("采流线程出错", False)
+    assert len(boxes) == 1, "采集线程的错误洪流必须仍然只弹一次"
+
+
 def test_a_one_shot_auto_adjust_and_a_capture_do_not_share_the_device(qapp, main_window,
                                                                       monkeypatch):
     """两条各自独占设备的路不能同时在飞。

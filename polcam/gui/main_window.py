@@ -945,8 +945,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if error_data.get("source") == "camera":
             # 采流线程会反复发同一条故障，而模态框自己是个嵌套事件循环：一人一框会把
             # 界面钉住。一段时间内只弹一次，状态栏那条仍然每次都更新。
+            # 例外是用户自己点「连接相机」的失败：它不是洪流，被合并掉就等于"按钮没反应"
+            # （真机实测第二次点击 0 个框、状态栏文字一字未变）。
             now = time.monotonic()
-            if now - self._last_camera_error_dialog_at >= self.CAMERA_ERROR_DIALOG_INTERVAL_S:
+            if (error_data.get("from_connect")
+                    or now - self._last_camera_error_dialog_at >= self.CAMERA_ERROR_DIALOG_INTERVAL_S):
                 self._last_camera_error_dialog_at = now
                 QtWidgets.QMessageBox.warning(self, "相机错误", error_msg)
 
