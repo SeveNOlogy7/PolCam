@@ -498,6 +498,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera_control.stream_btn.setText("停止采集")
             # 设置连续模式标志并更新状态
             self._continuous_mode = True
+            # 流里的帧不带参数快照，而设备 ROI 只可能在停止期间被改（采集中写不进去），
+            # 所以开流这一刻把当前 ROI 同步给显示层一次：屏上即将出现的像素用的就是它。
+            self.image_display.update_roi_info(
+                self.camera.get_roi(), self.camera.get_sensor_size())
             self.status_indicator.setProcessing(True)
             self.status_label.setText("连续采集中...")
             self.image_display.toolbar_controller.sync_zoom_coordinate_space()
@@ -911,8 +915,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if frame is not None:
             # 连续采集的帧不带这个键（参数在流里由设备随时变），取不到就归 None，
             # 免得上一张单帧的快照被当成这一张的
-            self._last_capture_settings = event.data.get("settings")
-            if self.camera.is_connected() and not self.image_display.has_roi_info():
+            settings = event.data.get("settings")
+            self._last_capture_settings = settings
+            roi = (settings or {}).get('roi')
+            sensor_size = (settings or {}).get('sensor_size')
+            if roi and sensor_size:
+                # 坐标换算的缓存要跟着这一帧走：快照是抓取前从设备抄的，正是这些像素
+                # 来自的那块传感器。停止期间设备被改过时（那时回填缓存会把旧图重新贴标，
+                # 见 _on_roi_changed），就靠这里接上，否则新帧挂着旧窗口、读数一路错。
+                self.image_display.update_roi_info(tuple(roi), tuple(sensor_size))
+            elif self.camera.is_connected() and not self.image_display.has_roi_info():
                 # 载入过文件之后缓存被清掉了；实时帧一到就把相机当前的 ROI 填回去，
                 # 游标读数就恢复成传感器坐标。只在缺失时读一次设备，不会每帧都问。
                 self.image_display.update_roi_info(
@@ -1123,9 +1135,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # ImageDisplay 里缓存的 ROI，以前只靠工具栏每次缩完自己回填。真机实测外部
         # set_roi(1200,1000,800,600) 之后缓存仍是 (0,0,2448,2048)，读数差整个偏移、
         # 传感器换算也跟着错。事件里本来就带着权威值，在这里统一回填。
-        self.image_display.update_roi_info(
-            (data['offset_x'], data['offset_y'], data['width'], data['height']),
-            (data['sensor_width'], data['sensor_height']))
+        # 但只在采集真的在跑时回填：缓存描述的是"屏上这些像素来自哪块传感器"，停止时
+        # 写设备不会产生新帧，跟着改口就把旧图重新贴标（真机实测复原视图后中心点从
+        # (1624,1024) 变成 (1224,1024)，像素一个没变）。旧图的下一次替换由帧自带的
+        # 参数快照、或开流时的那次同步负责。
+        if self._continuous_mode:
+            self.image_display.update_roi_info(
+                (data['offset_x'], data['offset_y'], data['width'], data['height']),
+                (data['sensor_width'], data['sensor_height']))
 
     def restore_settings(self):
         """恢复持久化设置。"""

@@ -1862,14 +1862,16 @@ def test_loaded_file_loses_the_sensor_coordinate_readout(qapp, main_window, monk
 
 
 def test_roi_changed_event_refreshes_the_display_cache(qapp, main_window):
-    """ROI 变更事件要真的回填显示层缓存，不能只记日志。
+    """采集进行中 ROI 变更要真的回填显示层缓存，不能只记日志。
 
     真机实测：外部 set_roi(1200,1000,800,600) 之后 ImageDisplay 里还是
     (0,0,2448,2048)，游标读数和缩放用的传感器换算都按上一次的窗口算，读数差整个 ROI
     偏移。工具栏那两条路是自己回填才碰巧没错，事件里本来就带着权威值，统一在这里回填。
+    连续采集中才会来新帧，所以这条只在 `_continuous_mode` 为真时生效。
     """
     from polcam.core.events import Event, EventType
 
+    main_window._continuous_mode = True
     main_window.image_display.update_roi_info((0, 0, 2448, 2048), (2448, 2048))
 
     main_window._on_roi_changed(Event(EventType.ROI_CHANGED, {
@@ -1878,6 +1880,109 @@ def test_roi_changed_event_refreshes_the_display_cache(qapp, main_window):
 
     assert main_window.image_display._current_roi == (1200, 1000, 800, 600), \
         f"缓存没跟上设备：{main_window.image_display._current_roi}"
+
+
+def test_a_roi_change_while_stopped_does_not_relabel_the_frame_on_screen(qapp, main_window):
+    """停止采集时改设备 ROI，不许把屏上那张旧图的传感器坐标一起改掉。
+
+    真机实测：ROI=(808,342,1632,1364) 采一帧后点「复原」，设备回到全幅、屏上还是那张
+    裁剪图（同一个像素值没变），中心读数却从 (1624, 1024) 变成 (1224, 1024)。缓存应当
+    描述"屏幕上这些像素来自哪块传感器"，而不是"设备下一帧打算用哪块"。
+    """
+    from polcam.core.events import Event, EventType
+
+    display = main_window.image_display
+    display.show_image(np.zeros((600, 800), dtype=np.uint8))
+    display.update_roi_info((1200, 1000, 800, 600), (2448, 2048))
+    main_window._continuous_mode = False
+
+    main_window._on_roi_changed(Event(EventType.ROI_CHANGED, {
+        'offset_x': 0, 'offset_y': 0, 'width': 2448, 'height': 2048,
+        'sensor_width': 2448, 'sensor_height': 2048}))
+
+    assert display._current_roi == (1200, 1000, 800, 600), \
+        f"旧帧被按新 ROI 重新贴标：{display._current_roi}"
+    assert display._source_to_sensor_position(10, 20) == (1210, 1020)
+
+
+def test_reset_view_leaves_the_readout_on_the_pixels_it_shows(qapp, main_window, monkeypatch):
+    """「复原视图」把设备恢复全幅，但屏上那张裁剪图的读数必须继续按裁剪窗口算。
+
+    真机实测的中心点读数：复原前 (1624, 1024)（正确），复原后 (1224, 1024)（编的），
+    期间屏幕上的像素一个都没变。工具栏自己在软件分支里回填缓存是这条错误读数的来源。
+    """
+    cam = main_window.camera
+    device = {'roi': (808, 342, 1632, 1364)}
+    monkeypatch.setattr(cam, 'is_connected', lambda: True)
+    monkeypatch.setattr(cam, 'is_streaming', lambda: False)
+    monkeypatch.setattr(cam, 'is_capturing_frame', lambda: False)
+    monkeypatch.setattr(cam, 'get_sensor_size', lambda: (2448, 2048))
+    monkeypatch.setattr(cam, 'get_roi', lambda: device['roi'])
+
+    def _reset_roi():
+        device['roi'] = (0, 0, 2448, 2048)
+        return True
+
+    monkeypatch.setattr(cam, 'reset_roi', _reset_roi)
+
+    display = main_window.image_display
+    display.show_image(np.zeros((1364, 1632), dtype=np.uint8))
+    display.update_roi_info((808, 342, 1632, 1364), (2448, 2048))
+    assert display._source_to_sensor_position(816, 682) == (1624, 1024)
+
+    display.toolbar_controller._handle_reset_view()
+
+    assert device['roi'] == (0, 0, 2448, 2048), "前提：设备 ROI 确实被复原了"
+    assert display._current_roi == (808, 342, 1632, 1364), \
+        f"屏上还是那张裁剪图，缓存却改成了 {display._current_roi}"
+    assert display._source_to_sensor_position(816, 682) == (1624, 1024)
+
+
+def test_a_single_capture_relabels_the_readout_with_its_own_snapshot(qapp, main_window):
+    """新帧一到，坐标换算就得换成这一帧自己的参数快照，不能继续用上一张的窗口。
+
+    承接上一条：停止期间设备被复原（缓存故意留着旧裁剪窗口），随后单帧采集拍到全幅。
+    这时屏上的像素已经是全幅，而缓存还写着裁剪窗口 —— 真机实测这条会把中心点报成
+    (1624, 1024) 而不是 (1224, 1024)。帧里本来就带着抓取时的 roi/sensor_size。
+    """
+    from polcam.core.events import Event, EventType
+
+    display = main_window.image_display
+    display.show_image(np.zeros((200, 300), dtype=np.uint8))
+    display.update_roi_info((100, 50, 300, 200), (600, 400))
+
+    main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+        'frame': np.zeros((400, 600), dtype=np.uint8),
+        'capture_time': 1,
+        'timestamp': None,
+        'settings': {'exposure_us': 10000.0, 'gain_db': 0.0,
+                     'roi': [0, 0, 600, 400], 'sensor_size': [600, 400]},
+    }))
+
+    assert display._current_roi == (0, 0, 600, 400), \
+        f"新帧还挂着上一张的窗口：{display._current_roi}"
+
+
+def test_starting_a_stream_syncs_the_readout_with_the_roi_its_frames_use(qapp, main_window, monkeypatch):
+    """连续采集的帧不带参数快照，开流那一刻要把设备 ROI 同步给显示层一次。
+
+    真机路径：停止时把设备复原成全幅（缓存留着旧裁剪窗口是对的），接着点「连续采集」，
+    流里的帧全是全幅，而缓存还是 (808,342,1632,1364) —— 读数会一路错到下一次 ROI 变更。
+    """
+    cam = main_window.camera
+    monkeypatch.setattr(cam, 'start_streaming', lambda: True)
+    monkeypatch.setattr(cam, 'is_connected', lambda: True)
+    monkeypatch.setattr(cam, 'get_roi', lambda: (0, 0, 2448, 2048))
+    monkeypatch.setattr(cam, 'get_sensor_size', lambda: (2448, 2048))
+
+    display = main_window.image_display
+    display.show_image(np.zeros((1364, 1632), dtype=np.uint8))
+    display.update_roi_info((808, 342, 1632, 1364), (2448, 2048))
+
+    main_window.handle_stream(True)
+
+    assert display._current_roi == (0, 0, 2448, 2048), \
+        f"开流后缓存还停在 {display._current_roi}"
 
 
 def test_cursor_readout_uses_sensor_coordinates_after_a_hardware_crop(qapp):

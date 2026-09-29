@@ -267,7 +267,9 @@ class ImageToolbarController(BaseModule):
             # 停止采集之后这里已经是软件分支了，但硬件放大留下的 ROI 还裁着，
             # 只重置软件视图会让状态栏说「视图已重置」而相机仍是裁剪态
             if self._camera_roi_is_cropped() and self._camera_module.reset_roi():
-                self._update_roi_cache()
+                # 这里回填缓存就是那条错误读数：设备是复原成全幅了，可屏上还是裁剪时
+                # 采到的那张图，像素一个没变，读数却按全幅重新换算（真机实测中心点从
+                # (1624,1024) 变成 (1224,1024)）。缓存归这一帧管，下一帧自带正确映射。
                 reset_anything = True
             if reset_anything:
                 self._show_status_message("视图已重置")
