@@ -30,6 +30,21 @@ TEXT_KWARGS = {"encoding": "utf-8", "errors": "replace"}
 # 的 360 分钟超时才报错。宁可超时报错，也不要静默挂住。
 PER_FILE_TIMEOUT_S = 300
 
+
+def emit(text: str, stream=None) -> None:
+    """把子进程输出转写给控制台；控制台编码不了的字形换成 '?'，不让它决定这条腿的生死。
+
+    实测撞到过：test_gui.py 的输出里有一个 GBK 控制台编不出的 '²'，sys.stdout.write 抛
+    UnicodeEncodeError，runner 死在转写这一步，后面的测试文件一个都没跑。这和它存在的
+    理由——"一个非 ASCII 输出掩盖全部结果"——是同一件事，只是发生在写的一侧。
+    """
+    stream = sys.stdout if stream is None else stream
+    try:
+        stream.write(text)
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        stream.write(text.encode(encoding, "replace").decode(encoding, "replace"))
+
 # pytest 结束时才会打的汇总行；进程中途退出（含 native crash 与 os._exit）就看不到它。
 # -q 会把两侧的 "=== " 装饰去掉（`5 passed, 1 warning in 0.15s`），所以只认计数本身。
 _SUMMARY = re.compile(r"\b\d+ (?:passed|failed|errors?\b)|\bno tests ran\b")
@@ -90,14 +105,14 @@ def run_one(test_file: Path, extra_args: list[str]) -> str | None:
                                 timeout=PER_FILE_TIMEOUT_S, **TEXT_KWARGS)
     except subprocess.TimeoutExpired as exc:
         partial = (exc.output or b"") if isinstance(exc.output, bytes) else (exc.output or "")
-        sys.stdout.write(partial)
-        sys.stdout.write(f"\n[runner] {test_file.relative_to(ROOT)} 超过 {PER_FILE_TIMEOUT_S}s "
-                         f"没结束，已杀掉：挂住的测试会掩盖后面所有文件的结果\n")
+        emit(partial)
+        emit(f"\n[runner] {test_file.relative_to(ROOT)} 超过 {PER_FILE_TIMEOUT_S}s "
+             f"没结束，已杀掉：挂住的测试会掩盖后面所有文件的结果\n")
         sys.stdout.flush()
         return f"超过 {PER_FILE_TIMEOUT_S}s 未完成（已终止）"
-    sys.stdout.write(result.stdout or "")
+    emit(result.stdout or "")
     sys.stdout.flush()
-    sys.stderr.write(result.stderr or "")
+    emit(result.stderr or "", sys.stderr)
     return verdict(test_file, result.returncode, result.stdout or "")
 
 
@@ -111,7 +126,7 @@ def combine_coverage() -> str | None:
             text=True, **TEXT_KWARGS
         )
         if result.returncode != 0:
-            sys.stderr.write((result.stdout or "") + (result.stderr or ""))
+            emit((result.stdout or "") + (result.stderr or ""), sys.stderr)
             return f"coverage {' '.join(step)} 失败"
     return None
 
