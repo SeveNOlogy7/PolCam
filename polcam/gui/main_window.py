@@ -363,6 +363,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_auto_parameters(self):
         """更新自动参数的显示值"""
+        if not self.camera.is_connected():
+            # 断开之后队列里晚到的帧还会走到这里，而读不到设备时 get_exposure_time()
+            # 回 0.0：真机实测那个 0.0 被 QDoubleSpinBox 夹成量程下限，断开后的面板上
+            # 写着"20.0 µs"，而断开前设备其实是 119498 µs。没有设备可问就别改读数。
+            return
+
         if self.camera_control.exposure_control.auto_check.isChecked():
             current_exposure = self.camera.get_exposure_time()
             if current_exposure != self.camera_control.exposure_control.value_spin.value():

@@ -1219,6 +1219,35 @@ def test_single_capture_does_not_hold_the_gui_thread(qapp, main_window, monkeypa
     assert main_window._single_capture_requested is False, "失败后还留着待采集标记"
 
 
+def test_a_frame_that_arrives_after_disconnect_keeps_the_last_readout(qapp, main_window):
+    """断开之后才送达的那一帧，不能把曝光/增益读数写成设备量程下限。
+
+    真机实测（MER2-502-79U3M-HS POL）：连续采集中断开相机，事件队列里还没送达的
+    FRAME_CAPTURED 会在断开之后进来。这时 get_exposure_time() 因为设备句柄已经没了而回
+    0.0，QDoubleSpinBox 再把 0.0 夹成它的下限 20.0 —— 相机明明断开了，框里却显示
+    "20.0 µs"，而断开前设备的真实值是 119498 µs。同一类读数在
+    `_build_capture_metadata` 里早就用 is_connected() 挡过了，这条漏了。
+    """
+    control = main_window.camera_control
+    control.exposure_control.auto_check.setChecked(True)
+    control.gain_control.auto_check.setChecked(True)
+    control.update_exposure_value(119498.0)
+    control.update_gain_value(12.5)
+
+    main_window.camera._camera = None
+    main_window.camera._remote_feature = None
+    main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+        "frame": np.zeros((8, 8), dtype=np.uint8),
+        "capture_time": 0.01,
+        "timestamp": time.time(),
+    }))
+
+    assert control.exposure_control.value_spin.value() == 119498.0, \
+        "断开后的晚到帧把曝光读数写成了设备量程下限"
+    assert control.gain_control.value_spin.value() == 12.5, \
+        "断开后的晚到帧把增益读数写成了 0 dB"
+
+
 def test_a_one_shot_auto_adjust_and_a_capture_do_not_share_the_device(qapp, main_window,
                                                                       monkeypatch):
     """两条各自独占设备的路不能同时在飞。
