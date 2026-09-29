@@ -2364,6 +2364,85 @@ def test_area_zoom_across_a_mid_drag_layout_change_does_not_emit_an_inverted_rec
         shiboken6.delete(display)
 
 
+def test_a_new_frame_updates_the_readout_the_cursor_is_standing_on(qapp, qtbot):
+    """鼠标停在图上不动，新结果上屏时那一行读数要跟着换成新的像素。
+
+    真机实测（停止采集、单帧偏振分析）：读数只在 mouseMoveEvent 里算一次，之后把亮度
+    1.0 改到 1.6 重算、屏上的图已经换了一张，状态栏那行还是旧像素的值 —— 手不动就永远
+    不刷新，等于报给用户一个已经被替换掉的数据。
+    """
+    import shiboken6
+
+    display = ImageDisplay()
+    old_tiles = [np.full((64, 64), i + 1, dtype=np.uint8) for i in range(4)]
+    new_tiles = [np.full((64, 64), i + 10, dtype=np.uint8) for i in range(4)]
+    emitted = []
+    display.cursorPositionChanged.connect(lambda info: emitted.append(dict(info)))
+    try:
+        display.resize(600, 500)
+        display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+        display.show_quad_view(old_tiles, gray=True)
+        display.show()
+        qapp.processEvents()
+        display.update_roi_info((0, 0, 64, 64), (64, 64))
+        display.set_interaction_mode('cursor')
+
+        gx, gy, dw, dh = display._get_display_geometry()
+        point = QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3))
+        qtbot.mouseMove(display.image_label, pos=point)
+        qapp.processEvents()
+        assert emitted, "鼠标移动没有产生读数"
+        assert emitted[-1].get('quad_gray_values') == [1, 2, 3, 4], emitted[-1]
+
+        display.show_quad_view(new_tiles, gray=True)
+        qapp.processEvents()
+        assert len(emitted) == 2, f"新帧上屏后没有为同一个点重算读数: 发射次数={len(emitted)}"
+        assert emitted[-1].get('quad_gray_values') == [10, 11, 12, 13], emitted[-1]
+        assert emitted[-1].get('position') == emitted[0].get('position'), \
+            "重算读数时指到了别的像素上，位置不该变"
+    finally:
+        display.set_interaction_mode('none')
+        qapp.processEvents()
+        shiboken6.delete(display)
+
+
+def test_processing_completion_does_not_erase_the_cursor_readout(main_window, qapp, qtbot):
+    """一次处理完成要把处理灯收回，但不能顺手把游标读数擦成"就绪"。
+
+    真机实测：鼠标停在偏振四格上，改一次亮度，那行读数就没了（被
+    _on_processing_completed 写回的"就绪"盖掉），得重新挪一下鼠标才回来。
+    """
+    disp = main_window.image_display
+    main_window.show()          # 窗口没显示时合成的移动事件会被丢掉
+    qapp.processEvents()
+    tiles = [np.full((64, 64), i + 1, dtype=np.uint8) for i in range(4)]
+    disp.resize(600, 500)
+    disp.set_processing_mode(ProcessingMode.QUAD_GRAY)
+    disp.show_quad_view(tiles, gray=True)
+    disp.show()
+    qapp.processEvents()
+    disp.update_roi_info((0, 0, 64, 64), (64, 64))
+    # 应用是在第一帧上屏时打开显示控件的（_update_frame_and_display），测试里直接铺图
+    # 就得自己走这一步，否则工具按钮还是禁用的，click() 什么都不做
+    disp.enable_display_controls(True)
+    disp.toolbar_controller.toolbar.cursor_btn.click()
+    qapp.processEvents()
+    assert disp.cursor_enabled, "游标模式没开起来，后面测不到读数"
+    gx, gy, dw, dh = disp._get_display_geometry()
+    qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3)))
+    qapp.processEvents()
+    qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3)))
+    qapp.processEvents()
+    assert main_window.status_label.text().startswith("("), \
+        f"游标读数没到状态栏上: {main_window.status_label.text()!r}"
+
+    main_window._on_processing_completed(Event(EventType.PROCESSING_COMPLETED, {}))
+
+    assert main_window.status_label.text().startswith("("), \
+        f"处理完成把游标读数擦掉了: {main_window.status_label.text()!r}"
+    assert not main_window.status_indicator._processing, "处理灯没跟着收回去"
+
+
 def test_quad_cursor_mapping_survives_a_software_crop(qapp):
     """四分图 + 软件裁剪时，游标必须仍然指着"看上去那一格的那个位置"。
 

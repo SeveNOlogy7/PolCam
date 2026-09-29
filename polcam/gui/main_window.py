@@ -634,7 +634,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if not self._continuous_mode:  # 仅在非连续模式下更新状态
             self.status_indicator.setProcessing(False)
-            self.status_label.setText("就绪")
+            # 游标读数还挂在状态栏上时别把它换成"就绪"：真机实测停在图上看数值，
+            # 改一次亮度就被这次完成信号擦掉一行，得重新挪一下鼠标才回来。
+            if not self.image_display.has_cursor_readout():
+                self.status_label.setText("就绪")
 
     def _update_display(self, result):
         """更新图像显示"""

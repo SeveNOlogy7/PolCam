@@ -72,6 +72,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self._quad_gray_mode = False
         self.cursor_enabled = False   # 游标模式启用状态
         self.cursor_info = None       # 游标信息
+        self._cursor_display_pos = None   # 游标当前所在的显示坐标（新帧上屏时要按它重算读数）
         self._active_modes = list(COLOR_MODES)  # 当前可用模式列表
         self._software_view_roi = None         # 当前软件视图窗口: (x, y, width, height)
         self._zoom_coordinate_space = 'hardware'  # 'hardware' | 'canvas'
@@ -545,6 +546,9 @@ class ImageDisplay(QtWidgets.QWidget):
             self._show_canvas(canvas)
             self._update_quad_title_labels(canvas)
             self._update_cursor_overlay()
+            if self.cursor_enabled and self._cursor_display_pos is not None:
+                # 屏上换成了这一帧的像素，停在图上的读数得跟着重算
+                self._report_cursor_at(*self._cursor_display_pos)
 
     def _render_current_view(self):
         """渲染当前软件视图。"""
@@ -866,7 +870,12 @@ class ImageDisplay(QtWidgets.QWidget):
             if "mouseMoveEvent" in vars(self.image_label):
                 del self.image_label.mouseMoveEvent
             self.cursor_info = None
+            self._cursor_display_pos = None
             self._update_cursor_overlay()
+
+    def has_cursor_readout(self) -> bool:
+        """状态栏那行现在是不是游标读数。"""
+        return bool(self.cursor_enabled) and self.cursor_info is not None
 
     # ==================== 缩放交互 ====================
 
@@ -1245,10 +1254,20 @@ class ImageDisplay(QtWidgets.QWidget):
             
     def _on_mouse_move(self, event: QtGui.QMouseEvent):
         """处理鼠标移动事件"""
+        self._cursor_display_pos = (event.x(), event.y())
+        self._report_cursor_at(event.x(), event.y())
+
+    def _report_cursor_at(self, display_x: int, display_y: int):
+        """按显示空间里的一个点算出读数并发出去。
+
+        鼠标移动和新帧上屏共用这个入口：读数只在 mouseMoveEvent 里算一次的话，屏上的像素
+        换过之后状态栏里留着的还是旧值（真机实测：鼠标停在偏振四格里同一个点，把亮度从
+        1.0 改到 1.6，四张图都重算了，那一行读数一动不动）。
+        """
         if not self.cursor_enabled or not self.current_images:  # 修改判断条件
             return
 
-        source_coords = self._display_to_source_coords(event.x(), event.y())
+        source_coords = self._display_to_source_coords(display_x, display_y)
         if source_coords is None:
             return
 
@@ -1256,7 +1275,7 @@ class ImageDisplay(QtWidgets.QWidget):
         
         # 获取像素值
         if self.is_quad_view_mode():
-            rendered_coords = self._display_to_render_canvas_coords(event.x(), event.y())
+            rendered_coords = self._display_to_render_canvas_coords(display_x, display_y)
             if rendered_coords is None:
                 return
 
