@@ -602,6 +602,63 @@ def test_frame_cache_is_bounded_by_bytes_not_entry_count():
     assert len(module._frame_cache) < len(kept_small) + 2, "没有按字节淘汰"
 
 
+def test_cache_accounting_counts_every_array_the_result_holds():
+    """缓存记账要算上结果里挂着的每一份数组，不然上限就是个假数字。
+
+    POLARIZATION 为了不让 GUI 再上一次色，把三张全尺寸 BGR 上色图存进
+    metadata['precolored_polarization']，而 `_result_size` 只加 images + display_canvas。
+    真机 2048x2448 一帧实测：计入 119.5 MiB，真实 167.3 MiB —— 漏了 47.8 MiB，
+    128 MiB 的上限实际留着 1.40 倍内存。QUAD_GRAY/MERGED_GRAY 没有这种数组，量出来是准的。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    frame = np.linspace(0, 200, 64 * 64, dtype=np.uint8).reshape(64, 64)
+    module = ProcessingModule()
+    assert module.initialize()
+    result = module._process_task(ProcessingTask(
+        frame=frame, mode=ProcessingMode.POLARIZATION, params=dict(DEFAULT_PROCESSING_PARAMS)))
+
+    precolored = result.metadata.get('precolored_polarization')
+    assert precolored, "前提：这条结果确实带着上色后的图"
+    real = sum(int(i.nbytes) for i in result.images)
+    if result.display_canvas is not None:
+        real += int(result.display_canvas.nbytes)
+    real += sum(int(a.nbytes) for a in precolored)
+
+    assert module._result_size(result) >= real, (
+        f"记账少算了 {real - module._result_size(result)} 字节，上限管不住真实内存")
+    module.destroy()
+
+
+def test_a_single_result_bigger_than_the_byte_cap_is_still_cached():
+    """一条结果比上限还大时不能把缓存清空 —— 那等于这条永远不进缓存。
+
+    修记账之后就会撞上：真机一条 POLARIZATION 结果真实占 167.3 MiB，而上限是 128 MiB。
+    全清空的话每次切回偏振度都要重算一遍（真机约 1s），缓存对这个模式彻底失效。
+    """
+    module = ProcessingModule()
+    assert module.initialize()
+    module._max_cache_size = 10
+    module._max_cache_bytes = 1000
+
+    from collections import OrderedDict
+    module._frame_cache = OrderedDict([("only", (object(), 4000))])
+    module._evict_to_limits()
+    assert list(module._frame_cache) == ["only"], "唯一一条被自己淘汰掉了，等于永远不缓存"
+
+    # 多条时仍然要按上限淘汰，只保底留最新的那一条
+    module._frame_cache = OrderedDict([("old", (object(), 600)), ("new", (object(), 700))])
+    module._evict_to_limits()
+    assert list(module._frame_cache) == ["new"], f"没有按字节挤掉旧的：{list(module._frame_cache)}"
+    module.destroy()
+
+
 def test_a_failed_task_still_reports_completion():
     """处理抛异常时也要发 PROCESSING_COMPLETED，否则状态灯永远停在"正在处理"。
 

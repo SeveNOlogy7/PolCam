@@ -794,19 +794,31 @@ class ProcessingModule(BaseModule):
         """一条结果实际占的字节数。
 
         sys.getsizeof 对 numpy 数组量不出真实占用，必须用 nbytes 把每张图（含合成分
-        布）加起来。
+        布）加起来。metadata 里也挂着数组：偏振模式为了不让 GUI 再上一次色，把三张全尺寸
+        BGR 上色图存进 precolored_polarization —— 真机 2048x2448 一帧就是 47.8 MiB，
+        以前只算 images + canvas，计入 119.5 MiB 而真实 167.3 MiB，128 MiB 的上限实际
+        留着 1.40 倍内存。
         """
         size = sum(image.nbytes for image in result.images)
         if result.display_canvas is not None:
             size += result.display_canvas.nbytes
+        for value in result.metadata.values():
+            entries = value if isinstance(value, (list, tuple)) else [value]
+            for entry in entries:
+                if isinstance(entry, np.ndarray):
+                    size += int(entry.nbytes)
         return size
 
     def _evict_to_limits(self) -> None:
-        """按“最久没用”淘汰，直到条数和字节数都回到上限内。调用方需已持有 _cache_lock。"""
+        """按“最久没用”淘汰，直到条数和字节数都回到上限内。调用方需已持有 _cache_lock。
+
+        至少留下最新的一条：单条就可能比字节上限还大（真机偏振结果 167.3 MiB > 128 MiB），
+        清空的后果是这个模式永远进不了缓存，每次切回去都要重算一遍。
+        """
         if self._max_cache_size <= 0 or self._max_cache_bytes <= 0:
             self._frame_cache.clear()
             return
-        while self._frame_cache and (
+        while len(self._frame_cache) > 1 and (
                 len(self._frame_cache) > self._max_cache_size
                 or sum(size for _, size in self._frame_cache.values()) > self._max_cache_bytes):
             self._frame_cache.popitem(last=False)
