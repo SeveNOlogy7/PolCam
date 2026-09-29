@@ -313,6 +313,52 @@ def test_polarization_parameter_maps_skip_enhancement():
     module.destroy()
 
 
+def test_single_angle_view_is_the_same_quadrant_as_the_matching_quad_tile():
+    """「单角度 θ」必须就是四角度里标着 θ 的那一格，一格都不能错位。
+
+    真机比过（MER2-502-79U3M-HS POL，有偏振结构的场景）：QUAD_GRAY 四格均值
+    13.484 / 14.157 / 14.385 / 14.443 互不相同，而 SINGLE_GRAY 在 0/45/90/135 上各自与第
+    0/1/2/3 格逐位相等。这条一致性原先没人盯着：单角度走 decoded[selected_angle // 45]，
+    四角度走 decoded[i] 再配上 ['0','45','90','135'] 的文件名与图题，两处顺序只要有一边被
+    改动，导出的图就会贴上错误的角度标签，而画面看起来完全正常。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    frame = np.empty((16, 16), dtype=np.uint8)
+    frame[0::2, 0::2] = 200   # 0°
+    frame[0::2, 1::2] = 150   # 45°
+    frame[1::2, 0::2] = 100   # 90°
+    frame[1::2, 1::2] = 50    # 135°
+
+    module = ProcessingModule()
+    assert module.initialize()
+    module._is_mono = True
+    try:
+        quad = module._process_task(ProcessingTask(
+            frame=frame, mode=ProcessingMode.QUAD_GRAY, params=dict(DEFAULT_PROCESSING_PARAMS)))
+        assert len(quad.images) == 4
+        means = [float(t.mean()) for t in quad.images]
+        assert len({round(m, 2) for m in means}) == 4, f"四格分不开，这个用例判不了东西：{means}"
+
+        for angle, tile in zip((0, 45, 90, 135), quad.images):
+            params = dict(DEFAULT_PROCESSING_PARAMS)
+            params['selected_angle'] = angle
+            single = module._process_task(ProcessingTask(
+                frame=frame, mode=ProcessingMode.SINGLE_GRAY, params=params))
+            assert single.metadata.get('angle') == angle
+            assert np.array_equal(single.images[0], tile), (
+                f"单角度 {angle}° 出来的图不是四角度里标着 {angle}° 的那一格 "
+                f"(均值 {float(single.images[0].mean()):.1f} vs {float(tile.mean()):.1f})")
+    finally:
+        module.destroy()
+
+
 def test_cached_result_is_keyed_by_the_params_that_produced_it():
     """缓存必须按“产出它的那份参数”记键，而不是按记下它时的实时参数。
 
