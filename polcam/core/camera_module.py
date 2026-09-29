@@ -902,21 +902,38 @@ class CameraModule(BaseModule):
                 "error": str(e)
             })
 
+    # 命令之后设备有一小段时间仍然报 Off，只有"跑起来过再回到 Off"或"连续多次稳定 Off"
+    # 才算这一次自动调整真的做完了（判据来自真机时序，见 _wait_auto_once 的说明）
+    AUTO_SETTLED_OFF_POLLS = 3
+
     def _wait_auto_once(self, auto_feature: str, label: str, max_wait_s: float = 5.0) -> bool:
         """设成 Once，等相机自己回到 Off；回不来就把模式收回，别把状态留坏。
 
         真机实测：没开流（没有画面可看）时这台相机的自动永远不会收敛，5s 到点仍停在
         Once；而 Once 状态下曝光/增益节点是不可写的（实测抛 InvalidAccess
         "Node is not writable"），留着它等于用户按一次"单次自动"之后手动值就再也写不进去。
+
+        另一半是真机抓到的时序坑：`Once` 命令发下去之后约 30ms 内节点仍然读回 `Off`
+        （连续采集中实测 Off[~30ms] → Once[70~2130ms] → Off；没画面时 Off[~22ms] → Once
+        一直挂着）。第一次轮询正好落在这个窗口里就会当场返回"已完成"，控件恢复、界面
+        以为调整结束，而设备随后进入 Once 停住——之后用户手动改曝光全被
+        `Node is not writable` 挡掉，面板显示的是设备从没收到过的数。
         """
         enum = self._remote_feature.get_enum_feature(auto_feature)
         enum.set("Once")
         deadline = time.time() + max_wait_s
+        saw_running = False
+        off_polls = 0
         while time.time() < deadline:
             # EnumFeature.get() 返回 (枚举值, 描述字符串)，拿元组和 "Off" 比永远为假
             _, mode = enum.get()
             if mode == "Off":
-                return True
+                off_polls += 1
+                if saw_running or off_polls >= self.AUTO_SETTLED_OFF_POLLS:
+                    return True
+            else:
+                saw_running = saw_running or mode == "Once"
+                off_polls = 0
             time.sleep(0.1)
         try:
             enum.set("Off")

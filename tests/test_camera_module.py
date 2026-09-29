@@ -507,6 +507,57 @@ def test_an_in_flight_one_shot_grab_holds_off_roi_writes(camera_module):
     assert EventType.ERROR_OCCURRED not in events, "代码自己能挡住的拒绝不该弹「相机错误」"
 
 
+def test_a_transient_off_right_after_once_is_not_convergence(camera_module):
+    """设完 Once 之后第一下读到 Off 不能算"自动已经完成"。
+
+    真机时序（MER2-502-79U3M-HS POL，采样 50ms）：连续采集中点单次自动曝光是
+    Off[~30ms] → Once[70~2130ms] → Off；没在采集时是 Off[~22ms] → Once 一直挂着，
+    直到我们把超时收回来。也就是说命令之后有约 30ms 设备还报 Off——轮询恰好落在这
+    个窗口里就会当场"成功返回"，而设备随后进入 Once 并停在那里。实测后果：曝光节点
+    变成不可写（FloatFeature_s.set:{-8}Node is not writable），面板显示用户新输入的
+    60000，设备还停在 35000，之后所有手动曝光被静默丢掉。
+    """
+    camera_module.initialize()
+    camera_module.start()
+
+    enum = MagicMock()
+    trace = ["Off", "Off", "Once", "Once", "Once"]
+    reads = {"n": 0}
+
+    def get():
+        i = min(reads["n"], len(trace) - 1)
+        reads["n"] += 1
+        return (1, trace[i])
+
+    enum.get.side_effect = get
+    camera_module._remote_feature.get_enum_feature.return_value = enum
+
+    assert camera_module._wait_auto_once("ExposureAuto", "曝光", max_wait_s=0.3) is False
+    assert enum.set.call_args_list[-1].args == ("Off",), \
+        "没等出真正的收敛就返回，设备会被留在 Once"
+
+
+def test_off_after_running_counts_as_convergence(camera_module):
+    """看到 Once 之后再回到 Off，才是"这一次自动调整做完了"。"""
+    camera_module.initialize()
+    camera_module.start()
+
+    enum = MagicMock()
+    trace = ["Off", "Once", "Once", "Off"]
+    reads = {"n": 0}
+
+    def get():
+        i = min(reads["n"], len(trace) - 1)
+        reads["n"] += 1
+        return (2, trace[i])
+
+    enum.get.side_effect = get
+    camera_module._remote_feature.get_enum_feature.return_value = enum
+
+    assert camera_module._wait_auto_once("ExposureAuto", "曝光", max_wait_s=5.0) is True
+    assert enum.set.call_args_list[-1].args == ("Once",), "收敛之后不该再去改自动模式"
+
+
 def test_connect_publishes_device_ranges(camera_module):
     """连接事件要带上相机的真实量程，面板才有依据设置滑条。"""
     remote = MagicMock()
