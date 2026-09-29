@@ -877,7 +877,8 @@ def test_one_shot_exposure_restores_the_manual_control(main_window):
     assert not exposure.value_spin.isEnabled(), "单次自动曝光期间没有禁用手动控件"
 
     main_window._on_parameter_changed(
-        Event(EventType.PARAMETER_CHANGED, {"parameter": "exposure", "value": 4321.0}))
+        Event(EventType.PARAMETER_CHANGED, {"parameter": "exposure", "value": 4321.0,
+                                       "one_shot": True}))
     assert exposure.value_spin.isEnabled(), "单次完成后没有恢复手动控件"
 
 def test_one_shot_gain_restores_the_manual_control(main_window):
@@ -890,7 +891,7 @@ def test_one_shot_gain_restores_the_manual_control(main_window):
     assert not gain.value_spin.isEnabled(), "单次自动增益期间没有禁用手动控件"
 
     main_window._on_parameter_changed(
-        Event(EventType.PARAMETER_CHANGED, {"parameter": "gain", "value": 3.5}))
+        Event(EventType.PARAMETER_CHANGED, {"parameter": "gain", "value": 3.5, "one_shot": True}))
     assert gain.value_spin.isEnabled(), "单次完成后没有恢复手动控件"
 
 
@@ -1246,6 +1247,41 @@ def test_a_frame_that_arrives_after_disconnect_keeps_the_last_readout(qapp, main
         "断开后的晚到帧把曝光读数写成了设备量程下限"
     assert control.gain_control.value_spin.value() == 12.5, \
         "断开后的晚到帧把增益读数写成了 0 dB"
+
+
+def test_a_stale_parameter_notice_does_not_finish_a_one_shot(qapp, main_window):
+    """点击之前那次手动写入的迟到通知，不能替之后的「单次自动」收尾。
+
+    真机混合手势 soak 里 6/6 轮都是这个形状：面板写曝光 → PARAMETER_CHANGED 进事件队列
+    → 紧接着点「单次自动」→ 那个排队的通知被当成自动调整完成了，控件恢复、在飞集合清空，
+    而相机这时才真的进入 Once。之后用户再改曝光一律被 Node is not writable 挡掉，界面上
+    只留一条 WARNING，看起来像"曝光滑条时不时失灵"。
+    """
+    control = main_window.camera_control
+    control.exposure_control.set_value(50000.0)
+    main_window._one_shot_pending.add('exposure')
+
+    main_window._on_parameter_changed(Event(EventType.PARAMETER_CHANGED, {
+        "parameter": "exposure", "value": 50000.0}))
+
+    assert 'exposure' in main_window._one_shot_pending, \
+        "手动写入的迟到通知把还没结束的单次自动调整报成了完成"
+    assert control.exposure_control.value_spin.value() == 50000.0, \
+        "被挡下来的通知仍然应该照常刷新显示值"
+
+
+def test_the_one_shot_notification_does_finish_the_adjustment(qapp, main_window):
+    """自动调整自己报回来的那条才作数：清空在飞、恢复控件、显示测得的值。"""
+    control = main_window.camera_control
+    main_window.camera_control.handle_one_shot_auto('exposure')
+    main_window._one_shot_pending.add('exposure')
+
+    main_window._on_parameter_changed(Event(EventType.PARAMETER_CHANGED, {
+        "parameter": "exposure", "value": 437839.0, "one_shot": True}))
+
+    assert not main_window._one_shot_pending
+    assert control.exposure_control.value_spin.value() == 437839.0
+    assert control.exposure_control.value_spin.isEnabled(), "控件没有随调整完成而恢复"
 
 
 def test_a_one_shot_auto_adjust_and_a_capture_do_not_share_the_device(qapp, main_window,

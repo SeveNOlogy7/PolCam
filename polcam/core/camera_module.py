@@ -958,7 +958,10 @@ class CameraModule(BaseModule):
             self._last_params['exposure'] = self.get_exposure_time()
             self.publish_event(EventType.PARAMETER_CHANGED, {
                 "parameter": "exposure",
-                "value": self._last_params['exposure']
+                "value": self._last_params['exposure'],
+                # 标明这是自动调整自己报回来的：界面上只有这条能给「单次自动」收尾，
+                # 手动写入的那条通知可能因为排队而晚于下一次点击到达
+                "one_shot": True,
             })
         except Exception as e:
             self._logger.error(f"单次自动曝光失败: {str(e)}")
@@ -999,7 +1002,8 @@ class CameraModule(BaseModule):
             self._last_params['gain'] = self.get_gain()
             self.publish_event(EventType.PARAMETER_CHANGED, {
                 "parameter": "gain",
-                "value": self._last_params['gain']
+                "value": self._last_params['gain'],
+                "one_shot": True,  # 同 set_exposure_once：只有这条能给单次调整收尾
             })
         except Exception as e:
             self._logger.error(f"单次自动增益失败: {str(e)}")

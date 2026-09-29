@@ -938,8 +938,10 @@ class MainWindow(QtWidgets.QMainWindow):
         param_name = param_data.get("parameter")
         param_value = param_data.get("value")
         
-        if self._complete_one_shot(param_name, param_value):
-            # 单次自动调整报回来了：恢复控件并显示测得的值
+        if param_data.get("one_shot") and self._complete_one_shot(param_name, param_value):
+            # 单次自动调整报回来了：恢复控件并显示测得的值。认这个标记是因为事件走队列，
+            # 点击之前那次手动写入的通知可能晚于这次点击到达，按参数名收尾会把还没做完
+            # 的调整报成完成（真机实测：控件恢复而相机还停在 Once，之后手写曝光全被拒）
             return
 
         if param_name == "exposure":
