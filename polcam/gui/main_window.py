@@ -351,6 +351,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
         else:
+            if self._one_shot_pending:
+                # 单次自动调整正卡在设备里：真机实测这时候断开，那条线程就永远回不来 ——
+                # 栈停在 gxipy 的 GXGetEnumValue 原生调用里，句柄已被关掉，既不返回也不
+                # 报错，Python 侧的判空轮不到执行。等它自己收尾（最长 5s），跟单帧采集一样。
+                self.status_label.setText("单次自动调整进行中，请稍候再断开相机")
+                self.camera_control.connect_btn.setChecked(True)  # 按钮回到"已连接"那一面
+                return
             # 断开前先停止连续采集
             if self._continuous_mode:
                 self.handle_stream(False)  # 停止连续采集
@@ -800,7 +807,13 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # 拆相机不能以"有没有出过流"为条件：连上但没采样的会话同样要把句柄还掉。
             # BaseModule.destroy() 在模块仍在运行时会先 stop()。
-            self.camera.destroy()
+            if self._one_shot_pending:
+                # 但单次自动调整还压在设备上时不能拆：真机实测那条线程会停在
+                # GXGetEnumValue 的原生调用里再也回不来，关句柄等于当着读者的面拆原生
+                # 对象。窗口照常关，进程退出时系统会把句柄还掉。
+                self._logger.info("单次自动调整在飞，跳过设备句柄回收（随进程退出释放）")
+            else:
+                self.camera.destroy()
                 
             # 接受关闭事件
             event.accept()

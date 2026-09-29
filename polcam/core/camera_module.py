@@ -928,6 +928,12 @@ class CameraModule(BaseModule):
         saw_running = False
         off_polls = 0
         while time.time() < deadline:
+            if self._camera is None:
+                # 断开把句柄收走了：继续轮询就是对着一个已经关掉的原生对象读写。
+                # 真机实测断开后这条线程会一路跑到 5s 超时，中间重连就会出现两条轮询
+                # 同时动同一台相机；而在读者还挂着的时候关句柄是会直接崩进程的。
+                self._logger.info(f"{label}自动调整被打断：相机已断开")
+                return False
             # EnumFeature.get() 返回 (枚举值, 描述字符串)，拿元组和 "Off" 比永远为假
             _, mode = enum.get()
             if mode == "Off":
@@ -956,7 +962,9 @@ class CameraModule(BaseModule):
             
         try:
             self._wait_auto_once("ExposureAuto", "曝光")
-                
+            if not self._camera:
+                # 中途断开：没有设备可量，报回去的就是界面凭空看到的数
+                return
             # 更新最后的曝光值
             self._last_params['exposure'] = self.get_exposure_time()
             self.publish_event(EventType.PARAMETER_CHANGED, {
@@ -1000,7 +1008,9 @@ class CameraModule(BaseModule):
             
         try:
             self._wait_auto_once("GainAuto", "增益")
-                
+            if not self._camera:
+                # 中途断开：没有设备可量，报回去的就是界面凭空看到的数
+                return
             # 更新最后的增益值
             self._last_params['gain'] = self.get_gain()
             self.publish_event(EventType.PARAMETER_CHANGED, {

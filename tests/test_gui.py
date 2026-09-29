@@ -978,7 +978,10 @@ def test_a_one_shot_landing_after_disconnect_does_not_re_enable(main_window):
     assert not exposure.value_spin.isEnabled()
 
     camera.is_connected.return_value = False
-    main_window.handle_connect(False)                 # 用户点了「断开相机」
+    # 「断开相机」现在会被在飞的调整挡下（见 test_disconnecting_waits_for_an_in_flight_one_shot），
+    # 这里直接演一遍断开分支自己做的事，保住要验的那件事：设备先没了、通知后落地。
+    main_window.camera_control.set_connected(False)
+    main_window._one_shot_pending.clear()
     release.set()
     assert _wait_until(
         lambda: not any(t.name == "PolCam-OneShot-exposure" for t in threading.enumerate())),\
@@ -1721,6 +1724,51 @@ def test_a_reconnect_leaves_no_auto_flag_the_device_does_not_have(qapp, main_win
     assert not exp.value_spin.isReadOnly(), "用户仍然改不动曝光数值"
     assert not gain.value_spin.isReadOnly()
     assert exp.once_btn.isEnabled(), "「单次」还因为挂着自动而被禁用"
+
+
+def test_disconnecting_waits_for_an_in_flight_one_shot(qapp, main_window, monkeypatch):
+    """单次自动调整在飞时不许断开相机。
+
+    真机实测：点「单次自动曝光」之后再点「断开相机」，那条轮询线程就永远回不来了 ——
+    栈停在 gxipy 的 GXGetEnumValue 原生调用里，句柄已经被关掉，既不返回也不报错，
+    Python 侧的判空根本轮不到执行。之后重连，进程里就同时挂着一条死线程和一条新轮询。
+    采集那边早就有同样的规矩（单帧采集进行中不许再抓/不许断开），这里补齐。
+    """
+    stops = []
+    monkeypatch.setattr(main_window.camera, 'stop', lambda: stops.append('stop'))
+    monkeypatch.setattr(main_window.camera, 'is_connected', lambda: True)
+    main_window._one_shot_pending = {'exposure'}
+    main_window.camera_control.connect_btn.setChecked(False)   # 用户按下"断开"
+
+    main_window.handle_connect(False)
+
+    assert stops == [], "还是把设备句柄关在了在飞的轮询底下"
+    assert main_window._one_shot_pending == {'exposure'}, "在飞标记被抹掉了，之后谁都不再挡"
+    assert "单次" in main_window.status_label.text(), \
+        f"没告诉用户为什么没断开：{main_window.status_label.text()!r}"
+    assert main_window.camera_control.connect_btn.isChecked(), \
+        "按钮停在未连接态而相机还连着 —— 下一次点击会变成「连接」"
+
+
+def test_closing_the_window_leaves_the_handle_alone_during_a_one_shot(qapp, main_window, monkeypatch):
+    """关窗时也不许在飞着的轮询底下拆相机；进程退出会把句柄还给系统。"""
+    from qtpy import QtGui
+
+    teardowns = []
+    monkeypatch.setattr(main_window.camera, 'destroy', lambda *a: teardowns.append('destroy'))
+    monkeypatch.setattr(main_window.camera, 'stop', lambda *a: teardowns.append('stop'))
+    main_window._one_shot_pending = {'exposure'}
+
+    event = QtGui.QCloseEvent()
+    main_window.closeEvent(event)
+
+    assert teardowns == [], f"关窗把设备拆在了在飞的轮询底下：{teardowns}"
+    assert event.isAccepted(), "窗口该照常关掉"
+
+    main_window._one_shot_pending.clear()
+    event2 = QtGui.QCloseEvent()
+    main_window.closeEvent(event2)
+    assert 'destroy' in teardowns, "没有在飞调整时仍要照常归还句柄"
 
 
 def test_hardware_zoom_area_selection_respects_configured_max_zoom(qapp):

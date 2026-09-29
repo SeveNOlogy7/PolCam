@@ -1380,3 +1380,63 @@ def test_one_shot_frame_carries_the_settings_that_exposed_it(camera_module):
     assert settings['gain_db'] == 3.0
     assert settings['roi'] == [1200, 1000, 800, 600]
     assert settings['sensor_size'] == [2448, 2048]
+
+
+def test_a_one_shot_abandons_when_the_camera_is_closed_under_it(camera_module):
+    """断开把句柄收走之后，轮询要立刻撒手，不能再碰已经关闭的设备。
+
+    真机实测：单次自动曝光在飞时点「断开相机」，那条线程还会继续轮询到 5s 超时；紧接着
+    重连再点一次，进程里就同时挂着两条 PolCam-OneShot 线程读写同一个设备。同源风险不是
+    理论：在读者还挂在设备里时关掉句柄，进程会在 SDK 内部直接崩掉。
+    """
+    camera_module.initialize()
+    camera_module.start()
+
+    enum = MagicMock()
+    reads = {"n": 0}
+
+    def get():
+        reads["n"] += 1
+        if reads["n"] >= 3:
+            camera_module._camera = None      # 断开发生在这次读之后
+        return (1, "Once")                    # 永远不收敛
+
+    enum.get.side_effect = get
+    camera_module._remote_feature.get_enum_feature.return_value = enum
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append((event_type, data))
+
+    started = time.perf_counter()
+    assert camera_module._wait_auto_once("ExposureAuto", "曝光", max_wait_s=5.0) is False
+    took = time.perf_counter() - started
+
+    assert took < 1.5, f"没有因为断开而收手，走满了 {took:.1f}s 超时"
+    assert ("Off",) not in [call.args for call in enum.set.call_args_list], \
+        "设备已经没了还往回写 Off —— 那是对已关闭句柄的原生写入"
+    notices = [str(data) for event_type, data in published
+               if event_type == EventType.STATUS_MESSAGE_UPDATE]
+    assert not any("未完成" in text for text in notices), \
+        f"断开被报成「单次自动未完成」，而用户知道自己刚刚按了什么：{notices}"
+
+
+def test_a_closed_camera_reports_no_measured_value(camera_module):
+    """中途断开时没有设备可量，不能把读不到的数当成「单次自动测得的值」发回界面。
+
+    界面一收到那条 one_shot 通知就恢复控件并显示数值；此时设备其实还归另一条在飞的调整
+    管着，显示的是相机从没收到过的数。
+    """
+    camera_module.initialize()
+    camera_module.start()
+
+    def drop_and_fail(*args, **kwargs):
+        camera_module._camera = None
+        return False
+
+    camera_module._wait_auto_once = drop_and_fail
+    published = []
+    camera_module.publish_event = lambda event_type, data=None: published.append((event_type, data))
+
+    camera_module.set_exposure_once()
+
+    changed = [data for event_type, data in published if event_type == EventType.PARAMETER_CHANGED]
+    assert not changed, f"设备已断开还回报测得的曝光：{changed}"
