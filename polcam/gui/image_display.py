@@ -85,6 +85,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self._rubber_band_clamp_rect = None # QRect: 四分图模式下橡皮筋的显示空间钳位边界
         self._rendered_canvas_shape = None  # 当前渲染画布尺寸缓存: (h, w)
         self._resize_refresh_timer = None
+        self._help_auto_dismiss = False     # 引导页是否允许被下一帧收走（只在它是占位页时为真）
 
         self.setup_ui()
         # 初始化时禁用控件
@@ -536,7 +537,10 @@ class ImageDisplay(QtWidgets.QWidget):
     def _render_canvas(self, canvas: np.ndarray):
         """渲染已经组装完成的显示画布。"""
         if canvas is not None:
-            self.show_image_view()
+            if self._help_auto_dismiss:
+                # 只在引导页还是"没有图像的占位页"时让位给图像；用户主动点开的那一次
+                # 不能被我正在渲染的这一帧抢走（连续采集时每帧都会走到这里）。
+                self.show_image_view()
             self._rendered_canvas_shape = canvas.shape[:2]
             self._show_canvas(canvas)
             self._update_quad_title_labels(canvas)
@@ -831,12 +835,17 @@ class ImageDisplay(QtWidgets.QWidget):
         """显示引导页。引导页不是图像数据，因此不会影响 has_display_image()。"""
         # 「返回图像」只在引导覆盖已有图像时才成立
         self._help_hint.setVisible(self.has_display_image())
+        # 只有"还没有图像、拿引导页当占位"那一次才允许被新帧顶掉。用户从菜单主动点开
+        # 帮助时屏幕上已经有图了，那时每渲染一帧就 hide 一次，等于连续采集中这条菜单
+        # 点了没反应（真机实测 0.15s 后引导页已不可见）。
+        self._help_auto_dismiss = not self.has_display_image()
         self._sync_help_overlay_geometry()
         self.help_view.show()
         self.help_view.raise_()
 
     def show_image_view(self):
         """隐藏引导页，露出图像。"""
+        self._help_auto_dismiss = False
         self.help_view.hide()
 
     def _sync_help_overlay_geometry(self):

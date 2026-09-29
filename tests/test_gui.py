@@ -1699,6 +1699,34 @@ def test_a_camera_without_the_current_mode_lands_on_one_it_supports(main_window)
     assert main_window.camera_control.wb_control.isHidden(), "RAW/合成模式下白平衡组还在显示"
 
 
+def test_help_opened_on_an_image_stays_open_when_frames_arrive(qapp):
+    """用户主动点「帮助」时，来新帧不该把引导页藏掉。
+
+    真机实测：连续采集中点工具栏「帮助」，0.15s 后引导页就不可见了 —— _render_canvas 每
+    渲染一帧都无条件 show_image_view()，几十 fps 下等于这条菜单在采集期间点了没反应。
+    启动时"有图就退回图像"是要保留的行为；被显式打开的那一次不该被抢走。
+    """
+    display = ImageDisplay()
+    try:
+        display.show_help_view()
+        assert display.help_view.isVisibleTo(display), "启动引导页没显示"
+        display.show_image(np.full((32, 32), 7, dtype=np.uint8))
+        assert not display.help_view.isVisibleTo(display), "首帧没有退回图像视图"
+
+        display.show_image(np.full((32, 32), 9, dtype=np.uint8))
+        display.show_help_view()
+        assert display.help_view.isVisibleTo(display), "帮助没打开"
+        display.show_image(np.full((32, 32), 11, dtype=np.uint8))
+        assert display.help_view.isVisibleTo(display), "新帧把用户主动打开的帮助页藏了"
+
+        display.show_image_view()
+        assert not display.help_view.isVisibleTo(display), "点击退回图像没生效"
+        display.show_image(np.full((32, 32), 13, dtype=np.uint8))
+        assert not display.help_view.isVisibleTo(display), "退回之后又被引导页盖住"
+    finally:
+        display.deleteLater()
+
+
 def test_a_reconnect_leaves_no_auto_flag_the_device_does_not_have(qapp, main_window):
     """勾着「自动」断开再重连：连接时设备被写回手动，面板的勾必须一起回来。
 
