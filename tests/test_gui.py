@@ -534,6 +534,26 @@ def test_settings_menu_passes_the_camera_modes_to_the_dialog(qapp, main_window, 
         f"对话框没拿到相机的模式列表，而是自己那份: {seen.get('modes')}"
 
 
+def test_opening_settings_repeatedly_does_not_stack_dialogs(qapp, main_window, monkeypatch):
+    """连开几次「设置」，不能在主窗口下面留同样数目的对话框。
+
+    exec_() 只是把对话框藏起来，而它是主窗口的子对象：函数返回后没有任何人再管它。
+    真机实测开 200 次设置之后，主窗口下挂着 200 个 SettingsDialog，窗口内控件总数从
+    1284 涨到 12484 —— 实验室里一天点几十次，这条线只会往上走。
+    """
+    from polcam.gui.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(SettingsDialog, "exec_", lambda self: 0)
+    for _ in range(3):
+        main_window.toolbar_controller._handle_settings()
+    assert main_window.findChildren(SettingsDialog), "测试没真的走过打开设置这条路"
+
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    qapp.processEvents()
+    left = main_window.findChildren(SettingsDialog)
+    assert not left, f"设置对话框用完没被回收，主窗口下还挂着 {len(left)} 个"
+
+
 def test_restore_defaults_keeps_the_waveplate_where_the_user_left_it(qapp, main_window):
     """设置对话框的「恢复默认」不能把波片从光路里收走。
 
