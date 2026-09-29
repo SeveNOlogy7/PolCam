@@ -516,7 +516,7 @@ class ProcessingModule(BaseModule):
                 else:
                     # 偏振相机：偏振解码后合成
                     decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
-                    merged = np.mean(decoded, axis=0).astype(np.uint8)
+                    merged = np.rint(np.mean(decoded, axis=0)).astype(np.uint8)
                 # 对合成后的图像进行白平衡
                 wb_applied = False
                 if task.mode == ProcessingMode.MERGED_COLOR and task.params.get('wb_auto', False):
@@ -562,7 +562,10 @@ class ProcessingModule(BaseModule):
             elif task.mode == ProcessingMode.POLARIZATION:
                 # 偏振分析
                 decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
-                merged = np.mean(decoded, axis=0).astype(np.uint8)
+                # 四舍五入而不是 astype(uint8) 截断：真机暗场景实测截断让 46.9% 的像素整整
+                # 少 1 个 DN，画面里 69.8% 变成纯黑（正确值是 27.3%），合成图均值 0.30 而
+                # 应该是 0.73。两个合成入口算法保持一致。
+                merged = np.rint(np.mean(decoded, axis=0)).astype(np.uint8)
 
                 # 根据设置决定合成图像是彩色还是灰度
                 is_color = task.params.get('pol_color_mode', False)

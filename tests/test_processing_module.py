@@ -659,6 +659,53 @@ def test_a_single_result_bigger_than_the_byte_cap_is_still_cached():
     module.destroy()
 
 
+def test_the_merged_tile_is_the_rounded_mean_not_the_truncated_one():
+    """合成图要四舍五入，不能拿 astype(uint8) 截断。
+
+    真机实测（暗场景，20ms）：`np.mean(4 张角度图).astype(uint8)` 让 46.9% 的像素整整少了
+    1 个 DN —— 本该是 1 的写成 0，画面里 69.8% 的像素变成纯黑（四舍五入只有 27.3%），
+    合成图均值 0.30 而正确值 0.73。MERGED_GRAY、MERGED_COLOR 和偏振分析里那张合成图、
+    以及写进 MERGED_*.tiff / _POL.npy 的都是同一个数。
+    """
+    import numpy as np
+
+    from polcam.core.processing_module import (
+        DEFAULT_PROCESSING_PARAMS,
+        ProcessingTask,
+        ProcessingMode,
+    )
+
+    tiles = [
+        np.full((4, 4), 100, dtype=np.uint8),
+        np.full((4, 4), 100, dtype=np.uint8),
+        np.full((4, 4), 101, dtype=np.uint8),
+        np.full((4, 4), 102, dtype=np.uint8),      # 均值 100.75 → 应当是 101
+    ]
+    dark = [                                         # 低光下更容易看：均值 0.75 → 应当是 1
+        np.full((4, 4), 1, dtype=np.uint8),
+        np.full((4, 4), 1, dtype=np.uint8),
+        np.full((4, 4), 1, dtype=np.uint8),
+        np.full((4, 4), 0, dtype=np.uint8),
+    ]
+
+    module = ProcessingModule()
+    assert module.initialize()
+    frame = np.zeros((8, 8), dtype=np.uint8)
+
+    for mode, decoded in ((ProcessingMode.MERGED_GRAY, tiles),
+                          (ProcessingMode.POLARIZATION, dark)):
+        float_mean = float(np.mean([int(t[0, 0]) for t in decoded]))
+        expected = int(np.rint(float_mean))
+        module._processor.demosaic_polarization = lambda f, mono=True, _d=decoded: list(_d)
+        result = module._process_task(ProcessingTask(
+            frame=frame, mode=mode, params=dict(DEFAULT_PROCESSING_PARAMS)))
+        merged = result.images[0]
+        assert int(merged[0, 0]) == expected, (
+            f"{mode.name}: 合成图 [0,0]={int(merged[0, 0])}，浮点均值 {float_mean:.2f} "
+            f"应当四舍五入成 {expected}（截断会得到 {int(float_mean)}）")
+    module.destroy()
+
+
 def test_a_failed_task_still_reports_completion():
     """处理抛异常时也要发 PROCESSING_COMPLETED，否则状态灯永远停在"正在处理"。
 
