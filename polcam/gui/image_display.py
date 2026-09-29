@@ -1195,7 +1195,8 @@ class ImageDisplay(QtWidgets.QWidget):
                 br = self._display_to_sensor_coords(
                     rect.x() + rect.width(), rect.y() + rect.height(), clamp=True
                 )
-                if tl and br:
+                # 与松手处同一判据：布局中途变化时两角可能落进不同的格，反向矩形不代表选区
+                if tl and br and br[0] > tl[0] and br[1] > tl[1]:
                     self.zoomAreaPreview.emit(tl[0], tl[1], br[0] - tl[0], br[1] - tl[1])
 
     def _on_zoom_mouse_release(self, event: QtGui.QMouseEvent):
@@ -1231,7 +1232,13 @@ class ImageDisplay(QtWidgets.QWidget):
             if top_left and bottom_right:
                 sx, sy = top_left
                 ex, ey = bottom_right
-                self.zoomAreaRequested.emit(sx, sy, ex - sx, ey - sy)
+                # 钳位矩形是按下时在旧几何上算的：拖到一半图像区自己挪了位置（窗口缩放、
+                # 分栏挪动），旧钳位框就管不住新几何，两角会落进不同的格。画布坐标换算成
+                # 格内坐标是按格取模的，于是源坐标变成反向矩形——真机实测发出过
+                # (1958,1087,-490,-412)，设备把它取整成最小 ROI 8x4，实时画面缩成一个点。
+                # 这种选区并不代表用户框住的东西，丢掉比写进设备好。
+                if ex > sx and ey > sy:
+                    self.zoomAreaRequested.emit(sx, sy, ex - sx, ey - sy)
 
             self._rubber_band_origin = None
             self._rubber_band_clamp_rect = None

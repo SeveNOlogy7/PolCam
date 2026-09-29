@@ -2308,6 +2308,62 @@ def test_quad_area_zoom_is_clamped_to_the_tile_it_started_in(qapp, qtbot):
         shiboken6.delete(display)
 
 
+def test_area_zoom_across_a_mid_drag_layout_change_does_not_emit_an_inverted_rect(qapp, qtbot):
+    """拖框进行到一半时布局变了（窗口缩放/分栏挪动）：不能发出反向的选区。
+
+    真机实测（POLARIZATION 流上，1280x860 拖到一半改 960x640）：按下点在旧几何的格 0 里，
+    钳位矩形也是按旧几何算的，松手点却落进了另一格 —— 换算出来是
+    zoomAreaRequested=(1958,1087,-490,-412)，负宽高被设备取整成最小 ROI 8x4，实时画面
+    直接缩成一个黑点。显示空间的矩形是 normalized 的，反向只发生在"画布坐标 → 格内坐标"
+    这一步（两角落进了不同的格），所以发出去之前必须按源坐标查一遍。
+    """
+    import shiboken6
+
+    display = ImageDisplay()
+    tiles = [np.full((64, 64), i, dtype=np.uint8) for i in range(4)]
+    requests = []
+    previews = []
+    display.zoomAreaRequested.connect(lambda *a: requests.append(a))
+    display.zoomAreaPreview.connect(lambda *a: previews.append(a))
+    try:
+        display.resize(800, 600)
+        display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+        display.show_quad_view(tiles, gray=True)
+        display.show()
+        qapp.processEvents()
+        display.update_roi_info((0, 0, 64, 64), (64, 64))
+        display.set_interaction_mode('zoom_area')
+
+        gx, gy, dw, dh = display._get_display_geometry()
+        assert dw > 40 and dh > 40, "离屏窗口没拿到几何，测不到折算"
+        start = QtCore.QPoint(int(gx + dw * 0.15), int(gy + dh * 0.15))
+        mid = QtCore.QPoint(int(gx + dw * 0.35), int(gy + dh * 0.35))
+        qtbot.mousePress(display.image_label, QtCore.Qt.LeftButton, pos=start)
+        qtbot.mouseMove(display.image_label, pos=mid)
+
+        # 手还按着，图像区自己变了位置和大小
+        display.resize(430, 600)
+        qapp.processEvents()
+        gx2, gy2, dw2, dh2 = display._get_display_geometry()
+        end = QtCore.QPoint(int(gx2 + dw2 * 0.9), int(gy2 + dh2 * 0.9))
+        qtbot.mouseMove(display.image_label, pos=end)
+        qtbot.mouseRelease(display.image_label, QtCore.Qt.LeftButton, pos=end)
+
+        inverted = [r for r in requests if r[2] <= 0 or r[3] <= 0]
+        assert not inverted, f"布局中途变化后发出了反向选区: {inverted}"
+        bad_preview = [p for p in previews if p[2] <= 0 or p[3] <= 0]
+        assert not bad_preview, f"拖拽中的选区预览报出了反向尺寸: {bad_preview}"
+        for sx, sy, sw, sh in requests:
+            assert sx >= 0 and sy >= 0 and sx + sw <= 64 and sy + sh <= 64, \
+                f"布局中途变化后选区越出传感器范围: {(sx, sy, sw, sh)}"
+        assert display._rubber_band_origin is None, "松手后还留着拖拽起点"
+        assert not display._rubber_band.isVisible(), "松手后橡皮筋还挂在屏上"
+    finally:
+        display.set_interaction_mode('none')
+        qapp.processEvents()
+        shiboken6.delete(display)
+
+
 def test_quad_cursor_mapping_survives_a_software_crop(qapp):
     """四分图 + 软件裁剪时，游标必须仍然指着"看上去那一格的那个位置"。
 
