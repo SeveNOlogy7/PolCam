@@ -866,10 +866,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.update_exposure_value(self.camera.get_last_exposure())
         self.camera_control.update_gain_value(self.camera.get_last_gain())
 
-        # 初始化 ROI 缓存
-        roi = self.camera.get_roi()
-        sensor = self.camera.get_sensor_size()
-        self.image_display.update_roi_info(roi, sensor)
+        # ROI 缓存描述的是"屏上这些像素来自传感器的哪一块"，所以连接这一刻不能拿设备的
+        # ROI 去覆盖它：屏上很可能正是刚载入的文件或上一轮实时帧（断开和载入文件都按这条
+        # 不变量清了缓存，连接却写回去，等于只留了个反方向的洞）。真正需要这份缓存的两条路
+        # 都已经各自补齐了——实时帧带着自己的快照（_on_frame_captured），开流时同步一次
+        # （handle_stream）。
         self.image_display.toolbar_controller.sync_zoom_coordinate_space()
 
     def _on_camera_disconnected(self, event):

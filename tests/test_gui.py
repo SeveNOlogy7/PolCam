@@ -1984,6 +1984,52 @@ def test_loaded_file_loses_the_sensor_coordinate_readout(qapp, main_window, monk
     assert not display.has_roi_info(), "断开之后没有传感器可换算"
 
 
+def test_connecting_does_not_relabel_the_pixels_on_screen(qapp, main_window):
+    """连接相机不能把设备的 ROI 扣到不是它产出的像素上。
+
+    断开时清缓存（没有传感器可换算）、载入文件时也清（文件像素不属于任何 ROI），唯独
+    连接那条路是无条件写。真机手势「打开一个 1024x1024 的文件 → 连接相机 → 悬停」之后
+    屏上仍然是文件，读数却开始报"传感器 (1243, 1126)"这种从来没存在过的坐标 ——
+    用户拿它去描述缺陷位置就指错了地方，比不报更糟。
+    """
+    from polcam.core.camera_module import CameraType
+
+    display = main_window.image_display
+    main_window._on_raw_file_loaded(Event(EventType.RAW_FILE_LOADED, {
+        'frame': np.full((1024, 1024), 123, dtype=np.uint8),
+        'timestamp': None,
+        'filepath': 'scene.tiff',
+    }))
+    assert not display.has_roi_info()
+
+    camera = MagicMock()
+    camera.is_connected.return_value = True
+    camera.is_streaming.return_value = False
+    camera.get_roi.return_value = (0, 0, 2448, 2048)
+    camera.get_sensor_size.return_value = (2448, 2048)
+    camera.get_last_exposure.return_value = 20000.0
+    camera.get_last_gain.return_value = 0.0
+    main_window.camera = camera
+
+    main_window._on_camera_connected(Event(EventType.CAMERA_CONNECTED, {
+        "device_info": "MER2-502-79U3M-HS POL",
+        "camera_type": CameraType.MONO,
+    }))
+    qapp.processEvents()
+
+    assert not display.has_roi_info(), \
+        f"连接时把设备 ROI 写到了文件的像素上: {display._current_roi}"
+    assert display._source_to_sensor_position(512, 512) is None, "文件像素不该换算出传感器坐标"
+
+    # 实时帧一到，缓存就该跟着这一帧自己带回来的快照回来
+    main_window._on_frame_captured(Event(EventType.FRAME_CAPTURED, {
+        'frame': np.zeros((2048, 2448), dtype=np.uint8),
+        'capture_time': 1,
+        'timestamp': None,
+    }))
+    assert display.has_roi_info(), "回到实时帧后传感器坐标读数没有恢复"
+
+
 def test_roi_changed_event_refreshes_the_display_cache(qapp, main_window):
     """采集进行中 ROI 变更要真的回填显示层缓存，不能只记日志。
 
