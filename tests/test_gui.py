@@ -1341,6 +1341,48 @@ def test_a_repeated_failed_connect_still_speaks_up(qapp, main_window, monkeypatc
     assert len(boxes) == 1, "采集线程的错误洪流必须仍然只弹一次"
 
 
+def test_two_one_shot_auto_adjusts_do_not_run_at_once(qapp, main_window, monkeypatch):
+    """两路单次自动调整也不能同时在飞 —— 真机上它们会互相拖死。
+
+    实测（连续采集中，暗场）：单独点曝光「单次」0.8s 收敛（顶到 1 000 000µs 是暗场下 AE
+    该给的答案），单独点增益「单次」0.4s 收敛到 24.0dB；两个连着点则 5.1s 内谁都不收敛，
+    双双走满超时被强制收回手动，最后停在 (1 000 000µs, 6.6dB) —— 这组值谁都没打算选，而
+    这 5 秒里两组控件一直是禁的。相机的曝光与增益算法互相影响，一次只能让一路在飞。
+    """
+    started = []
+
+    def fake_exposure_once():
+        started.append('exposure')
+        time.sleep(0.4)
+
+    def fake_gain_once():
+        started.append('gain')
+        time.sleep(0.4)
+
+    monkeypatch.setattr(main_window.camera, "is_connected", lambda: True)
+    monkeypatch.setattr(main_window.camera, "set_exposure_once", fake_exposure_once)
+    monkeypatch.setattr(main_window.camera, "set_gain_once", fake_gain_once)
+
+    main_window._handle_exposure_once()
+    assert main_window._one_shot_pending == {'exposure'}
+    gain_spin = main_window.camera_control.gain_control.value_spin
+    assert gain_spin.isEnabled(), "只调曝光不该把增益也禁掉"
+
+    main_window._handle_gain_once()
+    assert 'gain' not in main_window._one_shot_pending, "第二路自动调整被放行了"
+    assert gain_spin.isEnabled(), "被让开的请求不该把增益控件禁掉"
+    assert ("自动" in main_window.status_label.text()
+            or "稍候" in main_window.status_label.text()), \
+        f"没告诉用户为什么没反应：{main_window.status_label.text()!r}"
+
+    deadline = time.time() + 5
+    while main_window._one_shot_pending and time.time() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    assert started == ['exposure'], f"第二路还是起了线程：{started}"
+    assert not main_window._one_shot_pending
+
+
 def test_a_one_shot_auto_adjust_and_a_capture_do_not_share_the_device(qapp, main_window,
                                                                       monkeypatch):
     """两条各自独占设备的路不能同时在飞。

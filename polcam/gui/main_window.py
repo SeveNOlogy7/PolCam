@@ -49,7 +49,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._preferred_display_mode = ProcessingMode.RAW
         self._current_settings = AppSettings()
         self.close_flag = False
-        self._one_shot_pending = set()  # 哪几路单次自动调整还在等报回（可以叠着发）
+        self._one_shot_pending = set()  # 在飞的单次自动调整；同一时刻最多一路（见 _handle_one_shot）
         # 抓取线程随帧带回来的设备参数：存图库时要写"这一帧是用什么拍的"，
         # 而不是保存那一刻再问设备（长曝光中间用户改曝光就会写错）
         self._last_capture_settings = None
@@ -683,6 +683,12 @@ class MainWindow(QtWidgets.QMainWindow):
             # 调整也起起来，相机会停在 Once 而界面以为调整结束了，此后手动写曝光被
             # 静默丢掉（FloatFeature_s.set:{-8}{Node is not writable}）。
             self.status_label.setText("单帧采集进行中，请稍候再调整")
+            return
+        if self._one_shot_pending:
+            # 相机自己的曝光与增益算法会互相影响：真机实测单独点一次分别 0.8s / 0.4s
+            # 就收敛，两个叠着发则 5.1s 内谁都不收敛，双双走满超时被强制收回手动，
+            # 最后停在一组谁都没打算选的参数上（1 000 000µs / 6.6dB）。一次只让一路在飞。
+            self.status_label.setText("已有单次自动调整在进行中，请稍候再调整")
             return
         self._one_shot_pending.add(control_type)
         self.camera_control.handle_one_shot_auto(control_type)
