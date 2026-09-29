@@ -130,6 +130,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._continuous_mode = False  # 添加连续采集模式标志
         self._single_capture_requested = False  # 标记显式单帧采集请求
         self._capture_in_flight = False  # 有一次单帧采集正占着设备，不允许重叠
+        # 处理模块正忙时被挡下的最近一帧 (frame, timestamp)，等完成信号补交
+        self._pending_display_frame = None
         self._capture_thread = None  # 那次抓取所在的工作线程，关窗口前要先收它
         self._current_frame_timestamp = None  # 添加时间戳属性
         self._camera_type = None  # 相机类型（彩色/黑白）
@@ -611,6 +613,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_processing_completed(self, event: Event):
         """处理完成时的处理"""
+        if self._pending_display_frame is not None \
+                and self.processor.get_task_count() == 0 and not self.processor.is_processing():
+            # 补交在忙的时候被挡下的最近一帧（见 _update_frame_and_display）。还忙就继续留着，
+            # 等下一次完成信号。
+            frame, timestamp = self._pending_display_frame
+            self._pending_display_frame = None
+            self.processor.process_frame(frame, capture_timestamp=timestamp)
+
         if not self._continuous_mode:  # 仅在非连续模式下更新状态
             self.status_indicator.setProcessing(False)
             self.status_label.setText("就绪")
@@ -877,6 +887,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 # 确保处理模块没有待处理任务时才发送新任务
                 if self.processor.get_task_count() == 0 and not self.processor.is_processing():
                     self.processor.process_frame(frame, capture_timestamp=timestamp)
+                    self._pending_display_frame = None
+                else:
+                    # 但"忙就丢掉"不能丢到底：真机实测（全尺寸 + 降噪 0.6）载入 A 后趁解算
+                    # 还没完就载入 B，状态栏写着「已加载图像: B」，20 秒后屏上仍然是 A，而
+                    # toolbar 的 `_current_frame` 已经指向 B —— 看到的和要存/要重处理的不是
+                    # 一张。留最近这一帧，等处理完成信号补交；连续采集下这个槽位只会被更新的
+                    # 帧覆盖，所以仍然不会堆任务。
+                    self._pending_display_frame = (frame, timestamp)
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""

@@ -1284,6 +1284,33 @@ def test_the_one_shot_notification_does_finish_the_adjustment(qapp, main_window)
     assert control.exposure_control.value_spin.isEnabled(), "控件没有随调整完成而恢复"
 
 
+def test_a_frame_dropped_by_the_busy_gate_is_not_lost(qapp, main_window, monkeypatch):
+    """处理器正忙时进来的那一帧不能直接丢掉，否则屏幕永远停在旧图上。
+
+    真机实测（全尺寸 + 降噪 0.6）：载入 A，趁 A 还在解算时载入 B —— 状态栏说"已加载图像: B"，
+    但 20 秒后屏幕上仍然是 A（均值 40 而不是 200），而 toolbar 的 `_current_frame` 已经指向 B：
+    看到的一张、要存/要重处理的另一张。忙判断本身是对的（连续采集不能堆任务），缺的是
+    "最近一帧"补交这一步。
+    """
+    submitted = []
+    busy = {"flag": True}
+    main_window.processor.process_frame = lambda frame, capture_timestamp=None: submitted.append(frame)
+    monkeypatch.setattr(main_window.processor, "get_task_count", lambda: 1 if busy["flag"] else 0)
+    monkeypatch.setattr(main_window.processor, "is_processing", lambda: busy["flag"])
+    image_display = main_window.image_display
+    monkeypatch.setattr(image_display, "get_current_processing_mode",
+                        lambda: ProcessingMode.MERGED_GRAY)
+
+    a = np.full((8, 8), 40, dtype=np.uint8)
+    b = np.full((8, 8), 200, dtype=np.uint8)
+    main_window._update_frame_and_display(a)
+    main_window._update_frame_and_display(b)
+    assert submitted == [], "忙的时候不该抢先提交"
+
+    busy["flag"] = False
+    main_window._on_processing_completed(Event(EventType.PROCESSING_COMPLETED))
+    assert submitted == [b], f"忙完之后要补交最近的一帧，实际提交了 {len(submitted)} 帧"
+
 def test_a_one_shot_auto_adjust_and_a_capture_do_not_share_the_device(qapp, main_window,
                                                                       monkeypatch):
     """两条各自独占设备的路不能同时在飞。
