@@ -1892,6 +1892,80 @@ def test_quad_cursor_overlay_follows_the_software_crop(qapp):
             shiboken6.delete(display)
 
 
+def test_quad_area_zoom_is_clamped_to_the_tile_it_started_in(qapp, qtbot):
+    """四分图里拖框选区：钳在起手那一格，换算出的传感器矩形左右两列要对齐。
+
+    真机实测（2448x2048，画布 672x563，四格 336x281/282）：从格0 中心拖到格3 中心，
+    请求是 (1216,1018,1224,1019) —— 正好是格0 自己的右下四分之一，没有跨到别的角度图；
+    同一次相对拖拽在左右两列给出的 x 完全相同，说明格子的画布偏移被正确减掉了。
+    这段橡皮筋代码（_on_zoom_mouse_press/move/release）此前一行都没被测试走过。
+    """
+    import shiboken6
+
+    display = ImageDisplay()
+    tiles = [np.full((64, 64), i, dtype=np.uint8) for i in range(4)]
+    requests = []
+    display.zoomAreaRequested.connect(lambda *a: requests.append(a))
+    try:
+        display.resize(800, 600)
+        display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+        display.show_quad_view(tiles, gray=True)
+        display.show()
+        qapp.processEvents()
+        display.update_roi_info((0, 0, 64, 64), (64, 64))
+        display.set_interaction_mode('zoom_area')
+
+        geom = display._get_display_geometry()
+        assert geom is not None, "离屏窗口没拿到几何，测不到折算"
+        gx, gy, dw, dh = geom
+        tile_w, tile_h = dw / 2, dh / 2
+
+        def drag(tile_col, tile_row):
+            requests.clear()
+            # 每一次拖拽本身就会缩放视图，不复原就没法横向比较（真机上第一版探针就栽在
+            # 这里：四格的矩形一轮比一轮小，看着像映射错了）
+            display.reset_software_view()
+            qapp.processEvents()
+            left = gx + tile_col * tile_w
+            top = gy + tile_row * tile_h
+            p0 = QtCore.QPoint(int(left + tile_w * 0.1), int(top + tile_h * 0.1))
+            p1 = QtCore.QPoint(int(left + tile_w * 0.6), int(top + tile_h * 0.6))
+            qtbot.mousePress(display.image_label, QtCore.Qt.LeftButton, pos=p0)
+            qtbot.mouseMove(display.image_label, pos=p1)
+            qtbot.mouseRelease(display.image_label, QtCore.Qt.LeftButton, pos=p1)
+            assert requests, "一次格内拖拽没有产生选区请求"
+            return requests[-1]
+
+        per_tile = [drag(c, r) for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))]
+        for (sx, sy, sw, sh) in per_tile:
+            assert sx >= 0 and sy >= 0 and sx + sw <= 64 and sy + sh <= 64, \
+                f"选区越出传感器范围: {(sx, sy, sw, sh)}"
+        rounded = [tuple(int(round(v, 1)) for v in req) for req in per_tile]
+        assert len({(r[0], r[2]) for r in rounded}) == 1, \
+            f"同一格内相对位置的横向选区，左右两列不该给出不同的传感器 x: {rounded}"
+        assert len({(r[1], r[3]) for r in rounded}) == 1, \
+            f"同一格内相对位置的纵向选区，上下两行不该给出不同的传感器 y: {rounded}"
+
+        # 跨格拖拽：必须被钳回起手那一格（格0），也就是不越界且不超过单格面积的一半
+        requests.clear()
+        display.reset_software_view()
+        qapp.processEvents()
+        start = QtCore.QPoint(int(gx + tile_w * 0.5), int(gy + tile_h * 0.5))
+        far = QtCore.QPoint(int(gx + tile_w * 1.9), int(gy + tile_h * 1.9))
+        qtbot.mousePress(display.image_label, QtCore.Qt.LeftButton, pos=start)
+        qtbot.mouseMove(display.image_label, pos=far)
+        qtbot.mouseRelease(display.image_label, QtCore.Qt.LeftButton, pos=far)
+        assert requests, "跨格拖拽没有产生选区请求"
+        sx, sy, sw, sh = requests[-1]
+        assert sx >= 0 and sy >= 0 and sx + sw <= 64 and sy + sh <= 64, \
+            f"跨格拖拽没被钳在起手格内: {(sx, sy, sw, sh)}"
+        assert sw <= 36 and sh <= 36, f"钳位后仍覆盖了不止半格: {(sx, sy, sw, sh)}"
+    finally:
+        display.set_interaction_mode('none')
+        qapp.processEvents()
+        shiboken6.delete(display)
+
+
 def test_quad_cursor_mapping_survives_a_software_crop(qapp):
     """四分图 + 软件裁剪时，游标必须仍然指着"看上去那一格的那个位置"。
 
