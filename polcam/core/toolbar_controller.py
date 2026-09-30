@@ -174,30 +174,35 @@ class ToolbarController(BaseModule):
         default_directory = self._main_window.settings_service.get_last_directory()
         
         dialog = QtWidgets.QFileDialog(self._main_window)
-        dialog.setWindowTitle(title)
-        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
-        dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png)")
-        dialog.selectNameFilter("TIFF files (*.tiff *.tif)")
-        dialog.selectFile(os.path.join(default_directory, default_name))
-        
-        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
-            filename = dialog.selectedFiles()[0]
-            self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
-            # 分离基础名称和扩展名
-            base_name, ext = os.path.splitext(filename)
-            
-            # 如果没有扩展名，根据选择的过滤器添加扩展名
-            if not ext:
-                filter_text = dialog.selectedNameFilter()
-                if "*.tiff" in filter_text or "*.tif" in filter_text:
-                    ext = ".tiff"
-                elif "*.bmp" in filter_text:
-                    ext = ".bmp"
-                elif "*.png" in filter_text:
-                    ext = ".png"
-                    
-            return base_name, ext, True
-        return "", "", False
+        try:
+            dialog.setWindowTitle(title)
+            dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
+            dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png)")
+            dialog.selectNameFilter("TIFF files (*.tiff *.tif)")
+            dialog.selectFile(os.path.join(default_directory, default_name))
+
+            if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
+                filename = dialog.selectedFiles()[0]
+                self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
+                # 分离基础名称和扩展名
+                base_name, ext = os.path.splitext(filename)
+
+                # 如果没有扩展名，根据选择的过滤器添加扩展名
+                if not ext:
+                    filter_text = dialog.selectedNameFilter()
+                    if "*.tiff" in filter_text or "*.tif" in filter_text:
+                        ext = ".tiff"
+                    elif "*.bmp" in filter_text:
+                        ext = ".bmp"
+                    elif "*.png" in filter_text:
+                        ext = ".png"
+
+                return base_name, ext, True
+            return "", "", False
+        finally:
+            # 对话框挂在主窗口下，exec_ 只是把它藏起来：不收就是每存一次图留一份
+            # （真机实测一份 66 个控件）。选好的名字已经在上面读完了。
+            dialog.deleteLater()
 
     def _get_load_filename(self, title: str) -> Tuple[str, bool]:
         """获取要加载的文件名
@@ -206,16 +211,19 @@ class ToolbarController(BaseModule):
         """
         default_directory = self._main_window.settings_service.get_last_directory()
         dialog = QtWidgets.QFileDialog(self._main_window)
-        dialog.setWindowTitle(title)
-        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
-        dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png);;Raw files (*.raw *.bin);;All Files (*)")
-        dialog.setDirectory(default_directory)
-        
-        if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
-            filename = dialog.selectedFiles()[0]
-            self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
-            return filename, True
-        return "", False
+        try:
+            dialog.setWindowTitle(title)
+            dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
+            dialog.setNameFilter("TIFF files (*.tiff *.tif);;BMP files (*.bmp);;PNG files (*.png);;Raw files (*.raw *.bin);;All Files (*)")
+            dialog.setDirectory(default_directory)
+
+            if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
+                filename = dialog.selectedFiles()[0]
+                self._main_window.settings_service.set_last_directory(os.path.dirname(filename))
+                return filename, True
+            return "", False
+        finally:
+            dialog.deleteLater()
 
     def _verify_image_size(self, data: np.ndarray) -> bool:
         """验证图像尺寸是否为偏振栅格周期的整数倍

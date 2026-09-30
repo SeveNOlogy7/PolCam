@@ -154,3 +154,52 @@ def test_save_result_writes_the_file_set_verified_on_the_device(tmp_path, qapp, 
     tile = cv2.imdecode(np.fromfile(str(tmp_path / "shot2_GRAY_45.tiff"), dtype=np.uint8),
                         cv2.IMREAD_UNCHANGED)
     assert tile.shape == (16, 16) and int(tile[0, 0]) == 20, "45° 那张存的不是 45° 的角度图"
+
+
+def test_file_dialogs_are_released_after_each_save_or_open(qapp, tmp_path, monkeypatch):
+    """每次保存/打开用完就把文件对话框交出去，别一次留一个挂在主窗口下。
+
+    和设置对话框同一类：`QFileDialog(主窗口)` 在 exec_ 返回后只是被藏起来，Python 变量一
+    出函数就没人再管，Qt 侧整套对话框（实测一份 66 个控件）还留在窗口下面。实验室里一天
+    存几十张图，这条线只会往上走。
+
+    这里不用 main_window fixture：那会往共享的 settings.ini 里写 window_geometry，
+    后面 test_main_window_init 那条按 1200x800 断言的测试就被别人存过的尺寸带偏。
+    """
+    from unittest.mock import MagicMock
+
+    from qtpy import QtCore, QtWidgets
+
+    class _Window(QtWidgets.QMainWindow):
+        def __init__(self, settings_service):
+            super().__init__()
+            self.toolbar = ToolBar()
+            self.camera = MagicMock()
+            self.status_label = QtWidgets.QLabel(self)
+            self.settings_service = settings_service
+
+    settings_service = SimpleNamespace(get_last_directory=lambda: str(tmp_path),
+                                       set_last_directory=lambda path: None)
+    window = _Window(settings_service)
+    controller = ToolbarController(window)
+
+    made = []
+
+    def rejected_exec(self):
+        made.append(self)
+        return int(QtWidgets.QDialog.DialogCode.Rejected)
+
+    monkeypatch.setattr(QtWidgets.QFileDialog, 'exec_', rejected_exec)
+    for _ in range(5):
+        assert controller._get_save_filename("保存原始图像") == ("", "", False)
+        assert controller._get_load_filename("打开原始图像") == ("", False)
+    assert len(made) == 10, f"这一趟没有真的创建文件对话框: {len(made)}"
+    assert window.findChildren(QtWidgets.QFileDialog), "对话框没挂在窗口下，测不到回收"
+
+    for dialog in made:
+        QtCore.QCoreApplication.sendPostedEvents(dialog, QtCore.QEvent.Type.DeferredDelete)
+    qapp.processEvents()
+    left = window.findChildren(QtWidgets.QFileDialog)
+    window.close()
+    qapp.processEvents()
+    assert not left, f"文件对话框没被回收，窗口下还挂着 {len(left)} 个"

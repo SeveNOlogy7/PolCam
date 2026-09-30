@@ -543,12 +543,20 @@ def test_opening_settings_repeatedly_does_not_stack_dialogs(qapp, main_window, m
     """
     from polcam.gui.settings_dialog import SettingsDialog
 
-    monkeypatch.setattr(SettingsDialog, "exec_", lambda self: 0)
+    made = []
+
+    def rejected_exec(self):
+        made.append(self)
+        return 0
+    monkeypatch.setattr(SettingsDialog, "exec_", rejected_exec)
     for _ in range(3):
         main_window.toolbar_controller._handle_settings()
-    assert main_window.findChildren(SettingsDialog), "测试没真的走过打开设置这条路"
+    assert len(made) == 3, "测试没真的走过打开设置这条路"
 
-    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    # 只冲自己造出来的这几个对话框：sendPostedEvents(None, ...) 是全局的，会把同一进程里
+    # 别的测试排着要删的对象一起删掉
+    for dialog in made:
+        QtCore.QCoreApplication.sendPostedEvents(dialog, QtCore.QEvent.Type.DeferredDelete)
     qapp.processEvents()
     left = main_window.findChildren(SettingsDialog)
     assert not left, f"设置对话框用完没被回收，主窗口下还挂着 {len(left)} 个"
