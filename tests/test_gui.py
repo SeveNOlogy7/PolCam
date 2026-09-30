@@ -1984,6 +1984,42 @@ def test_loaded_file_loses_the_sensor_coordinate_readout(qapp, main_window, monk
     assert not display.has_roi_info(), "断开之后没有传感器可换算"
 
 
+def _wait_for(qapp, predicate, timeout=2.0):
+    """等一条队列事件真的落到控件上。
+
+    状态栏读数走的是 QueuedConnection，整文件一起跑时一次 processEvents 未必送达到，
+    断言就会随机红。轮询到条件成立（或超时）为止，测的才是行为而不是循环次数。
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        qapp.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.005)
+    return predicate()
+
+
+def _drain_status(qapp, label, timeout=2.0):
+    """把已经排队的状态栏消息收干净。
+
+    模式提示（"游标模式已开启"）和游标读数走的是同一条队列。不收掉前一条，后面"等读数
+    出现"的断言可能被那条提示满足，测试就变成时好时坏。
+    """
+    end = time.time() + timeout
+    previous, stable_passes = None, 0
+    while time.time() < end:
+        qapp.processEvents()
+        time.sleep(0.005)
+        current = label.text()
+        if current == previous:
+            stable_passes += 1
+            if stable_passes >= 3:
+                return
+        else:
+            stable_passes = 0
+            previous = current
+
+
 def test_the_readout_labels_the_tiles_it_is_showing_not_the_mode_just_picked(qapp, main_window, qtbot):
     """换显示模式是异步的：新结果没到之前，读数那一行不能先按新模式给旧像素贴标签。
 
@@ -2011,10 +2047,12 @@ def test_the_readout_labels_the_tiles_it_is_showing_not_the_mode_just_picked(qap
     gx, gy, dw, dh = disp._get_display_geometry()
 
     def hover(fx):
-        # 读数是队列事件：鼠标事件那一趟循环里才刚发布，要再过一趟才落到状态栏
+        # 读数是队列事件：先把排队里的消息收掉，再立哨兵，等真的读数落上来
+        _drain_status(qapp, main_window.status_label)
+        main_window.status_label.setText("__sentinel__")
         qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * fx), int(gy + dh * 0.2)))
-        qapp.processEvents()
-        qapp.processEvents()
+        assert _wait_for(qapp, lambda: main_window.status_label.text().startswith("(")), \
+            f"移动鼠标后读数没有落到状态栏: {main_window.status_label.text()!r}"
         return main_window.status_label.text()
 
     text = hover(0.2)
@@ -2031,6 +2069,51 @@ def test_the_readout_labels_the_tiles_it_is_showing_not_the_mode_just_picked(qap
     qapp.processEvents()
     text = hover(0.24)
     assert "DOLP" in text, f"切到四角度彩色时读数整行失效: {text!r}"
+
+
+def test_switching_tool_mid_drag_does_not_leave_a_phantom_selection(qapp, qtbot):
+    """拖框进行到一半换了工具（或被模态框打断），不能把选区框永久留在图上。
+
+    清理只写在 `_on_zoom_mouse_release` 的 zoom_area 分支里：模式一旦不是 zoom_area，
+    松手就直接 return，橡皮筋、起点、钳位框全都留着。真机上的触发路径是拖动期间弹出
+    「相机错误」这类模态框——松手落在框上，图像区里就多一个不属于任何工具的虚线框，
+    而且它还是按旧几何算的位置，画面一动就更对不上。
+    """
+    import shiboken6
+
+    display = ImageDisplay()
+    tiles = [np.full((64, 64), i, dtype=np.uint8) for i in range(4)]
+    requests = []
+    display.zoomAreaRequested.connect(lambda *a: requests.append(a))
+    try:
+        display.resize(800, 600)
+        display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+        display.show_quad_view(tiles, gray=True)
+        display.show()
+        qapp.processEvents()
+        display.update_roi_info((0, 0, 64, 64), (64, 64))
+        display.set_interaction_mode('zoom_area')
+
+        gx, gy, dw, dh = display._get_display_geometry()
+        p0 = QtCore.QPoint(int(gx + dw * 0.2), int(gy + dh * 0.2))
+        p1 = QtCore.QPoint(int(gx + dw * 0.5), int(gy + dh * 0.5))
+        qtbot.mousePress(display.image_label, QtCore.Qt.LeftButton, pos=p0)
+        qtbot.mouseMove(display.image_label, pos=p1)
+        assert display._rubber_band is not None and display._rubber_band.isVisible(), \
+            "拖拽没画出选区框，测不到收尾"
+
+        # 拖到一半换了工具（模态框打断后工具状态被复位是同一形态）
+        display.set_interaction_mode('cursor')
+        assert not display._rubber_band.isVisible(), "换工具后选区框还挂在屏上"
+        assert display._rubber_band_origin is None, "换工具后还留着拖拽起点"
+        assert display._rubber_band_clamp_rect is None, "换工具后还留着旧的钳位框"
+
+        qtbot.mouseRelease(display.image_label, QtCore.Qt.LeftButton, pos=p1)
+        assert not requests, f"上一个已作废的拖拽仍然发出了选区请求: {requests[-1]}"
+    finally:
+        display.set_interaction_mode('none')
+        qapp.processEvents()
+        shiboken6.delete(display)
 
 
 def test_connecting_does_not_relabel_the_pixels_on_screen(qapp, main_window):
@@ -2505,13 +2588,12 @@ def test_a_new_frame_updates_the_readout_the_cursor_is_standing_on(qapp, qtbot):
         gx, gy, dw, dh = display._get_display_geometry()
         point = QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3))
         qtbot.mouseMove(display.image_label, pos=point)
-        qapp.processEvents()
-        assert emitted, "鼠标移动没有产生读数"
+        assert _wait_for(qapp, lambda: bool(emitted)), "鼠标移动没有产生读数"
         assert emitted[-1].get('quad_gray_values') == [1, 2, 3, 4], emitted[-1]
 
         display.show_quad_view(new_tiles, gray=True)
-        qapp.processEvents()
-        assert len(emitted) == 2, f"新帧上屏后没有为同一个点重算读数: 发射次数={len(emitted)}"
+        assert _wait_for(qapp, lambda: len(emitted) >= 2), \
+            f"新帧上屏后没有为同一个点重算读数: 发射次数={len(emitted)}"
         assert emitted[-1].get('quad_gray_values') == [10, 11, 12, 13], emitted[-1]
         assert emitted[-1].get('position') == emitted[0].get('position'), \
             "重算读数时指到了别的像素上，位置不该变"
@@ -2544,11 +2626,10 @@ def test_processing_completion_does_not_erase_the_cursor_readout(main_window, qa
     qapp.processEvents()
     assert disp.cursor_enabled, "游标模式没开起来，后面测不到读数"
     gx, gy, dw, dh = disp._get_display_geometry()
+    _drain_status(qapp, main_window.status_label)
+    main_window.status_label.setText("__sentinel__")
     qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3)))
-    qapp.processEvents()
-    qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3)))
-    qapp.processEvents()
-    assert main_window.status_label.text().startswith("("), \
+    assert _wait_for(qapp, lambda: main_window.status_label.text().startswith("(")), \
         f"游标读数没到状态栏上: {main_window.status_label.text()!r}"
 
     main_window._on_processing_completed(Event(EventType.PROCESSING_COMPLETED, {}))

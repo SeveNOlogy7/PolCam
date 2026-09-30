@@ -879,6 +879,18 @@ class ImageDisplay(QtWidgets.QWidget):
 
     # ==================== 缩放交互 ====================
 
+    def _cancel_area_selection(self):
+        """作废进行中的框选。
+
+        橡皮筋、起点和钳位框都是按下那一刻按当时的几何算好的，收尾只写在
+        `_on_zoom_mouse_release` 的 zoom_area 分支里：工具一换（或被模态框把松手接走），
+        那条分支就不会再走，屏上留下一个不属于任何工具的虚线框，起点/钳位框也一直是旧的。
+        """
+        self._rubber_band_origin = None
+        self._rubber_band_clamp_rect = None
+        if self._rubber_band is not None:
+            self._rubber_band.hide()
+
     def set_interaction_mode(self, mode: str):
         """设置鼠标交互模式
 
@@ -886,6 +898,7 @@ class ImageDisplay(QtWidgets.QWidget):
             mode: 'none' | 'cursor' | 'zoom_in' | 'zoom_out' | 'zoom_area'
         """
         self._interaction_mode = mode
+        self._cancel_area_selection()
 
         if mode == 'cursor':
             self.set_cursor_mode(True)
