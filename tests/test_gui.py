@@ -2028,6 +2028,20 @@ def _drain_status(qapp, label, timeout=2.0):
             previous = current
 
 
+def _move_cursor_over(display, x, y):
+    """把一次鼠标移动真的送到图像控件上。
+
+    不用 qtbot.mouseMove：offscreen 在 ubuntu 上不会把合成移动投给没有本地窗口的控件，
+    于是这几条测试在 windows 腿绿、ubuntu 腿红。QApplication.sendEvent 走的是同一条
+    mouseMoveEvent 派发路径（硬件探针也是这么驱动拖拽的），两个平台行为一致。
+    """
+    point = QtCore.QPointF(int(x), int(y))
+    event = QtGui.QMouseEvent(QtCore.QEvent.Type.MouseMove, point, point,
+                              QtCore.Qt.MouseButton.NoButton, QtCore.Qt.MouseButton.NoButton,
+                              QtCore.Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(display.image_label, event)
+
+
 def test_the_readout_labels_the_tiles_it_is_showing_not_the_mode_just_picked(qapp, main_window, qtbot):
     """换显示模式是异步的：新结果没到之前，读数那一行不能先按新模式给旧像素贴标签。
 
@@ -2058,7 +2072,7 @@ def test_the_readout_labels_the_tiles_it_is_showing_not_the_mode_just_picked(qap
         # 读数是队列事件：先把排队里的消息收掉，再立哨兵，等真的读数落上来
         _drain_status(qapp, main_window.status_label)
         main_window.status_label.setText("__sentinel__")
-        qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * fx), int(gy + dh * 0.2)))
+        _move_cursor_over(disp, gx + dw * fx, gy + dh * 0.2)
         assert _wait_for(qapp, lambda: main_window.status_label.text().startswith("(")), \
             f"移动鼠标后读数没有落到状态栏: {main_window.status_label.text()!r}"
         return main_window.status_label.text()
@@ -2595,7 +2609,7 @@ def test_a_new_frame_updates_the_readout_the_cursor_is_standing_on(qapp, qtbot):
 
         gx, gy, dw, dh = display._get_display_geometry()
         point = QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3))
-        qtbot.mouseMove(display.image_label, pos=point)
+        _move_cursor_over(display, point.x(), point.y())
         assert _wait_for(qapp, lambda: bool(emitted)), "鼠标移动没有产生读数"
         assert emitted[-1].get('quad_gray_values') == [1, 2, 3, 4], emitted[-1]
 
@@ -2636,7 +2650,7 @@ def test_processing_completion_does_not_erase_the_cursor_readout(main_window, qa
     gx, gy, dw, dh = disp._get_display_geometry()
     _drain_status(qapp, main_window.status_label)
     main_window.status_label.setText("__sentinel__")
-    qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * 0.3), int(gy + dh * 0.3)))
+    _move_cursor_over(disp, gx + dw * 0.3, gy + dh * 0.3)
     assert _wait_for(qapp, lambda: main_window.status_label.text().startswith("(")), \
         f"游标读数没到状态栏上: {main_window.status_label.text()!r}"
 
