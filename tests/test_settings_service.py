@@ -122,3 +122,33 @@ def test_max_zoom_setting_round_trips(tmp_path: Path):
 
     loaded = service.load()
     assert loaded.ui.max_zoom == 2500.0
+
+
+def test_relative_directories_are_stored_absolute(tmp_path: Path, monkeypatch):
+    """在设置里手打的相对目录要当场定成绝对路径，不能跟着进程的工作目录漂。
+
+    「自动保存目录」是个自由输入框，打 `capture` 这种相对值是合法的。以前
+    `_normalize_directory` 只 expanduser，于是这个值原样进了 settings.ini，采集时
+    `Path('capture').mkdir()` 落在**当时的 CWD** 下：从别的文件夹（或改过"起始位置"的
+    快捷方式）再启动，旧记录全指不到文件、图库一片占位图，而新的采集又开出一个同名
+    不同地的目录。
+    """
+    ini = tmp_path / "PolCam" / "settings.ini"
+    service = SettingsService(ini_path=ini)
+
+    cwd = tmp_path / "launch_dir"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    service.set_auto_save_directory("capture")
+    service.set_last_directory("last")
+
+    saved = service.get_auto_save_directory()
+    assert Path(saved).is_absolute(), f"相对路径被原样存下来了: {saved!r}"
+    assert saved == str(cwd / "capture"), f"没有按设定时的工作目录定死: {saved!r}"
+    assert Path(service.get_last_directory()).is_absolute()
+
+    # 换个 CWD 再读：值不该跟着变，否则旧记录就指不到文件了
+    other = tmp_path / "another_dir"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    assert service.get_auto_save_directory() == saved, "同一个设置随 CWD 变了目标目录"

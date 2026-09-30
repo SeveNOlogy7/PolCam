@@ -247,7 +247,13 @@ class SettingsService:
     def _normalize_directory(self, directory: Any) -> str:
         if not directory:
             return ""
-        return str(Path(str(directory)).expanduser())
+        path = Path(str(directory)).expanduser()
+        if not path.is_absolute():
+            # 相对值当场定成绝对路径：设置里那是个自由输入框，打 `capture` 是合法的，
+            # 而采集写盘时 `mkdir` 落在**当时的 CWD**——换个文件夹（或改过"起始位置"的快捷
+            # 方式）启动，旧图库记录就指不到文件、新采集又另开一个同名目录。
+            path = Path.cwd() / path
+        return str(path)
 
     @staticmethod
     def _to_bool(value: Any) -> bool:
