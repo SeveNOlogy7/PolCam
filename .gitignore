@@ -60,6 +60,7 @@ Thumbs.db
 data/
 output/
 .design-qa/
+.probe/
 *.jpg
 *.png
 !images/*.png
