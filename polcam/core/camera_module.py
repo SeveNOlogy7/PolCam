@@ -268,6 +268,33 @@ class CameraModule(BaseModule):
             return CameraType.COLOR
         return None
 
+    def _raise_link_throughput_limit(self) -> None:
+        """把设备侧的链路带宽钳位放到它自己能报的上限。
+
+        这台 MER2-502 的 `DeviceLinkThroughputLimit` 停在 300 MB/s 且模式是 On，
+        `DeviceLinkCurrentThroughput` 已经贴着它跑（299,909,568）—— 300e6 / 5.0145 MB
+        一帧 = 59.83 fps，正是设备自报的 59.819。真机实测写到 400 MB/s 就是 79.2 fps，
+        两次复测一致、0 次采集错误。所以那 32% 不是 USB 物理上限，是一个我们从没碰过的
+        设备节点。必须在开流之前写：采集中的写会被忽略或拒（InvalidAccess{-8}）。
+        """
+        try:
+            node = self._camera.DeviceLinkThroughputLimit
+            current = int(node.get())
+            maximum = int(node.get_range()['max'])
+        except Exception as e:
+            self._logger.info(f"这台设备没有可读的链路带宽上限，按默认带宽采集: {type(e).__name__}")
+            return
+
+        if current >= maximum:
+            return
+
+        try:
+            node.set(maximum)
+            self._logger.info(f"链路带宽上限 {current / 1e6:.0f} → {int(node.get()) / 1e6:.0f} MB/s")
+        except Exception as e:
+            # 失败只是少 32% 帧率，不值得把一次正常连接报成故障
+            self._logger.warning(f"提高链路带宽上限失败，仍按 {current / 1e6:.0f} MB/s 采集: {e}")
+
     def connect(self) -> bool:
         """连接相机"""
         # 一进来就把指定的设备取走：留到成功路径才清的话，这次只要在任何一处提前
@@ -320,6 +347,8 @@ class CameraModule(BaseModule):
             self._init_camera_parameters()
             self._last_params.update(cached_params)
             self._restore_cached_parameters()
+            # 还没开流，这是唯一能写链路带宽上限的窗口
+            self._raise_link_throughput_limit()
 
             # 设置连接状态
             self._connected = True

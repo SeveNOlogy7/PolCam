@@ -1440,3 +1440,58 @@ def test_a_closed_camera_reports_no_measured_value(camera_module):
 
     changed = [data for event_type, data in published if event_type == EventType.PARAMETER_CHANGED]
     assert not changed, f"设备已断开还回报测得的曝光：{changed}"
+
+
+def _clamp_node(current=300_000_000, maximum=400_000_000):
+    node = MagicMock()
+    node.get.return_value = current
+    node.get_range.return_value = {'min': 35_000_000, 'max': maximum, 'inc': 1_000_000}
+    return node
+
+
+def test_connecting_lifts_the_link_throughput_clamp():
+    """设备侧 300 MB/s 的链路钳位实测吃掉 32% 帧率：全幅 Mono8 59.8 → 放开后 79.2 fps。
+
+    应用从不碰这个节点，就等于把厂商默认值当成硬件上限。这里在**开流之前**写到设备自报
+    的上限 —— 采集中的写会被设备忽略或拒绝（实测过），所以只能在这个时机做。
+    """
+    module = CameraModule()
+    node = _clamp_node()
+    module._camera = MagicMock(DeviceLinkThroughputLimit=node)
+
+    module._raise_link_throughput_limit()
+
+    node.set.assert_called_once_with(400_000_000)
+
+
+def test_a_clamp_that_is_already_open_is_left_alone():
+    """已经到上限就别再写：每次连接都写一遍设备节点，日志里全是没发生变化的"成功"。"""
+    module = CameraModule()
+    node = _clamp_node(current=400_000_000)
+    module._camera = MagicMock(DeviceLinkThroughputLimit=node)
+
+    module._raise_link_throughput_limit()
+
+    node.set.assert_not_called()
+
+
+def test_a_refused_or_missing_throughput_node_does_not_break_connecting():
+    """没有这个节点（别的型号/别的传输）或被拒写时，连接照常，只是少 32% 帧率。"""
+    module = CameraModule()
+    device = MagicMock(spec=[])          # 属性一律不存在 → AttributeError
+    module._camera = device
+    module._raise_link_throughput_limit()
+
+    refused = _clamp_node()
+    refused.set.side_effect = RuntimeError("InvalidAccess{-8}: Node is not writable")
+    module._camera = MagicMock(DeviceLinkThroughputLimit=refused)
+    module._raise_link_throughput_limit()      # 不抛
+    refused.set.assert_called_once()
+
+
+def test_connect_wires_the_lift_into_the_connection_path(camera_module):
+    """光有方法没用：连接路径必须真的调它。"""
+    camera_module.initialize()
+    with patch.object(camera_module, '_raise_link_throughput_limit') as lift:
+        assert camera_module.connect() is True
+    lift.assert_called_once()
