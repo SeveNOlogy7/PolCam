@@ -21,6 +21,7 @@ from polcam.gui.styles import Styles
 from polcam.core.image_plotter import ImagePlotter
 from polcam.core.events import Event, EventManager, EventType
 from polcam.core.processing_module import ProcessingMode
+from polcam.core.preview import PreviewQuality
 import numpy as np
 
 def test_main_window_init(main_window):
@@ -2748,3 +2749,209 @@ def test_auto_save_records_the_frame_not_the_device_now(qapp, main_window, monke
     assert meta['exposure_us'] == 400000.0, "记的是保存那一刻的曝光，不是这一帧的"
     assert meta['gain_db'] == 3.0
     assert meta['roi'] == [0, 0, 2448, 2048]
+
+
+def _live_frame_event(frame, timestamp=100.0):
+    return Event(EventType.FRAME_CAPTURED, {'frame': frame, 'capture_time': 0.01,
+                                            'timestamp': timestamp})
+
+
+def _capture_one_live_frame(window, frame):
+    """走一遍真实入口，只关心提交给处理模块的那一次调用长什么样。"""
+    with patch.object(window, '_update_capture_time'), \
+         patch.object(window, '_update_auto_parameters'), \
+         patch.object(window, '_auto_save_captured_frame'), \
+         patch.object(window.processor, 'process_frame') as submit:
+        window._on_frame_captured(_live_frame_event(frame))
+    return submit
+
+
+def test_live_frames_carry_the_preview_level_without_storing_it_globally(main_window):
+    """档位是"这一帧给谁看"的属性。
+
+    写成处理模块的全局参数，停止流之后的重算和保存会继承预览档，把落盘结果一起缩小 ——
+    那是这个功能最不该发生的事。
+    """
+    frame = np.zeros((2048, 2448), dtype=np.uint8)
+    main_window._continuous_mode = True
+    main_window._preview_quality = PreviewQuality.BALANCED
+    main_window.image_display.set_processing_mode(ProcessingMode.POLARIZATION)
+
+    submit = _capture_one_live_frame(main_window, frame)
+
+    assert submit.call_args.kwargs['extra_params'] == {'preview_factor': 2}
+    assert 'preview_factor' not in main_window.processor.get_parameters()
+
+
+def test_native_preview_submits_exactly_like_today(main_window):
+    """选"原始"时连参数形状都不变：缓存键要与升级前一致，否则整批结果白重算。"""
+    frame = np.zeros((2048, 2448), dtype=np.uint8)
+    main_window._continuous_mode = True
+    main_window._preview_quality = PreviewQuality.NATIVE
+    main_window.image_display.set_processing_mode(ProcessingMode.POLARIZATION)
+
+    submit = _capture_one_live_frame(main_window, frame)
+
+    assert 'extra_params' not in submit.call_args.kwargs
+
+
+def test_a_loaded_file_never_inherits_the_preview_level(main_window):
+    """文件/图库/单帧这些路径不是"预览"，必须全量，也不得推进自动挡的历史。"""
+    frame = np.zeros((2048, 2448), dtype=np.uint8)
+    main_window._preview_quality = PreviewQuality.FLUID
+    main_window._last_preview_factor = 1
+
+    with patch.object(main_window.processor, 'process_frame') as submit:
+        main_window._update_frame_and_display(frame, 123.0)
+
+    assert 'extra_params' not in submit.call_args.kwargs
+    assert main_window._last_preview_factor == 1
+
+
+def test_auto_level_follows_the_view_and_only_relaxes_with_margin(main_window):
+    """自动挡：装不下就立刻降，中间档要回细需要余量，回全量不设门槛。"""
+    frame = np.zeros((2048, 2448), dtype=np.uint8)
+    main_window._preview_quality = PreviewQuality.AUTO
+    main_window.image_display.set_processing_mode(ProcessingMode.SINGLE_GRAY)
+
+    with patch.object(ImageDisplay, 'get_preview_view_size', return_value=(1000, 800)):
+        assert main_window._preview_factor_for_frame(frame) == 4
+    # need=1.88：2 档只差 1.1× 余量的门槛，所以稳定停在 4，不让窗口拖拽时画面忽清忽糊
+    with patch.object(ImageDisplay, 'get_preview_view_size', return_value=(1300, 1100)):
+        assert main_window._preview_factor_for_frame(frame) == 4
+    # 明显够宽（need=1.63 ≤ 1.818）才放松到 2
+    with patch.object(ImageDisplay, 'get_preview_view_size', return_value=(1500, 1300)):
+        assert main_window._preview_factor_for_frame(frame) == 2
+    # 源图装得进视图就直接回全量
+    with patch.object(ImageDisplay, 'get_preview_view_size', return_value=(4000, 3000)):
+        assert main_window._preview_factor_for_frame(frame) == 1
+    assert main_window._last_preview_factor == 1
+
+
+def test_quad_view_gives_each_tile_only_half_the_box(main_window):
+    """四分图里一格只分到控件的一半，按整块控件算会把档位定得比屏上能显示的还细。"""
+    frame = np.zeros((2048, 2448), dtype=np.uint8)
+    main_window._preview_quality = PreviewQuality.AUTO
+
+    with patch.object(ImageDisplay, 'get_preview_view_size', return_value=(1300, 1100)):
+        main_window.image_display.set_processing_mode(ProcessingMode.SINGLE_GRAY)
+        single = main_window._preview_factor_for_frame(frame)
+        main_window.image_display.set_processing_mode(ProcessingMode.QUAD_GRAY)
+        quad = main_window._preview_factor_for_frame(frame)
+
+    assert single == 2
+    assert quad == 4
+
+
+def test_a_small_roi_gets_full_resolution_even_in_auto(main_window):
+    """"足够小的 ROI 才全画幅"是这条功能的承诺：硬件放大之后不该还合并。"""
+    main_window._preview_quality = PreviewQuality.AUTO
+    main_window._last_preview_factor = 4
+    cropped = np.zeros((512, 608), dtype=np.uint8)
+
+    with patch.object(ImageDisplay, 'get_preview_view_size', return_value=(1300, 1100)):
+        assert main_window._preview_factor_for_frame(cropped) == 1
+
+
+def test_image_label_reports_the_box_available_for_the_image(main_window):
+    """控件尺寸取真正放图的那块，未布局时返回 None 而不是 0。"""
+    main_window.image_display.image_label.resize(640, 480)
+
+    assert main_window.image_display.get_preview_view_size() == (640, 480)
+
+    with patch.object(main_window.image_display.image_label, 'width', return_value=0), \
+         patch.object(main_window.image_display.image_label, 'height', return_value=0):
+        assert main_window.image_display.get_preview_view_size() is None
+
+
+def test_settings_dialog_round_trips_the_preview_level(main_window):
+    """对话框重建 UISettings 时必须带上预览档。
+
+    它每个字段都是重新拼一个 UISettings(...)，漏一项就等于每次保存设置都把那一项
+    抹回默认 —— 用户会发现自己什么都没动，档位却变了。
+    """
+    from polcam.gui.settings_dialog import SettingsDialog
+
+    settings = main_window.build_current_settings()
+    settings.ui.preview_quality = PreviewQuality.FLUID
+    main_window.apply_settings(settings, persist=False)
+
+    dialog = SettingsDialog(main_window.build_current_settings(), main_window)
+    assert dialog.preview_quality_combo.currentData(Qt.ItemDataRole.UserRole) is PreviewQuality.FLUID
+
+    dialog.max_zoom_spin.setValue(7.0)
+    saved = dialog.get_settings()
+
+    assert saved.ui.preview_quality is PreviewQuality.FLUID
+    assert saved.ui.max_zoom == 7.0
+
+
+def test_the_readout_says_when_the_pixels_are_an_average(qapp, main_window, qtbot):
+    """预览档合并过像素时，读数那一行必须说出来。
+
+    游标报的是"这一格"的 DoLP/AoLP，而这一格在预览档里是若干个超胞的平均 —— 不说出来
+    就等于把区域平均当成逐点测量卖给用户。坐标本身不受影响（换算按 ROI/画布比例走）。
+    """
+    from polcam.core.processing_module import ProcessingMode as PM
+
+    disp = main_window.image_display
+    main_window.show()
+    qapp.processEvents()
+    merged = np.full((64, 64), 77, dtype=np.uint8)
+    dolp = np.full((64, 64), 0.42, dtype=np.float32)
+    aolp = np.full((64, 64), 123.5, dtype=np.float32)
+    docp = np.full((64, 64), 0.11, dtype=np.float32)
+    disp.set_processing_mode(PM.POLARIZATION)
+    disp.update_roi_info((0, 0, 128, 128), (2448, 2048))
+    disp.enable_display_controls(True)
+    disp.toolbar_controller.toolbar.cursor_btn.click()
+    qapp.processEvents()
+
+    def hover_and_read():
+        gx, gy, dw, dh = disp._get_display_geometry()
+        _drain_status(qapp, main_window.status_label)
+        main_window.status_label.setText("__sentinel__")
+        _move_cursor_over(disp, gx + dw * 0.2, gy + dh * 0.2)
+        assert _wait_for(qapp, lambda: main_window.status_label.text().startswith("(")), \
+            f"读数没落下来: {main_window.status_label.text()!r}"
+        return main_window.status_label.text()
+
+    disp.show_polarization_quad_view(merged, dolp, aolp, docp)
+    disp.set_preview_factor(1)
+    qapp.processEvents()
+    plain = hover_and_read()
+    assert "预览" not in plain, f"全量画面不该带合并标注: {plain!r}"
+
+    disp.set_preview_factor(2)
+    qapp.processEvents()
+    merged_text = hover_and_read()
+    assert "2×" in merged_text, f"预览档没标进读数: {merged_text!r}"
+
+
+def test_the_preview_level_arrives_with_the_result_and_resets_on_raw(qapp, main_window):
+    """档位跟着那张图走：结果自带声明，画原始帧时清掉。
+
+    反过来（按数组尺寸自己推算倍数）会把"文件正好是 1224 宽"读成"这是 2× 预览"，
+    于是给一张全量图盖上合并的标签。
+    """
+    from polcam.core.processing_module import ProcessingMode as PM, ProcessingResult
+
+    disp = main_window.image_display
+    main_window.image_display.set_processing_mode(PM.POLARIZATION)
+    small = np.zeros((32, 32), dtype=np.uint8)
+    result = ProcessingResult(
+        mode=PM.POLARIZATION,
+        images=[small, np.zeros((32, 32), dtype=np.float32),
+                np.zeros((32, 32), dtype=np.float32), np.zeros((32, 32), dtype=np.float32)],
+        metadata={'preview_factor': 4, 'quad_titles': ['IMAGE', 'DOLP', 'AOLP', 'DOCP']},
+        timestamp=0.0,
+        display_canvas=np.zeros((64, 64, 3), dtype=np.uint8),
+    )
+
+    main_window._update_display(result)
+    assert disp.get_preview_factor() == 4
+
+    # 换成原始视图：屏上就是一个比一的传感器像素，标注必须跟着画面走而不是跟着设置
+    disp.set_processing_mode(PM.RAW)
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    assert disp.get_preview_factor() == 1, "原始图像就是一比一的传感器像素"

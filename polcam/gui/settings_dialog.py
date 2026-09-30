@@ -12,6 +12,7 @@ from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
+from ..core.preview import PreviewQuality
 from ..core.settings import AppSettings, ProcessingSettings, UISettings
 from .image_display import COLOR_MODES, MODE_LABELS
 
@@ -63,6 +64,18 @@ class SettingsDialog(QtWidgets.QDialog):
         self.max_zoom_spin = self._create_double_spinbox(1.0, 10000.0, 10.0)
         self.max_zoom_spin.setDecimals(1)
         app_form.addRow("最大放大倍率", self.max_zoom_spin)
+
+        self.preview_quality_combo = QtWidgets.QComboBox()
+        for quality in (PreviewQuality.AUTO, PreviewQuality.NATIVE,
+                        PreviewQuality.BALANCED, PreviewQuality.FLUID):
+            self.preview_quality_combo.addItem(quality.label, quality)
+        # 这一项改的是屏幕上偏振读数的口径，必须把边界说清楚：只有连续流预览会被合并，
+        # 单帧、图库、停止后的显示和一切保存都是全量。
+        self.preview_quality_combo.setToolTip(
+            "只影响连续采集时的实时预览：屏上一个像素是若干个 2x2 偏振超胞的平均，越流畅合并得越多。\n"
+            "单帧拍摄、打开图库/文件、停止后的显示与所有保存、导出不受影响，始终按全分辨率解算。\n"
+            "自动挡按窗口大小决定：放大到源图装得下就回到全分辨率。")
+        app_form.addRow("实时预览质量", self.preview_quality_combo)
 
         processing_group = QtWidgets.QGroupBox("处理参数")
         processing_form = QtWidgets.QFormLayout(processing_group)
@@ -127,6 +140,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self.directory_edit.setText(ui_settings.last_directory)
         self.auto_save_directory_edit.setText(ui_settings.auto_save_directory)
         self.max_zoom_spin.setValue(ui_settings.max_zoom)
+        self._set_combo_value(self.preview_quality_combo, ui_settings.preview_quality)
 
         self.wb_auto_check.setChecked(processing_settings.wb_auto)
         self._set_combo_value(self.angle_combo, processing_settings.selected_angle)
@@ -160,12 +174,18 @@ class SettingsDialog(QtWidgets.QDialog):
         display_mode = self.display_mode_combo.currentData(QtCore.Qt.ItemDataRole.UserRole)
         directory = self.directory_edit.text().strip()
         auto_save_directory = self.auto_save_directory_edit.text().strip()
+        # findData 认不到值时返回 -1，currentData 会是 None：那不能让档位悄悄变成默认值，
+        # 沿用打开时的值更诚实（这条路径只在枚举与下拉项不一致时到达，属于程序自己的错）。
+        preview_quality = self.preview_quality_combo.currentData(QtCore.Qt.ItemDataRole.UserRole)
+        if preview_quality is None:
+            preview_quality = self._current_settings.ui.preview_quality
         return AppSettings(
             ui=UISettings(
                 display_mode=display_mode,
                 last_directory=directory,
                 auto_save_directory=auto_save_directory,
                 max_zoom=self.max_zoom_spin.value(),
+                preview_quality=preview_quality,
             ),
             processing=ProcessingSettings(
                 wb_auto=self.wb_auto_check.isChecked(),

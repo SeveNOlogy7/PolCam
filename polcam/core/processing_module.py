@@ -342,22 +342,29 @@ class ProcessingModule(BaseModule):
         self.clear_cache()
 
     def process_frame(self, frame: np.ndarray, priority: int = 0,
-                      capture_timestamp: Optional[Any] = None):
+                      capture_timestamp: Optional[Any] = None,
+                      extra_params: Optional[Dict[str, Any]] = None):
         """添加处理任务
         
         Args:
             frame: 输入图像帧
             priority: 优先级（0-10，值越大优先级越高）
             capture_timestamp: 这一帧的采集时间，用于结果落地时命名/归档
+            extra_params: 只属于**这一帧**的参数（预览档就是这种）。不能写成模块全局
+                参数：那样停止流之后的重算、保存会继承上一次预览的档位，把落盘结果一起缩小了。
         """
         if frame is None:
             return
-            
+
+        params = self._params.copy()
+        if extra_params:
+            params.update(extra_params)
+
         # 创建处理任务
         task = ProcessingTask(
             frame=frame,
             mode=self._current_mode,
-            params=self._params.copy(),
+            params=params,
             priority=priority,
             capture_timestamp=capture_timestamp
         )
@@ -445,6 +452,36 @@ class ProcessingModule(BaseModule):
             self._is_processing = False
             self._task_queue.task_done()
 
+    def _downscale_planes(self, images: List[np.ndarray], factor: int) -> List[np.ndarray]:
+        """按 factor×factor 块平均缩小，保持 dtype 与通道数。
+
+        先裁到 factor 的整数倍：一次平均覆盖的才正好是整数个块，边缘不会混进半块。
+        """
+        if factor <= 1:
+            return images
+
+        merged = []
+        for image in images:
+            height = (image.shape[0] // factor) * factor
+            width = (image.shape[1] // factor) * factor
+            if height <= 0 or width <= 0:
+                # 图比档位还小：原样给回去，别缩出个 0
+                merged.append(image)
+                continue
+            merged.append(cv2.resize(image[:height, :width], (width // factor, height // factor),
+                                     interpolation=cv2.INTER_AREA))
+        return merged
+
+    def _decode_for_preview(self, frame: np.ndarray, factor: int) -> List[np.ndarray]:
+        """解算到"这一帧在屏上占多大"的尺寸。
+
+        合并的对象是去马赛克出来的分图 —— 一张分图里每个像素都是同一个偏振方向，
+        所以块平均不会把角度混在一起（对 mosaic 直接降采样才会：那会让每个输出像素
+        只剩一个角度）。
+        """
+        return self._downscale_planes(
+            self._processor.demosaic_polarization(frame, mono=self._is_mono), factor)
+
     def _process_task(self, task: ProcessingTask) -> Optional[ProcessingResult]:
         """处理单个任务"""
         try:
@@ -470,6 +507,14 @@ class ProcessingModule(BaseModule):
                                      params=task.params, priority=task.priority,
                                      capture_timestamp=task.capture_timestamp)
 
+            # 预览档：只有连续流提交时才带这个键，缺键按 1 —— 漏接一条路径只会让那处
+            # 不省时间，不会悄悄把结果变小。原始视图显示的就是 mosaic 本身，降它等于降
+            # 传感器坐标精度，而它本来只要 5ms，所以强制 1；这也让 metadata 里报出去的
+            # 档位与实际像素始终一致。
+            preview_factor = max(1, int(task.params.get('preview_factor', 1) or 1))
+            if task.mode == ProcessingMode.RAW:
+                preview_factor = 1
+
             # 检查缓存（帧哈希在锁外算，临界区里只留字典操作）
             cache_key = self._get_cache_key(task)
             with self._cache_lock:
@@ -486,7 +531,7 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode in [ProcessingMode.SINGLE_COLOR, ProcessingMode.SINGLE_GRAY]:
                 # 解码获取单角度图像
-                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
+                decoded = self._decode_for_preview(task.frame, preview_factor)
                 angle_index = task.params.get('selected_angle', 0) // 45
                 selected_image = decoded[angle_index]
                 # 对单个角度图像进行白平衡处理
@@ -511,11 +556,14 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode in [ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY]:
                 if self._is_normal_color and self._image_format_convert is not None:
-                    # 普通彩色相机：使用 gxipy SDK 进行 Bayer → BGR 转换
-                    merged = self._convert_bayer_to_bgr(task.frame)
+                    # 普通彩色相机：使用 gxipy SDK 进行 Bayer → BGR 转换。
+                    # 预览档也要生效，否则结果会声明"合并 4×4"而像素是全量的 ——
+                    # 读数上的标注就成了假的。这里降采样没有偏振问题：分图已经解出来了。
+                    merged = self._downscale_planes(
+                        [self._convert_bayer_to_bgr(task.frame)], preview_factor)[0]
                 else:
                     # 偏振相机：偏振解码后合成
-                    decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
+                    decoded = self._decode_for_preview(task.frame, preview_factor)
                     merged = np.rint(np.mean(decoded, axis=0)).astype(np.uint8)
                 # 对合成后的图像进行白平衡
                 wb_applied = False
@@ -535,7 +583,7 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode in [ProcessingMode.QUAD_COLOR, ProcessingMode.QUAD_GRAY]:
                 # 解码获取四角度图像
-                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
+                decoded = self._decode_for_preview(task.frame, preview_factor)
                 images = decoded
                 wb_applied = False
                 if task.mode == ProcessingMode.QUAD_COLOR and task.params.get('wb_auto', False):
@@ -561,7 +609,7 @@ class ProcessingModule(BaseModule):
                 
             elif task.mode == ProcessingMode.POLARIZATION:
                 # 偏振分析
-                decoded = self._processor.demosaic_polarization(task.frame, mono=self._is_mono)
+                decoded = self._decode_for_preview(task.frame, preview_factor)
                 # 四舍五入而不是 astype(uint8) 截断：真机暗场景实测截断让 46.9% 的像素整整
                 # 少 1 个 DN，画面里 69.8% 变成纯黑（正确值是 27.3%），合成图均值 0.30 而
                 # 应该是 0.73。两个合成入口算法保持一致。
@@ -641,6 +689,10 @@ class ProcessingModule(BaseModule):
                     max_tile_size=ImagePlotter.MAX_DISPLAY_QUAD_TILE_SIZE,
                 )
                 
+            # 结果必须自己声明"一个源像素是几个超胞的平均"：显示层的坐标换算、游标读数
+            # 和状态栏标注都靠它，而不是反过来猜帧尺寸。
+            metadata['preview_factor'] = preview_factor
+
             # 创建结果对象
             result = ProcessingResult(
                 mode=task.mode,

@@ -67,6 +67,9 @@ class ImageDisplay(QtWidgets.QWidget):
         self.quad_positions = []      # 四分图的四个区域位置
         self.quad_size = None         # 四分图单区域尺寸
         self._display_content_kind = 'single'  # 'single' | 'quad' | 'polarization'
+        # 屏上这一个像素是几个超胞的平均。由结果自带的 metadata 声明，不靠数组尺寸反推：
+        # 一张正好 1224 宽的文件会被反推成"2× 预览"，于是给全量图盖上合并的标签。
+        self._preview_factor = 1
         self._quad_titles = []
         self._quad_title_labels = []
         self._quad_gray_mode = False
@@ -926,6 +929,17 @@ class ImageDisplay(QtWidgets.QWidget):
                 delattr(self.image_label, name)
         self.image_label.setMouseTracking(False)
 
+    def set_preview_factor(self, factor: int):
+        """声明当前屏上像素的合并倍数（1 = 一比一的传感器像素）。
+
+        只由结果的 metadata 或"这就是原始帧"这两处调用；游标读数用它决定要不要
+        标出"这一格是平均出来的"。
+        """
+        self._preview_factor = max(1, int(factor))
+
+    def get_preview_factor(self) -> int:
+        return self._preview_factor
+
     def update_roi_info(self, roi: tuple, sensor_size: tuple):
         """缓存当前 ROI 和传感器尺寸，供坐标映射使用
 
@@ -949,6 +963,18 @@ class ImageDisplay(QtWidgets.QWidget):
         """
         self._current_roi = None
         self._sensor_size = None
+
+    def get_preview_view_size(self) -> Optional[Tuple[int, int]]:
+        """真正用来放图的区域尺寸（像素），未布局好时返回 None。
+
+        取 `image_label` 的可用尺寸，而不是当前渲染出来的画布尺寸 —— 预览档要回答的是
+        "屏上能显示多少细节"，而画布大小本身就是被档位决定的那个量，用它就成了自循环。
+        """
+        width = self.image_label.width()
+        height = self.image_label.height()
+        if width <= 0 or height <= 0:
+            return None
+        return (width, height)
 
     def _get_display_geometry(self) -> Optional[Tuple[float, float, float, float]]:
         """计算图像在 QLabel 中的显示区域
@@ -1332,6 +1358,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 'sensor_position': self._source_to_sensor_position(img_x, img_y),
                 'mode': 'quad',
                 'content_kind': self._display_content_kind,
+                'preview_factor': self._preview_factor,
                 'quad_index': quad_index,
                 'cursor_quad_position': cursor_quad_position,
                 **pixel_info
@@ -1352,6 +1379,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 'position': (img_x, img_y),
                 'sensor_position': self._source_to_sensor_position(img_x, img_y),
                 'mode': 'single',
+                'preview_factor': self._preview_factor,
                 'quad_index': None,
                 'cursor_quad_position': None,
                 **pixel_info

@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Union
 
 from qtpy import QtCore
 
+from .preview import PreviewQuality
 from .processing_module import DEFAULT_PROCESSING_PARAMS, ProcessingMode
 
 
@@ -23,6 +24,9 @@ class UISettings:
     last_directory: str = ""
     auto_save_directory: str = ""
     max_zoom: float = 1000.0
+    # 连续流预览的合并档位。默认均衡（2x2 超胞合并）：装上就吃到约 3x 预览帧率，
+    # 代价是屏幕上的 DoLP/AoLP 是按区域平均算的 —— 只有预览如此，保存与单帧仍走原始档。
+    preview_quality: PreviewQuality = PreviewQuality.BALANCED
 
 
 @dataclass
@@ -141,6 +145,8 @@ class SettingsService:
             last_directory=str(last_directory or ""),
             auto_save_directory=str(auto_save_directory or ""),
             max_zoom=self._to_float(self._settings.value("ui/max_zoom", UISettings().max_zoom), UISettings().max_zoom),
+            preview_quality=PreviewQuality.from_name(self._settings.value("ui/preview_quality",
+                                                                          UISettings().preview_quality.value)),
         )
 
     def save_ui_settings(self, ui_settings: UISettings):
@@ -148,6 +154,7 @@ class SettingsService:
         self._settings.setValue("ui/last_directory", self._normalize_directory(ui_settings.last_directory))
         self._settings.setValue("ui/auto_save_directory", self._normalize_directory(ui_settings.auto_save_directory))
         self._settings.setValue("ui/max_zoom", max(1.0, float(ui_settings.max_zoom)))
+        self._settings.setValue("ui/preview_quality", ui_settings.preview_quality.value)
 
     def load_processing_settings(self) -> ProcessingSettings:
         defaults = ProcessingSettings()

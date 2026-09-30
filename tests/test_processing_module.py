@@ -755,3 +755,145 @@ def test_a_failed_task_reports_completion_before_the_error():
 
     assert seen == [EventType.PROCESSING_COMPLETED, EventType.ERROR_OCCURRED], (
         f"事件顺序不对，状态栏里的错误会被就绪盖掉: {seen}")
+
+
+def _pol_task(module, frame, **extra):
+    from polcam.core.processing_module import ProcessingMode, ProcessingTask
+    return ProcessingTask(frame=frame, mode=ProcessingMode.POLARIZATION,
+                          params=dict(module.get_parameters(), **extra), priority=0)
+
+
+def test_preview_factor_shrinks_the_planes_and_says_so():
+    """预览档只改分图尺寸，并且要把这一事实写进结果元数据 —— 显示层按它解释坐标。"""
+    module = ProcessingModule()
+    module.initialize()
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+
+    full = module._process_task(_pol_task(module, frame))
+    half = module._process_task(_pol_task(module, frame + 1, preview_factor=2))
+
+    assert full.images[0].shape == (64, 64)
+    assert full.metadata['preview_factor'] == 1
+    assert half.images[0].shape == (32, 32)
+    assert half.metadata['preview_factor'] == 2
+    # 偏振视图是 合成图 + 三张参数图，四张都得跟着降
+    assert {img.shape for img in half.images} == {(32, 32)}
+
+
+def test_paths_that_never_mention_a_factor_stay_at_full_resolution():
+    """没传档的路径（单帧、图库、重算、保存）必须与今天逐字节一致。
+
+    默认值取 1 是安全方向：漏接一条路径只会让那一处不省时间，不会悄悄改小结果。
+    """
+    module = ProcessingModule()
+    module.initialize()
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+
+    untouched = module._process_task(_pol_task(module, frame))
+    explicit = module._process_task(_pol_task(module, frame, preview_factor=1))
+
+    assert untouched is not explicit, "显式 f=1 与缺键是两份参数，不该互相冒领缓存"
+    for a, b in zip(untouched.images, explicit.images):
+        assert np.array_equal(a, b)
+
+
+def test_preview_merging_averages_whole_supercells():
+    """合并必须按超胞为单位：一张分图里的每个像素本来就是同一个偏振方向。
+
+    单色与彩色偏振相机都测：前者分图是 2D，后者是 BGR 3 通道，两条路都得是整数倍块平均。
+    """
+    from polcam.core.camera_module import CameraType
+
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+    for camera_type in (CameraType.MONO, CameraType.COLOR):
+        module = ProcessingModule()
+        module.initialize()
+        module.set_camera_type(camera_type)
+        decoded = module._processor.demosaic_polarization(frame, mono=module._is_mono)
+
+        merged = module._decode_for_preview(frame, 2)
+
+        assert len(merged) == len(decoded)
+        for source, result in zip(decoded, merged):
+            if source.ndim == 2:
+                expected = source.reshape(32, 2, 32, 2).mean(axis=(1, 3))
+            else:
+                expected = source.reshape(32, 2, 32, 2, 3).mean(axis=(1, 3))
+            assert result.shape[0] == 32 and result.shape[1] == 32
+            assert result.dtype == np.uint8
+            assert np.abs(result.astype(np.int16) - np.rint(expected).astype(np.int16)).max() <= 1, (
+                "块平均要等于按超胞的整数平均，否则一个预览像素混进了别的偏振方向")
+
+
+def test_raw_view_ignores_the_preview_factor():
+    """原始视图显示的是 mosaic 本身，降它等于降传感器坐标精度，收益也只有 5ms。"""
+    module = ProcessingModule()
+    module.initialize()
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+    from polcam.core.processing_module import ProcessingMode, ProcessingTask
+
+    raw = module._process_task(ProcessingTask(
+        frame=frame, mode=ProcessingMode.RAW,
+        params=dict(module.get_parameters(), preview_factor=4), priority=0))
+
+    assert raw.images[0].shape == (64, 64)
+    assert raw.metadata['preview_factor'] == 1, "报出去的档位必须与实际像素一致，否则读数会自说自话"
+
+
+def test_cache_key_separates_the_preview_levels():
+    """同一帧的两档不能互相冒领：换档必须重算，同档必须命中。"""
+    module = ProcessingModule()
+    module.initialize()
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+
+    key_1 = module._get_cache_key(_pol_task(module, frame))
+    key_2 = module._get_cache_key(_pol_task(module, frame, preview_factor=2))
+    assert key_1 != key_2
+
+    first = module._process_task(_pol_task(module, frame, preview_factor=2))
+    again = module._process_task(_pol_task(module, frame, preview_factor=2))
+    assert again is first, "同帧同档应该命中缓存"
+
+
+def test_process_frame_can_take_per_frame_params_without_touching_the_module_ones():
+    """档位是"这一帧给谁看"的属性，不是处理模块的全局参数。
+
+    写进全局参数会让停止流之后的重算、保存都继承上一次的预览档 —— 那正是这个功能
+    最不该发生的事。
+    """
+    module = ProcessingModule()
+    module.initialize()
+    frame = np.zeros((16, 16), dtype=np.uint8)
+
+    module.process_frame(frame, extra_params={'preview_factor': 2})
+    task = module._task_queue.get_nowait()
+
+    assert task.params['preview_factor'] == 2
+    assert 'preview_factor' not in module.get_parameters()
+    assert module.get_parameters().keys() == dict(module.get_parameters()).keys()
+
+    module.process_frame(frame)
+    assert 'preview_factor' not in module._task_queue.get_nowait().params
+
+
+def test_the_color_camera_merge_honours_the_preview_level_it_declares():
+    """普通彩色相机走 SDK 的 Bayer→BGR，不经过偏振分图那条降采样入口。
+
+    漏了它，结果会声明"合并 4×4"而像素却是全量的 —— 状态栏那个标注就变成骗人的。
+    """
+    from polcam.core.processing_module import ProcessingMode, ProcessingTask
+
+    module = ProcessingModule()
+    module.initialize()
+    module._is_normal_color = True
+    module._image_format_convert = object()
+    module._convert_bayer_to_bgr = lambda frame: np.repeat(
+        frame[:, :, None], 3, axis=2)
+    frame = (np.arange(64 * 64, dtype=np.uint8).reshape(64, 64) % 200).astype(np.uint8)
+
+    merged = module._process_task(ProcessingTask(
+        frame=frame, mode=ProcessingMode.MERGED_GRAY,
+        params=dict(module.get_parameters(), preview_factor=2), priority=0))
+
+    assert merged.images[0].shape == (32, 32)
+    assert merged.metadata['preview_factor'] == 2

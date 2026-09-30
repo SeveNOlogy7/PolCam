@@ -120,6 +120,12 @@ class ImageToolbarController(BaseModule):
             # 旧的读数把 (1201,1001) 报成 (1,1)）。
             sensor = info.get('sensor_position')
             position_text = f"({sensor[0]}, {sensor[1]})" if sensor else f"({x}, {y})"
+            # 预览档下"这一格"是若干个超胞的平均，读数必须说出来 —— 不然区域平均看起来
+            # 就像逐点测量。坐标不受影响：换算按 ROI 与画布的比例走，本来就是一比一映射
+            # 到合并后的网格。
+            factor = int(info.get('preview_factor', 1) or 1)
+            if factor > 1:
+                position_text = f"{position_text} [合并{factor}×{factor}]"
 
             if mode == 'quad':
                 # 四分图模式

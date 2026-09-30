@@ -18,6 +18,7 @@ import threading
 import time
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
+from ..core.preview import pick_preview_factor
 from ..core.gallery_service import GalleryService
 import os
 from ..core.toolbar_controller import ToolbarController
@@ -130,8 +131,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._continuous_mode = False  # 添加连续采集模式标志
         self._single_capture_requested = False  # 标记显式单帧采集请求
         self._capture_in_flight = False  # 有一次单帧采集正占着设备，不允许重叠
-        # 处理模块正忙时被挡下的最近一帧 (frame, timestamp)，等完成信号补交
+        # 处理模块正忙时被挡下的最近一帧 (frame, timestamp, live)，等完成信号补交
         self._pending_display_frame = None
+        # 连续流预览的合并档位，以及上一次算出来的倍数（自动挡的滞回要看历史）
+        self._preview_quality = UISettings().preview_quality
+        self._last_preview_factor = 1
         self._capture_thread = None  # 那次抓取所在的工作线程，关窗口前要先收它
         self._current_frame_timestamp = None  # 添加时间戳属性
         self._camera_type = None  # 相机类型（彩色/黑白）
@@ -628,9 +632,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 and self.processor.get_task_count() == 0 and not self.processor.is_processing():
             # 补交在忙的时候被挡下的最近一帧（见 _update_frame_and_display）。还忙就继续留着，
             # 等下一次完成信号。
-            frame, timestamp = self._pending_display_frame
+            frame, timestamp, live = self._pending_display_frame
             self._pending_display_frame = None
-            self.processor.process_frame(frame, capture_timestamp=timestamp)
+            self._submit_for_display(frame, timestamp, live)
 
         if not self._continuous_mode:  # 仅在非连续模式下更新状态
             self.status_indicator.setProcessing(False)
@@ -643,7 +647,9 @@ class MainWindow(QtWidgets.QMainWindow):
         """更新图像显示"""
         if not result or not result.images:
             return
-            
+
+        # 屏上像素的来源由结果自己声明：游标读数用它决定要不要标"合并"
+        self.image_display.set_preview_factor(result.metadata.get('preview_factor', 1))
         mode = result.mode
         images = result.images
         
@@ -894,12 +900,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toolbar_controller.enable_save_result(False)
         self.image_display.toolbar_controller.sync_zoom_coordinate_space()
 
-    def _update_frame_and_display(self, frame: np.ndarray, timestamp=None):
+    def _preview_factor_for_frame(self, frame: np.ndarray) -> int:
+        """这一帧该按哪一档解算，并把结果记进历史供自动挡滞回。
+
+        四分图/POLARIZATION 一格只分到控件的一半，所以按 tiles_across=2 算；
+        原始视图不参与（它显示的就是 mosaic 本身，降它等于降传感器坐标精度）。
+        """
+        if self.image_display.get_current_processing_mode() == ProcessingMode.RAW:
+            self._last_preview_factor = 1
+            return 1
+
+        tiles_across = 2 if self.image_display.is_quad_view_mode() else 1
+        view = self.image_display.get_preview_view_size() or (0, 0)
+        factor = pick_preview_factor(self._preview_quality, (frame.shape[1], frame.shape[0]),
+                                     view, previous=self._last_preview_factor,
+                                     tiles_across=tiles_across)
+        self._last_preview_factor = factor
+        return factor
+
+    def _submit_for_display(self, frame: np.ndarray, timestamp, live: bool) -> None:
+        """把一帧交给处理模块。只有连续流的帧才带预览档。"""
+        kwargs = {'capture_timestamp': timestamp}
+        if live:
+            factor = self._preview_factor_for_frame(frame)
+            if factor > 1:
+                # 不降档时连参数形状都不变：缓存键要与不启用这功能时一致，
+                # 否则切到"原始"会让整批已有结果白重算一遍。
+                kwargs['extra_params'] = {'preview_factor': factor}
+        self.processor.process_frame(frame, **kwargs)
+
+    def _update_frame_and_display(self, frame: np.ndarray, timestamp=None, live: bool = False):
         """更新帧数据并显示
         
         Args:
             frame: 图像数据
             timestamp: 时间戳（可选）
+            live: 这帧是不是连续流里的画面。只有它是"预览"，可以按屏上尺寸降档解算；
+                单帧、文件、图库、停止后的显示都必须全量。
         """
         if frame is not None:
             # 如果显示控件未启用，则启用
@@ -915,20 +952,23 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # 根据模式更新显示或后处理图像
             if current_mode == ProcessingMode.RAW:
+                # 原始视图上的一个像素就是一个传感器像素，与预览档无关
+                self.image_display.set_preview_factor(1)
                 self.image_display.show_image(frame)
                 self.image_display.toolbar_controller.sync_zoom_coordinate_space()
             else:
                 # 确保处理模块没有待处理任务时才发送新任务
                 if self.processor.get_task_count() == 0 and not self.processor.is_processing():
-                    self.processor.process_frame(frame, capture_timestamp=timestamp)
+                    self._submit_for_display(frame, timestamp, live)
                     self._pending_display_frame = None
                 else:
                     # 但"忙就丢掉"不能丢到底：真机实测（全尺寸 + 降噪 0.6）载入 A 后趁解算
                     # 还没完就载入 B，状态栏写着「已加载图像: B」，20 秒后屏上仍然是 A，而
                     # toolbar 的 `_current_frame` 已经指向 B —— 看到的和要存/要重处理的不是
                     # 一张。留最近这一帧，等处理完成信号补交；连续采集下这个槽位只会被更新的
-                    # 帧覆盖，所以仍然不会堆任务。
-                    self._pending_display_frame = (frame, timestamp)
+                    # 帧覆盖，所以仍然不会堆任务。live 要一起留着：补交的是一帧预览还是一张
+                    # 文件，决定它能不能享受降档解算。
+                    self._pending_display_frame = (frame, timestamp, live)
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
@@ -977,7 +1017,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._auto_save_captured_frame(frame, timestamp)
                 self._single_capture_requested = False
             # 更新帧和显示
-            self._update_frame_and_display(frame, timestamp)
+            self._update_frame_and_display(frame, timestamp, live=self._continuous_mode)
 
     def _on_error(self, event):
         """处理错误事件"""
@@ -1186,6 +1226,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 last_directory=self.settings_service.get_last_directory(),
                 auto_save_directory=self.settings_service.get_auto_save_directory(),
                 max_zoom=self.image_display.toolbar_controller.get_max_zoom(),
+                preview_quality=self._preview_quality,
             ),
             processing=ProcessingSettings.from_params(self.processor.get_parameters()),
         )
@@ -1195,6 +1236,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_settings = settings
         self._preferred_display_mode = settings.ui.display_mode
         self.image_display.toolbar_controller.set_max_zoom(settings.ui.max_zoom)
+        # 换档之后滞回历史要作废：留着旧值会让自动挡把"刚换档"当成"刚缩窗口"，
+        # 该放松的那一帧反而继续合并。
+        self._preview_quality = settings.ui.preview_quality
+        self._last_preview_factor = 1
 
         self.camera_control.set_wb_auto(settings.processing.wb_auto)
         self.camera_control.set_selected_angle(settings.processing.selected_angle)

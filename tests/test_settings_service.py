@@ -8,7 +8,36 @@ from pathlib import Path
 
 from qtpy import QtCore
 
+from polcam.core.preview import PreviewQuality
 from polcam.core.settings import SettingsService
+
+
+def test_preview_quality_round_trips_by_name(tmp_path: Path):
+    """档位存的是名字：存整数会跟着枚举顺序漂移，老配置在新版本里读出别的档。"""
+    path = tmp_path / "settings.ini"
+    service = SettingsService(ini_path=path)
+    assert service.load_ui_settings().preview_quality is PreviewQuality.BALANCED
+
+    ui = service.load_ui_settings()
+    ui.preview_quality = PreviewQuality.FLUID
+    service.save_ui_settings(ui)
+
+    assert SettingsService(ini_path=path).load_ui_settings().preview_quality is PreviewQuality.FLUID
+    assert QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat).value("ui/preview_quality") == "fluid"
+
+
+def test_unusable_preview_quality_value_falls_back_to_balanced(tmp_path: Path):
+    """坏值不能变成自动挡。
+
+    自动档会随窗口大小改变屏上读数的口径，静默切过去等于悄悄改了测量条件；
+    认不出来就回到均衡，至少行为是固定的、看得见的。
+    """
+    path = tmp_path / "settings.ini"
+    raw = QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+    raw.setValue("ui/preview_quality", "circleshield")
+    raw.sync()
+
+    assert SettingsService(ini_path=path).load_ui_settings().preview_quality is PreviewQuality.BALANCED
 
 
 def test_settings_live_in_a_dedicated_file(tmp_path: Path):
