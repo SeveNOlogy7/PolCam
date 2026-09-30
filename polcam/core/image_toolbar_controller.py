@@ -446,20 +446,22 @@ class ImageToolbarController(BaseModule):
         return not self._camera_module.is_streaming()
 
     def _get_quad_titles(self, info: dict) -> List[str]:
-        """根据不同的四分图模式返回对应的标题列表"""
+        """按屏上四格的内容返回格名。
+
+        以前这里读 `display_mode.currentText()`：模式切换是异步的，新结果还没上屏的那段
+        时间里下拉框已经是新模式了，于是偏振的 DoLP/AoLP/DoCP 被冠上 0°/45°/90°/135°
+        的格子名（真机实测读数 '(19, 25) || 0°:77 | 45°:0.41999998688697815 | …'）。
+        内容种类是随屏上那张图一起发过来的，照着它命名才对得上。
+        """
         mode = info.get('mode')
         if not mode == 'quad':
             return []
 
-        # 从ImageDisplay的当前显示模式获取
-        if self.image_display:
-            current_mode = self.image_display.display_mode.currentText()
-
-            # 根据显示模式返回对应的标题
-            if current_mode in ["四角度彩色", "四角度灰度"]:
-                return ['0°', '45°', '90°', '135°']
-            elif current_mode == "偏振度图像":
-                return ['合成图', 'DOLP', 'AOLP', 'DOCP']
+        content_kind = info.get('content_kind')
+        if content_kind == 'polarization':
+            return ['合成图', 'DOLP', 'AOLP', 'DOCP']
+        if content_kind == 'quad':
+            return ['0°', '45°', '90°', '135°']
 
         # 默认返回通用标题
         return ['区域1', '区域2', '区域3', '区域4']

@@ -1984,6 +1984,55 @@ def test_loaded_file_loses_the_sensor_coordinate_readout(qapp, main_window, monk
     assert not display.has_roi_info(), "断开之后没有传感器可换算"
 
 
+def test_the_readout_labels_the_tiles_it_is_showing_not_the_mode_just_picked(qapp, main_window, qtbot):
+    """换显示模式是异步的：新结果没到之前，读数那一行不能先按新模式给旧像素贴标签。
+
+    下拉框一改动就立刻生效，而屏上四格还是上一模式算出来的图（要重算，去噪时实测 0.6s
+    起步）。那段时间里 info_key 和格名都是按 currentText() 现算的：偏振的 DoLP/AoLP/DoCP
+    被写成 0°/45°/90°/135°，小数按灰度整段打印；改成"四角度彩色"更糟，拿 numpy 标量解包
+    (r, g, b) 抛异常被吞掉，状态栏那一行就此不再动。
+    """
+    from polcam.core.processing_module import ProcessingMode as PM
+
+    disp = main_window.image_display
+    main_window.show()
+    qapp.processEvents()
+    merged = np.full((64, 64), 77, dtype=np.uint8)
+    dolp = np.full((64, 64), 0.42, dtype=np.float32)
+    aolp = np.full((64, 64), 123.5, dtype=np.float32)
+    docp = np.full((64, 64), 0.11, dtype=np.float32)
+    disp.set_processing_mode(PM.POLARIZATION)
+    disp.show_polarization_quad_view(merged, dolp, aolp, docp)
+    disp.update_roi_info((0, 0, 64, 64), (64, 64))
+    disp.enable_display_controls(True)
+    disp.toolbar_controller.toolbar.cursor_btn.click()
+    qapp.processEvents()
+
+    gx, gy, dw, dh = disp._get_display_geometry()
+
+    def hover(fx):
+        # 读数是队列事件：鼠标事件那一趟循环里才刚发布，要再过一趟才落到状态栏
+        qtbot.mouseMove(disp.image_label, pos=QtCore.QPoint(int(gx + dw * fx), int(gy + dh * 0.2)))
+        qapp.processEvents()
+        qapp.processEvents()
+        return main_window.status_label.text()
+
+    text = hover(0.2)
+    assert "DOLP" in text and "0.420" in text, f"偏振格读数不对: {text!r}"
+
+    # 只改下拉框，新结果还没回来（真实的重算要到下一次 process_frame）
+    disp.set_processing_mode(PM.QUAD_GRAY)
+    qapp.processEvents()
+    text = hover(0.22)
+    assert "DOLP" in text, f"模式还没落地就读数先按新模式给旧像素贴了标签: {text!r}"
+    assert "0.420" in text, f"DOLP 的小数被当成灰度打印了: {text!r}"
+
+    disp.set_processing_mode(PM.QUAD_COLOR)
+    qapp.processEvents()
+    text = hover(0.24)
+    assert "DOLP" in text, f"切到四角度彩色时读数整行失效: {text!r}"
+
+
 def test_connecting_does_not_relabel_the_pixels_on_screen(qapp, main_window):
     """连接相机不能把设备的 ROI 扣到不是它产出的像素上。
 

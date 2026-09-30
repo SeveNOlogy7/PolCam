@@ -1298,11 +1298,14 @@ class ImageDisplay(QtWidgets.QWidget):
                     gray = img[rel_y, rel_x]
                     pixel_values.append(gray)
 
-            # 根据显示模式决定像素信息键名
-            mode = self.get_current_processing_mode()
-            if mode == ProcessingMode.POLARIZATION:
+            # 像素信息的种类按"屏上这四张图是什么"来定，不按下拉框选中的模式：
+            # 换模式要重算（去噪时实测 0.6s 起步），那段时间 current_images 还是上一模式
+            # 的四格，照模式贴标签会把偏振的 DoLP/AoLP/DoCP 写成 0°/45°/90°/135°、小数
+            # 按灰度整段打印；切到"四角度彩色"更糟，拿 numpy 标量解包 (r, g, b) 抛异常被
+            # 吞掉，状态栏那一行就此不再更新。
+            if self._display_content_kind == 'polarization':
                 info_key = 'quad_pol_values'
-            elif mode == ProcessingMode.QUAD_COLOR:
+            elif pixel_values and isinstance(pixel_values[0], tuple):
                 info_key = 'quad_rgb_values'
             else:
                 info_key = 'quad_gray_values'
@@ -1315,6 +1318,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 'position': cursor_quad_position,
                 'sensor_position': self._source_to_sensor_position(img_x, img_y),
                 'mode': 'quad',
+                'content_kind': self._display_content_kind,
                 'quad_index': quad_index,
                 'cursor_quad_position': cursor_quad_position,
                 **pixel_info
