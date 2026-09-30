@@ -203,3 +203,58 @@ def test_file_dialogs_are_released_after_each_save_or_open(qapp, tmp_path, monke
     window.close()
     qapp.processEvents()
     assert not left, f"文件对话框没被回收，窗口下还挂着 {len(left)} 个"
+
+
+def test_saving_results_under_a_used_name_asks_before_overwriting(tmp_path, qapp, monkeypatch):
+    """「保存处理结果」沿用同名时，覆盖前先问一句。
+
+    文件对话框的覆盖确认只看它自己那个名字（`shot1.tiff`），而这条路径写出去的是
+    `shot1_MERGED_GRAY.tiff`、`shot1_POL.npy` 这一批文件——那个名字按构造就不存在，于是
+    确认永远不会触发（真机核对过文件集合：保存原始图像写的是选中的那个名字，所以那边
+    的确认是有效的）。用户第二次用同一个名字保存，上一批结果就被静默替换掉。
+    """
+    import cv2
+    import numpy as np
+    from unittest.mock import MagicMock
+    from pathlib import Path
+    from qtpy import QtWidgets
+    from polcam.core.processing_module import ProcessingMode, ProcessingResult
+
+    window = SimpleNamespace(toolbar=ToolBar(), camera=MagicMock(),
+                             status_label=QtWidgets.QLabel(),
+                             settings_service=MagicMock())
+    controller = ToolbarController(window)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+
+    old = tmp_path / "shot1_MERGED_GRAY.tiff"
+    cv2.imwrite(str(old), np.full((16, 16), 7, dtype=np.uint8))
+    before = old.read_bytes()
+
+    monkeypatch.setattr(controller, "_get_save_filename",
+                        lambda title, timestamp=None, mode_str="": (str(tmp_path / "shot1"), ".tiff", True))
+    asked = []
+
+    def answer_no(*args, **kwargs):
+        asked.append(args)
+        return QtWidgets.QMessageBox.StandardButton.No
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(answer_no))
+
+    controller._last_result = ProcessingResult(
+        mode=ProcessingMode.SINGLE_GRAY,
+        images=[np.full((16, 16), 99, dtype=np.uint8)],
+        metadata={'angle': 0}, timestamp=0.0, capture_timestamp=0.0)
+    controller._handle_save_result()
+
+    assert len(asked) == 1, f"同名结果文件已存在却没有询问: {old.name}"
+    assert old.read_bytes() == before, "选了「否」还是把上一次的成果覆盖了"
+    assert "取消" in window.status_label.text()
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes))
+    controller._handle_save_result()
+    qapp.processEvents()
+    written = tmp_path / "shot1_SINGLE_GRAY_0.tiff"   # SINGLE_GRAY 写的是这一张，不是 MERGED_GRAY
+    assert written.exists(), f"选了「是」却没有写出这次的结果: {sorted(p.name for p in tmp_path.iterdir())}"
+    after = cv2.imdecode(np.fromfile(str(written), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    assert int(after[0, 0]) == 99, "选了「是」之后应当写出这次的结果"
+    assert old.read_bytes() == before, "询问只针对这一批要写的文件，不该顺手改掉别人的文件"

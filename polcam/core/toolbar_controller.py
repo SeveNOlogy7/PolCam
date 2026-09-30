@@ -268,6 +268,19 @@ class ToolbarController(BaseModule):
 
         return raw_data
 
+    def _existing_result_files(self, save_dir: str, base_name: str, extension: str) -> List[str]:
+        """目录下已经存在的、这一批名字会写到的文件。"""
+        if not save_dir or not os.path.isdir(save_dir):
+            return []
+        prefix = f"{base_name}_"
+        try:
+            names = os.listdir(save_dir)
+        except OSError:
+            return []
+        return sorted(name for name in names
+                      if name.startswith(prefix)
+                      and (name.lower().endswith(extension.lower()) or name.lower().endswith(".npy")))
+
     def _save_image_set(self, images: List[np.ndarray], base_name: str, suffixes: List[str], 
                        save_dir: str, extension: str) -> bool:
         """保存一组图像
@@ -420,6 +433,25 @@ class ToolbarController(BaseModule):
         try:
             save_dir = os.path.dirname(filepath)
             base_name = os.path.basename(filepath)
+
+            existing = self._existing_result_files(save_dir, base_name, ext)
+            if existing:
+                # 文件对话框的覆盖确认只看它自己那个名字（`shot1.tiff`），而这条路写出去的
+                # 是 `shot1_MERGED_GRAY.tiff`、`shot1_POL.npy` 这一批——那个名字按构造就不
+                # 存在，确认永远触发不了（真机核对过文件集合；保存原始图像写的是选中的那个
+                # 名字，所以那边的确认是有效的）。同名再存一次就会静默换掉上一批成果。
+                answer = QtWidgets.QMessageBox.question(
+                    self._main_window,
+                    "同名结果文件已存在",
+                    f"「{base_name}」在 {save_dir} 下已经有结果文件（例如 {existing[0]}）。\n"
+                    "继续会按同一批名字写出这次的结果，其中同名的文件会被覆盖。\n"
+                    "要覆盖吗？",
+                    QtWidgets.QMessageBox.StandardButton.Yes
+                    | QtWidgets.QMessageBox.StandardButton.No,
+                    QtWidgets.QMessageBox.StandardButton.No)
+                if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+                    self._main_window.status_label.setText("已取消保存")
+                    return
 
             if self._last_result.mode == ProcessingMode.POLARIZATION:
                 # 获取原始图像和参数
