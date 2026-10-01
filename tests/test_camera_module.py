@@ -1495,3 +1495,24 @@ def test_connect_wires_the_lift_into_the_connection_path(camera_module):
     with patch.object(camera_module, '_raise_link_throughput_limit') as lift:
         assert camera_module.connect() is True
     lift.assert_called_once()
+
+
+def test_a_missing_driver_degrades_through_the_signal_the_tier_reads():
+    """`gx is None` 必须正好落成 `sdk_available is False`。
+
+    能力档位读的是 sdk_available，而它派生自 device_manager；CI 的 gxipy 是 conftest 的
+    MagicMock，所以"真的没驱动"在流水线里永远不会自然发生（MagicMock 让应用以为有驱动）。
+    这条把 gx 显式设成 None，钉住那条唯一的降级链。
+    """
+    import polcam.core.camera_module as cm
+
+    with patch.object(cm, "gx", None):
+        module = cm.CameraModule()
+        try:
+            assert module.device_manager is None
+            assert module.sdk_available is False
+            assert module.connect() is False
+            assert module.enumerate_devices() == (0, [])
+            assert module.is_connected() is False
+        finally:
+            module.destroy()

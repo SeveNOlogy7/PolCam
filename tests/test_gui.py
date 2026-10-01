@@ -3236,3 +3236,30 @@ def test_the_guide_section_follows_the_tier_without_rebuilding_the_widget(qapp, 
     # 换的是文本，不是控件——重建会让引导页的滚动位置和"返回图像"逻辑失效
     assert main_window.image_display._capability_label is label
     assert label.text() == "\n".join(connected)
+
+
+def test_a_window_built_without_a_driver_lands_on_no_driver(qapp):
+    """走整条真实降级链：gx=None → device_manager=None → sdk_available=False → NO_DRIVER。
+
+    这是 CI 能覆盖"真的没驱动"的唯一办法 —— conftest 把 gxipy 换成 MagicMock 之后，
+    应用在任何流水线上都会以为有驱动。而这一档恰恰是外部用户下载后最可能撞上的。
+    """
+    import shiboken6
+    import polcam.core.camera_module as cm
+
+    with patch.object(cm, "gx", None):
+        window = MainWindow()
+    try:
+        assert window.camera.device_manager is None
+        assert window.capability_tier is CapabilityTier.NO_DRIVER
+        control = window.camera_control
+        assert not control.capture_btn.isEnabled()
+        assert not control.stream_btn.isEnabled()
+        assert not control.exposure_control.value_spin.isEnabled()
+        assert control.connect_btn.isEnabled()
+        assert "驱动" in control.capture_btn.toolTip()
+        assert "驱动" in "\n".join(window.image_display.capability_lines())
+    finally:
+        with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning'):
+            window.close()
+        shiboken6.delete(window)
