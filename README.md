@@ -36,6 +36,10 @@ PolCam 是一个用于控制和处理偏振相机图像的Python应用程序。�
   - 图像工具栏支持 ROI 缩放上限控制（最大约 100x）与状态提示
   - 四分图标题在不同分辨率下保持更一致的视觉尺寸
   - 自适应界面布局
+  - 实时预览分辨率档（原始 / 均衡 2×2 合并 / 流畅 4×4 合并 / 自动挡）：连续采集时按窗口大小解算，保存结果仍走全分辨率
+  - 界面按相机能力自适应：无驱动 / 有驱动未连接 / 未检测到设备 三种状态下，会向相机写参数的控件自动禁用并在悬停时给出对应的理由，「连接相机」始终可点
+- 性能
+  - 连接时把链路带宽上限提升到设备允许的最大值（实测本机 300 → 400 MB/s，满幅帧率 60 → 79 fps）
 
 ### 安装要求
 
@@ -145,7 +149,7 @@ tag 必须是 `v` + `pyproject.toml` 里的版本，两者不一致时门禁直�
 - `packaging/PolCam.iss` 里的 `AppId` GUID **发布后绝不能改**。改了以后新版本会被 Windows 当成另一个程序，覆盖不了旧安装、控制面板里会并存两份。
 - `PolCam.spec` 的 `datas` 必须包含 `pyproject.toml`。漏了的话打包出来的应用读不到版本，「关于」会显示 `0.0.0+unknown`。
 
-另外：本机没装大恒 Galaxy 驱动也能启动，此时相机连接与采集不可用，但仍可通过工具栏读取已保存的原始图像做处理。
+另外：本机没装大恒 Galaxy 驱动也能启动。此时会向相机写参数的控件（单帧采集、连续采集、曝光/增益及其单次自动）直接禁用，悬停说明原因，你仍然可以读取图像文件、切换显示模式、调节亮度对比度锐化并保存处理结果。**软件不附带示例图像**——没有相机就没有偏振数据可看，这一点工具栏「帮助」打开的引导页上会按当前状态写清楚。
 
 ### 许可证
 
@@ -183,6 +187,10 @@ PolCam is a Python application for controlling and processing polarization camer
   - Toolbar zoom guard with max zoom handling (~100x) and status feedback
   - More consistent quad-view title rendering across different subplot sizes
   - Adaptive layout
+  - Selectable live-preview resolution (native / 2x2 merged / 4x4 merged / automatic): continuous acquisition solves at the size the window can show, while saved results stay full resolution
+  - Capability-aware UI: without a driver, with a driver but not connected, or with no device found, controls that write to the camera are disabled and explain why on hover, while Connect stays clickable
+- Performance
+  - Link throughput limit raised to the maximum the device allows on connect (measured on this rig: 300 → 400 MB/s, 60 → 79 fps at full frame)
 
 ### Requirements
 
