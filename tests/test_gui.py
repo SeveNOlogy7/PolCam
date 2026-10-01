@@ -3266,6 +3266,23 @@ def test_the_guide_section_follows_the_tier_without_rebuilding_the_widget(qapp, 
     assert label.text() == "\n".join(connected)
 
 
+def test_the_capability_section_sits_above_the_generic_walkthrough(qapp, main_window):
+    """能力清单要排在"基本操作"之前。
+
+    真窗口截图发现：段落建在通用说明之后时，1200x800 默认尺寸下只有标题露在折线上方，
+    而它回答的是"这台机器现在能做什么"——最该先看到的那一条。
+    """
+    from qtpy import QtWidgets
+
+    content = main_window.image_display._capability_label.parent()
+    texts = [content.layout().itemAt(i).widget().text()
+             for i in range(content.layout().count())
+             if isinstance(content.layout().itemAt(i).widget(), QtWidgets.QLabel)]
+
+    assert "这台机器现在能做什么" in texts
+    assert texts.index("这台机器现在能做什么") < texts.index("基本操作")
+
+
 def test_a_window_built_without_a_driver_lands_on_no_driver(qapp):
     """走整条真实降级链：gx=None → device_manager=None → sdk_available=False → NO_DRIVER。
 

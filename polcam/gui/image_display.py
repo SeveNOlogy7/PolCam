@@ -816,6 +816,17 @@ class ImageDisplay(QtWidgets.QWidget):
         subtitle.setAlignment(QtCore.Qt.AlignHCenter)
         column.addWidget(subtitle)
 
+        # 能力清单是当前机器的事实，不是固定文案，所以单独留一个标签，
+        # 档位变化时只换文本，不重建控件。它排在通用说明之前：用户第一眼要回答的是
+        # "这台机器现在能做什么"，而不是"连着相机时该点哪里"。
+        cap_title = make_label("这台机器现在能做什么", Styles.get_bold_font(Styles.FONT_LARGE))
+        column.addWidget(cap_title)
+        cap_body = make_label("", Styles.get_font(Styles.FONT_MEDIUM))
+        cap_body.setWordWrap(True)
+        cap_body.setTextFormat(QtCore.Qt.PlainText)
+        column.addWidget(cap_body)
+        self._capability_label = cap_body
+
         for heading, lines in self.HELP_SECTIONS:
             column.addSpacing(Styles.SPACING_MEDIUM)
 
@@ -826,17 +837,6 @@ class ImageDisplay(QtWidgets.QWidget):
                 item = make_label(f"· {line}", Styles.get_font(Styles.FONT_MEDIUM))
                 item.setIndent(Styles.SPACING_MEDIUM)
                 column.addWidget(item)
-
-        # 能力清单是"这台机器此刻的事实"，不是固定文案，所以单独留一个标签：
-        # 档位变化时只换文本，不重建控件，也不依赖引导页此刻是否可见。
-        column.addSpacing(Styles.SPACING_MEDIUM)
-        cap_title = make_label("这台机器现在能做什么", Styles.get_bold_font(Styles.FONT_LARGE))
-        column.addWidget(cap_title)
-        cap_body = make_label("", Styles.get_font(Styles.FONT_MEDIUM))
-        cap_body.setWordWrap(True)
-        cap_body.setTextFormat(QtCore.Qt.PlainText)
-        column.addWidget(cap_body)
-        self._capability_label = cap_body
 
         hint = make_label("点击任意处返回图像", Styles.get_font(Styles.FONT_SMALL))
         hint.setAlignment(QtCore.Qt.AlignHCenter)
