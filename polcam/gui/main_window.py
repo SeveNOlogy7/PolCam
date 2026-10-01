@@ -560,10 +560,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
             self._last_capture_metrics_update_at = 0.0
             self._last_auto_params_update_at = 0.0
-            self.camera_control.capture_btn.setEnabled(False)
+            self.camera_control.handle_stream_state(True)
             self.toolbar_controller.enable_save_raw(False)
             self.toolbar_controller.enable_save_result(False)
-            self.camera_control.stream_btn.setText("停止采集")
             # 设置连续模式标志并更新状态
             self._continuous_mode = True
             # 流里的帧不带参数快照，而设备 ROI 只可能在停止期间被改（采集中写不进去），
@@ -577,8 +576,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # 停止连续采集
             self._single_capture_requested = False
             self.camera.stop_streaming()
-            self.camera_control.capture_btn.setEnabled(True)
-            self.camera_control.stream_btn.setText("连续采集")
+            self.camera_control.handle_stream_state(False)
             
             # 取消所有待处理任务并重置状态
             self.processor.cancel_all_tasks()

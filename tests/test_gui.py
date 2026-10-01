@@ -3183,6 +3183,30 @@ def test_the_window_already_has_a_tier_at_construction(qapp, main_window):
     assert main_window.camera_control.connect_btn.isEnabled()
 
 
+def test_a_tier_refresh_during_streaming_keeps_single_capture_locked(qapp, main_window):
+    """开流之后档位再重算，单帧采集不能被重新点亮。
+
+    真机实测到的回归：handle_stream 过去直接 capture_btn.setEnabled(False)，而面板的
+    唯一同步点把"档位允许"当成充分条件——于是一次重算就把采集中的按钮又点亮了。
+    """
+    camera = _camera_stub(main_window, connected=True)
+    camera.start_streaming.return_value = True
+    camera.get_roi.return_value = (0, 0, 16, 16)
+    camera.get_sensor_size.return_value = (16, 16)
+    main_window.refresh_capability()
+
+    main_window.handle_stream(True)
+    assert not main_window.camera_control.capture_btn.isEnabled()
+    assert main_window.camera_control.stream_btn.text() == "停止采集"
+
+    main_window.refresh_capability()
+    assert not main_window.camera_control.capture_btn.isEnabled(), "档位重算点亮了采集中的单帧按钮"
+
+    main_window.handle_stream(False)
+    assert main_window.camera_control.capture_btn.isEnabled()
+    assert main_window.camera_control.stream_btn.text() == "连续采集"
+
+
 def test_the_guide_page_carries_the_current_tier(qapp, main_window):
     """引导页不是固定文案：它要说清当前这一档，包括去哪装驱动。"""
     _camera_stub(main_window, sdk_available=False)
