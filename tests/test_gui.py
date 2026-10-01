@@ -322,6 +322,34 @@ def test_image_toolbar_controller_uses_software_zoom_for_static_image(qapp):
     mock_camera.set_roi.assert_not_called()
 
 
+def test_a_zoom_click_writes_no_roi_without_a_connection(qapp):
+    """没连接时缩放/复原绝不能写设备 ROI。
+
+    能力档位把"硬件 ROI 缩放"归进设备写入集合，归的是**写路径**而不是按钮：按钮在没
+    相机时仍能用（那是软件缩放，对读文件的人成立），但界面不能在没有连接的情况下改
+    一台不存在的相机的配置。这条钉住那一面。
+    """
+    import shiboken6
+
+    display = ImageDisplay()
+    display.show_image(np.zeros((100, 100), dtype=np.uint8))
+
+    camera = MagicMock()
+    camera.is_connected.return_value = False
+    camera.get_sensor_size.return_value = (100, 100)
+    display.toolbar_controller.set_camera_module(camera)
+    display.toolbar_controller._handle_zoom_in(True)
+    display.toolbar_controller._handle_zoom_click(50, 50)
+    display.toolbar_controller._handle_zoom_out(True)
+    display.toolbar_controller._handle_reset_view()
+
+    camera.set_roi.assert_not_called()
+    camera.reset_roi.assert_not_called()
+    # 而软件缩放这条路要真的还在走，否则按钮就成了摆设
+    assert display.get_software_zoom_ratio() > 1.0, "没连接时点击放大应当改的是视图而不是什么都不发生"
+    shiboken6.delete(display)
+
+
 def test_image_toolbar_controller_max_zoom_defaults_to_1000(qapp):
     """测试图像工具栏默认最大放大倍率为 1000x。"""
     display = ImageDisplay()
