@@ -5,6 +5,7 @@ See LICENSE file for full license details.
 """
 
 from qtpy import QtWidgets, QtCore
+from ..core.capability import CapabilityTier
 from .styles import Styles
 from .widgets.parameter_control import ParameterControl
 from .widgets.angle_selector import AngleSelector
@@ -70,9 +71,14 @@ class CameraControl(QtWidgets.QWidget):
         
         layout.addStretch()
         
-        # 初始状态设置
-        self.capture_btn.setEnabled(False)
-        self.stream_btn.setEnabled(False)
+        # 初始档位由 MainWindow 在窗口建好后立刻下发；这里先给一个与安全默认一致的
+        # 内部状态，免得任何控件在收到档位之前自己决定自己可点。
+        self._tier = CapabilityTier.IDLE
+        self._streaming = False
+        self._exposure_gate = True
+        self._gain_gate = True
+        self._wb_once_gate = True
+        self.apply_capability(self._tier)
         
         # 应用样式
         for btn in [self.connect_btn, self.capture_btn, self.stream_btn]:
@@ -139,26 +145,56 @@ class CameraControl(QtWidgets.QWidget):
         """更新增益值（不触发信号）"""
         self.gain_control.set_value(value)
         
-    def set_connected(self, connected: bool):
-        """设置连接状态时的控件启用状态"""
-        self.capture_btn.setEnabled(connected)
-        self.stream_btn.setEnabled(connected)
-        self.exposure_control.set_enabled(connected)
-        self.gain_control.set_enabled(connected)
-        self.connect_btn.setText("断开相机" if connected else "连接相机")
+    @property
+    def capability_tier(self) -> CapabilityTier:
+        return self._tier
+
+    def apply_capability(self, tier: CapabilityTier) -> None:
+        """按能力档位决定设备写入类控件是否可用，并把理由写进 tooltip。
+
+        集合的边界见 docs/adr/0001：只有会向相机下发动作的控件才归它管。
+        “连接相机”永远可点（用户插好线要能直接重试），缩放/框选/复原也不在内
+        ——未连接时它们做的是软件缩放。
+        """
+        self._tier = tier
+        self._sync_device_write_controls()
+        self.connect_btn.setText("断开相机" if tier is CapabilityTier.CONNECTED else "连接相机")
+
+    def _sync_device_write_controls(self) -> None:
+        """enabled 的唯一出口：档位是地板，瞬时门只能在地板之上再关一层。"""
+        available = self._tier.device_writes_allowed
+        reason = self._tier.reason
+
+        self.exposure_control.set_enabled(available and self._exposure_gate)
+        self.gain_control.set_enabled(available and self._gain_gate)
+        self.wb_control.once_btn.setEnabled(available and self._wb_once_gate)
+        self.stream_btn.setEnabled(available)
+        # 连续采集中单帧采集会被设备拒掉，这条既有约束跟档位是"与"的关系
+        self.capture_btn.setEnabled(available and not self._streaming)
+
+        widgets = [
+            self.capture_btn, self.stream_btn, self.wb_control.once_btn,
+        ]
+        for control in (self.exposure_control, self.gain_control):
+            widgets += [control.value_spin, control.auto_check, control.once_btn]
+        for widget in widgets:
+            widget.setToolTip("" if widget.isEnabled() else reason)
 
     def enable_exposure_controls(self, enabled: bool):
-        """设置曝光相关控件的启用状态"""
-        self.exposure_control.set_enabled(enabled)
-        
+        """设置曝光相关控件的启用状态（档位不允许时永远不亮）"""
+        self._exposure_gate = enabled
+        self._sync_device_write_controls()
+
     def enable_gain_controls(self, enabled: bool):
         """设置增益相关控件的启用状态"""
-        self.gain_control.set_enabled(enabled)
-        
+        self._gain_gate = enabled
+        self._sync_device_write_controls()
+
     def enable_wb_controls(self, enabled: bool):
         """设置白平衡相关控件的启用状态
         注：只影响单次白平衡按钮，不影响自动模式开关"""
-        self.wb_control.once_btn.setEnabled(enabled)
+        self._wb_once_gate = enabled
+        self._sync_device_write_controls()
 
     def set_wb_controls_visible(self, visible: bool):
         """设置白平衡控制组的可见性"""
@@ -276,5 +312,6 @@ class CameraControl(QtWidgets.QWidget):
 
     def handle_stream_state(self, streaming: bool):
         """处理连续采集状态改变"""
-        self.capture_btn.setEnabled(not streaming)
+        self._streaming = streaming
+        self._sync_device_write_controls()
         self.stream_btn.setText("停止采集" if streaming else "连续采集")

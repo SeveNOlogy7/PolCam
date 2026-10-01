@@ -22,6 +22,7 @@ from polcam.core.image_plotter import ImagePlotter
 from polcam.core.events import Event, EventManager, EventType
 from polcam.core.processing_module import ProcessingMode
 from polcam.core.preview import PreviewQuality
+from polcam.core.capability import CapabilityTier
 import numpy as np
 
 def test_main_window_init(main_window):
@@ -39,7 +40,7 @@ def test_camera_control(qapp):
     assert not control.stream_btn.isEnabled()
     
     # 测试连接状态改变
-    control.set_connected(True)
+    control.apply_capability(CapabilityTier.CONNECTED)
     assert control.capture_btn.isEnabled()
     assert control.stream_btn.isEnabled()
 
@@ -55,7 +56,7 @@ def test_camera_control_signals(qapp):
     
     # 先启用相机连接
     control.connect_btn.click()  # 连接相机
-    control.set_connected(True)  # 模拟成功连接
+    control.apply_capability(CapabilityTier.CONNECTED)  # 模拟成功连接
     
     # 触发其他信号
     control.capture_btn.click()
@@ -384,7 +385,7 @@ def test_camera_control_buttons(qapp, button_name):
     button = getattr(control, button_name)
     
     # 测试按钮状态变化
-    control.set_connected(True)
+    control.apply_capability(CapabilityTier.CONNECTED)
     assert button.isEnabled()
     
     # 测试点击事件
@@ -892,12 +893,25 @@ def test_visibility_setters_tolerate_a_parentless_widget(qapp):
     control.set_wb_controls_visible(True)
     control.set_angle_controls_visible(True)
 
+def _panel_connected(main_window):
+    """把面板放到 CONNECTED 档。
+
+    这些测试讲的是"连着相机时会怎样"。以前曝光/增益控件在启动后就一直是亮的（哪怕
+    根本没有连接），所以它们从没声明过这个前提；能力档位上线后控件可用性由档位决定，
+    前提就得写出来。
+    """
+    from polcam.core.capability import CapabilityTier
+
+    main_window.camera_control.apply_capability(CapabilityTier.CONNECTED)
+
+
 def test_one_shot_exposure_restores_the_manual_control(main_window):
     """单次自动曝光：期间禁用手动滑块，SDK 报回结果时恢复。
 
     handle_one_shot_auto / handle_one_shot_complete 之前没有任何调用方，
     所以按下去只有一段静默的阻塞式轮询，界面上毫无反馈。
     """
+    _panel_connected(main_window)
     main_window.camera = MagicMock()
     exposure = main_window.camera_control.exposure_control
     assert exposure.value_spin.isEnabled()
@@ -912,6 +926,7 @@ def test_one_shot_exposure_restores_the_manual_control(main_window):
 
 def test_one_shot_gain_restores_the_manual_control(main_window):
     """增益的那半程和曝光一样要接上。"""
+    _panel_connected(main_window)
     main_window.camera = MagicMock()
     gain = main_window.camera_control.gain_control
     assert gain.value_spin.isEnabled()
@@ -965,6 +980,7 @@ def test_two_overlapping_one_shots_both_get_restored(main_window):
     通知被当成"不是我在等的"丢掉 —— 曝光那组控件从此永久禁用，得断开重连才回来。实测
     两路都上报完成之后：exposure spin/auto/once 全 False，gain 那组全 True。
     """
+    _panel_connected(main_window)
     release = threading.Event()
 
     def slow_once():
@@ -1009,7 +1025,7 @@ def test_a_one_shot_landing_after_disconnect_does_not_re_enable(main_window):
     camera.is_connected.return_value = False
     # 「断开相机」现在会被在飞的调整挡下（见 test_disconnecting_waits_for_an_in_flight_one_shot），
     # 这里直接演一遍断开分支自己做的事，保住要验的那件事：设备先没了、通知后落地。
-    main_window.camera_control.set_connected(False)
+    main_window.camera_control.apply_capability(CapabilityTier.IDLE)
     main_window._one_shot_pending.clear()
     release.set()
     assert _wait_until(
@@ -1054,6 +1070,7 @@ def test_one_shot_restores_the_control_even_without_a_result(main_window):
     超时、相机没连（set_*_once 直接 return）和 SDK 抛错这三条路都不发
     PARAMETER_CHANGED，只靠那个事件恢复会让控件永久禁用。
     """
+    _panel_connected(main_window)
     def failing_once():
         raise RuntimeError("ExposureAuto 写不进去")
 
@@ -1381,6 +1398,7 @@ def test_two_one_shot_auto_adjusts_do_not_run_at_once(qapp, main_window, monkeyp
     双双走满超时被强制收回手动，最后停在 (1 000 000µs, 6.6dB) —— 这组值谁都没打算选，而
     这 5 秒里两组控件一直是禁的。相机的曝光与增益算法互相影响，一次只能让一路在飞。
     """
+    _panel_connected(main_window)
     started = []
 
     def fake_exposure_once():
@@ -2955,3 +2973,242 @@ def test_the_preview_level_arrives_with_the_result_and_resets_on_raw(qapp, main_
     disp.set_processing_mode(PM.RAW)
     main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
     assert disp.get_preview_factor() == 1, "原始图像就是一比一的传感器像素"
+
+
+def test_a_no_driver_tier_disables_every_device_write(qapp):
+    from polcam.core.capability import CapabilityTier
+
+    control = CameraControl()
+    control.apply_capability(CapabilityTier.NO_DRIVER)
+
+    assert not control.capture_btn.isEnabled()
+    assert not control.stream_btn.isEnabled()
+    assert not control.exposure_control.value_spin.isEnabled()
+    assert not control.exposure_control.auto_check.isEnabled()
+    assert not control.exposure_control.once_btn.isEnabled()
+    assert not control.gain_control.value_spin.isEnabled()
+    assert not control.gain_control.once_btn.isEnabled()
+    assert not control.wb_control.once_btn.isEnabled()
+
+
+def test_the_connect_button_stays_clickable_in_every_tier(qapp):
+    """档位不能锁死唯一的重试入口：用户插好线要点的就是这个按钮。"""
+    from polcam.core.capability import CapabilityTier
+
+    control = CameraControl()
+    for tier in CapabilityTier:
+        control.apply_capability(tier)
+        assert control.connect_btn.isEnabled(), f"{tier.name} 不该锁住“连接相机”"
+
+
+def test_a_disabled_control_says_why(qapp):
+    from polcam.core.capability import CapabilityTier
+
+    control = CameraControl()
+    control.apply_capability(CapabilityTier.NO_DEVICE)
+    assert "USB" in control.capture_btn.toolTip()
+    assert control.exposure_control.value_spin.toolTip()
+
+    control.apply_capability(CapabilityTier.CONNECTED)
+    assert control.capture_btn.toolTip() == ""
+    assert control.exposure_control.value_spin.toolTip() == ""
+
+
+def test_connecting_reenables_the_writes_and_relables_the_button(qapp):
+    from polcam.core.capability import CapabilityTier
+
+    control = CameraControl()
+    control.apply_capability(CapabilityTier.IDLE)
+    control.apply_capability(CapabilityTier.CONNECTED)
+
+    assert control.capture_btn.isEnabled()
+    assert control.stream_btn.isEnabled()
+    assert control.exposure_control.value_spin.isEnabled()
+    assert control.connect_btn.text() == "断开相机"
+    assert control.capability_tier is CapabilityTier.CONNECTED
+
+
+def test_streaming_still_outranks_the_tier_for_the_capture_button(qapp):
+    """连续采集中单帧采集会被设备拒掉，这条既有约束不能因为档位而失效。"""
+    from polcam.core.capability import CapabilityTier
+
+    control = CameraControl()
+    control.apply_capability(CapabilityTier.CONNECTED)
+    control.handle_stream_state(True)
+
+    assert not control.capture_btn.isEnabled()
+    assert control.stream_btn.isEnabled(), "停止采集必须还能点"
+
+    control.handle_stream_state(False)
+    assert control.capture_btn.isEnabled()
+
+
+def test_a_transient_enable_does_not_override_a_locked_tier(qapp):
+    """enable_exposure_controls 这类瞬时门不能把被档位禁掉的控件重新点亮。"""
+    from polcam.core.capability import CapabilityTier
+
+    control = CameraControl()
+    control.apply_capability(CapabilityTier.NO_DRIVER)
+    control.enable_exposure_controls(True)
+    control.enable_gain_controls(True)
+
+    assert not control.exposure_control.value_spin.isEnabled()
+    assert not control.gain_control.value_spin.isEnabled()
+
+
+def test_the_idle_tier_leaves_the_zoom_tools_usable(qapp, main_window):
+    """未连接时放大/框选走软件缩放，是真实能力，不属于设备写入集合。"""
+    from polcam.core.capability import CapabilityTier
+
+    # 显示类控件还有另一道"屏上没有图像"的门（image_display.setEnabled），
+    # 先给一帧把它打开，这道测试才只针对档位。
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    toolbar = main_window.image_display.image_toolbar
+    assert toolbar.zoom_in_btn.isEnabled(), "前提：有图像时缩放工具本来是可用的"
+
+    main_window.camera_control.apply_capability(CapabilityTier.IDLE)
+
+    assert not main_window.camera_control.capture_btn.isEnabled()
+    for button in (toolbar.zoom_in_btn, toolbar.zoom_out_btn, toolbar.zoom_area_btn,
+                   toolbar.reset_btn, toolbar.cursor_btn):
+        assert button.isEnabled(), f"{button.text()} 在没有相机时仍然要能用"
+    assert main_window.toolbar.open_raw_action.isEnabled()
+
+
+def _camera_stub(main_window, *, sdk_available=True, connected=False, counts=()):
+    """把档位读到的三个事实钉住：驱动、连接、枚举结果。"""
+    camera = MagicMock()
+    camera.sdk_available = sdk_available
+    camera.is_connected.return_value = connected
+    if counts:
+        camera.enumerate_devices.side_effect = lambda: (counts[0], [])
+    else:
+        camera.enumerate_devices.return_value = (1, [])
+    main_window.camera = camera
+    return camera
+
+
+def test_a_missing_driver_lands_on_no_driver(qapp, main_window):
+    from polcam.core.capability import CapabilityTier
+
+    _camera_stub(main_window, sdk_available=False)
+    tier = main_window.refresh_capability()
+
+    assert tier is CapabilityTier.NO_DRIVER
+    assert not main_window.camera_control.capture_btn.isEnabled()
+    assert "驱动" in main_window.camera_control.capture_btn.toolTip()
+    assert main_window.camera_control.connect_btn.isEnabled()
+
+
+def test_a_driver_but_no_probe_yet_is_idle_not_no_device(qapp, main_window):
+    """启动时不主动枚举，所以不能谎报"没检测到设备"。"""
+    from polcam.core.capability import CapabilityTier
+
+    camera = _camera_stub(main_window)
+    assert main_window.refresh_capability() is CapabilityTier.IDLE
+    camera.enumerate_devices.assert_not_called()
+
+
+def test_the_first_zero_enumeration_holds_and_the_second_reports(qapp, main_window):
+    from polcam.core.capability import CapabilityTier
+
+    _camera_stub(main_window, counts=(0,))
+    assert main_window.refresh_capability(device_count=0) is CapabilityTier.IDLE
+    assert main_window.refresh_capability(device_count=0) is CapabilityTier.NO_DEVICE
+
+
+def test_a_positive_count_after_a_zero_forgets_the_streak(qapp, main_window):
+    from polcam.core.capability import CapabilityTier
+
+    _camera_stub(main_window)
+    main_window.refresh_capability(device_count=0)
+    main_window.refresh_capability(device_count=0)
+    assert main_window.capability_tier is CapabilityTier.NO_DEVICE
+
+    assert main_window.refresh_capability(device_count=1) is CapabilityTier.IDLE
+
+
+def test_connect_promotes_and_disconnect_demotes(qapp, main_window):
+    from polcam.core.capability import CapabilityTier
+
+    camera = _camera_stub(main_window, connected=True)
+    assert main_window.refresh_capability() is CapabilityTier.CONNECTED
+    assert main_window.camera_control.capture_btn.isEnabled()
+
+    camera.is_connected.return_value = False
+    assert main_window.refresh_capability() is CapabilityTier.IDLE
+    assert not main_window.camera_control.capture_btn.isEnabled()
+
+
+def test_a_camera_error_recomputes_the_tier(qapp, main_window):
+    """拔线之后按钮要自己变灰，不能等用户再撞一次 SDK。"""
+    from polcam.core.capability import CapabilityTier
+
+    camera = _camera_stub(main_window, connected=True)
+    main_window.refresh_capability()
+    assert main_window.camera_control.capture_btn.isEnabled()
+
+    camera.is_connected.return_value = False
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning'):
+        # 走真实的分发路径：档位重算挂在 _dispatch_gui_event 上，不是挂在各个 handler 里
+        main_window._dispatch_gui_event(
+            Event(EventType.ERROR_OCCURRED, {"error": "device lost", "source": "camera"}))
+
+    assert main_window.capability_tier is CapabilityTier.IDLE
+    assert not main_window.camera_control.capture_btn.isEnabled()
+
+
+def test_clicking_connect_with_no_device_takes_two_probes_to_say_so(qapp, main_window):
+    """走真实的连接按钮路径：第一次只报状态栏，第二次才说"未检测到相机设备"。"""
+    from polcam.core.capability import CapabilityTier
+
+    _camera_stub(main_window, counts=(0,))
+    with patch('polcam.gui.main_window.QtWidgets.QMessageBox.warning') as warning:
+        main_window.handle_connect(True)
+        assert main_window.capability_tier is CapabilityTier.IDLE
+        assert not warning.called, "一次抖动就弹模态框会把人吓到"
+
+        main_window.camera_control.connect_btn.click()
+        assert main_window.capability_tier is CapabilityTier.NO_DEVICE
+        assert warning.called
+
+
+def test_the_window_already_has_a_tier_at_construction(qapp, main_window):
+    """建好窗口就得有一档，不能等用户点连接时才第一次决定控件可不可点。"""
+    from polcam.core.capability import CapabilityTier
+
+    assert isinstance(main_window.capability_tier, CapabilityTier)
+    assert main_window.capability_tier is not CapabilityTier.CONNECTED
+    assert not main_window.camera_control.capture_btn.isEnabled()
+    assert main_window.camera_control.connect_btn.isEnabled()
+
+
+def test_the_guide_page_carries_the_current_tier(qapp, main_window):
+    """引导页不是固定文案：它要说清当前这一档，包括去哪装驱动。"""
+    _camera_stub(main_window, sdk_available=False)
+    main_window.refresh_capability()
+
+    lines = "\n".join(main_window.image_display.capability_lines())
+    assert lines
+    assert "驱动" in lines
+    assert "读取已保存的原始图像" in lines
+
+
+def test_the_guide_section_follows_the_tier_without_rebuilding_the_widget(qapp, main_window):
+    from polcam.core.capability import CapabilityTier
+
+    camera = _camera_stub(main_window)
+    main_window.refresh_capability()
+    idle = main_window.image_display.capability_lines()
+    label = main_window.image_display._capability_label
+
+    camera.is_connected.return_value = True
+    main_window.refresh_capability()
+    connected = main_window.image_display.capability_lines()
+
+    assert idle != connected
+    assert main_window.capability_tier is CapabilityTier.CONNECTED
+    assert "已连接" in "\n".join(connected)
+    # 换的是文本，不是控件——重建会让引导页的滚动位置和"返回图像"逻辑失效
+    assert main_window.image_display._capability_label is label
+    assert label.text() == "\n".join(connected)

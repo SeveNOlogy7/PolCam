@@ -19,6 +19,7 @@ import time
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
 from ..core.preview import pick_preview_factor
+from ..core.capability import CapabilityTier, capability_lines, tier_after_probe
 from ..core.gallery_service import GalleryService
 import os
 from ..core.toolbar_controller import ToolbarController
@@ -34,6 +35,10 @@ class MainWindow(QtWidgets.QMainWindow):
     CONTINUOUS_CAPTURE_METRICS_INTERVAL_S = 0.10
     CONTINUOUS_AUTO_PARAMS_INTERVAL_S = 0.25
     CAMERA_ERROR_DIALOG_INTERVAL_S = 5.0
+    NO_DEVICE_HINT = (
+        "连续两次枚举都没有发现相机设备。\n"
+        "请检查 USB 线与供电，或确认大恒 Galaxy 的其他工具没有占用该设备。"
+    )
 
     # 从单次调整的工作线程发出；跨线程连接会自动排回 GUI 线程
     _one_shot_finished = QtCore.Signal(str)
@@ -141,8 +146,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._camera_type = None  # 相机类型（彩色/黑白）
         self._last_capture_metrics_update_at = 0.0
         self._last_auto_params_update_at = 0.0
+        # 能力档位：唯一的重算者是这个窗口，控件只负责把自己映射成 enabled + tooltip
+        self._capability_tier = CapabilityTier.IDLE
+        self._zero_enum_streak = 0
+        self._last_device_count = None
 
         self.restore_settings()
+        self.refresh_capability()
 
     def _subscribe_gui_events(self, event_manager: EventManager):
         """将 GUI 相关事件统一转发回主线程。"""
@@ -169,6 +179,12 @@ class MainWindow(QtWidgets.QMainWindow):
         handler = self._gui_event_handlers.get(event.type)
         if handler is not None:
             handler(event)
+
+        # 档位只在这里重算：这三类事件是能力唯一的事实来源，而它们都已经经过主线程桥。
+        # 挂在分发点上而不是各个 handler 里，是为了让"谁改了能力状态"只有一个答案。
+        if event.type in (EventType.CAMERA_CONNECTED, EventType.CAMERA_DISCONNECTED,
+                          EventType.ERROR_OCCURRED):
+            self.refresh_capability()
 
     def setup_ui(self):
         self.central_widget = QtWidgets.QWidget()
@@ -288,6 +304,42 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_label.setVisible(has_timing)
         self.metrics_separator.setVisible(has_camera_info and has_timing)
 
+    @property
+    def capability_tier(self) -> CapabilityTier:
+        """当前这台机器能不能向相机下发动作。见 docs/adr/0001。"""
+        return self._capability_tier
+
+    def refresh_capability(self, device_count=None) -> CapabilityTier:
+        """能力档位的唯一重算点。
+
+        启动时不主动枚举设备：那次调用有耗时也会抖，而用户点"连接相机"时本来就会
+        枚举一遍。所以没探过就停在 IDLE，不谎报"没检测到相机"。降到 NO_DEVICE 要连续
+        两次枚举为 0，理由是真机实测启动枚举会偶发抛错，一次就下结论档位会闪。
+        """
+        if device_count is None:
+            device_count = self._last_device_count
+        try:
+            connected = bool(self.camera.is_connected())
+        except Exception:
+            connected = False
+
+        tier, streak = tier_after_probe(
+            sdk_available=self.camera.sdk_available,
+            connected=connected,
+            device_count=device_count,
+            zero_streak=self._zero_enum_streak,
+        )
+        self._zero_enum_streak = streak
+        self._last_device_count = device_count
+
+        if tier is not self._capability_tier:
+            self._logger.info(f"相机能力档位: {self._capability_tier.value} → {tier.value}")
+            self._capability_tier = tier
+
+        self.camera_control.apply_capability(tier)
+        self.image_display.set_capability_lines(capability_lines(tier, device_count))
+        return tier
+
     def handle_connect(self, connect: bool):
         if connect:
             if not self.camera.sdk_available:
@@ -298,10 +350,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     "仍可通过工具栏的读取按钮处理已保存的原始图像。",
                 )
                 self.camera_control.connect_btn.setChecked(False)
-                self.camera_control.set_connected(False)
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
                 self.status_label.setText("未检测到相机驱动")
+                self.refresh_capability()
                 return
 
             # 枚举设备
@@ -313,9 +365,14 @@ class MainWindow(QtWidgets.QMainWindow):
             error_message = ""
 
             if device_count == 0:
-                QtWidgets.QMessageBox.warning(self, "错误", "未找到相机设备")
                 self.camera_control.connect_btn.setChecked(False)
-                self.camera_control.set_connected(False)
+                self.refresh_capability(device_count=0)
+                if self._capability_tier is CapabilityTier.NO_DEVICE:
+                    QtWidgets.QMessageBox.warning(self, "未找到相机设备", self.NO_DEVICE_HINT)
+                else:
+                    # 单次枚举为 0 很可能只是抖动（真机实测启动枚举会偶发抛错），
+                    # 所以先说"再确认一次"，而不是弹一个断言性的模态框
+                    self.status_label.setText("未检测到相机设备，请再点一次连接相机确认")
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
                 return
@@ -342,7 +399,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # 根据连接结果统一更新主界面状态
             if success:
-                self.camera_control.set_connected(True)
+                self.refresh_capability()
                 self.status_indicator.setEnabled(True)
                 self.status_indicator.setStatus(True)
                 self.status_label.setText("相机已连接")
@@ -351,7 +408,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if error_message:
                     self.status_label.setText(error_message)
                 self.camera_control.connect_btn.setChecked(False)
-                self.camera_control.set_connected(False)
+                self.refresh_capability()
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
         else:
@@ -367,7 +424,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.handle_stream(False)  # 停止连续采集
                 self.camera_control.stream_btn.setChecked(False)  # 更新按钮状态
             self.camera.stop()  # 使用CameraModule的stop方法
-            self.camera_control.set_connected(False)
+            self.refresh_capability()
             # 还在飞的单次调整就此作废：晚到的完成通知会把已经禁用的控件重新点亮
             self._one_shot_pending.clear()
             self.status_indicator.setEnabled(False)
