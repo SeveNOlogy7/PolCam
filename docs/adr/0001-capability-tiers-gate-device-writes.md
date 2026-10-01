@@ -33,9 +33,16 @@ PolCam 的交付对象是自己从 GitHub Release 下载安装包的外部用户
 ## 后果
 
 - 多了一个能力状态机的所有者，和一条 UI 依赖：**今后每个新控件都要声明自己是否属于设备写入类**。
-- 验收只在 CI 用显式 `camera_module.gx = None` 造三档。注意 `tests/conftest.py` 在 gxipy 缺失时
-  会把整包换成 MagicMock，所以 CI 绿灯证明的是接线正确，不是缺驱动时的真实行为；
-  **`NO_DRIVER` 在真实无驱动环境上一次也没跑过**，这条记为已知未验证。
+- 验收在 CI 里用显式 `gx = None` 造档（`tests/test_camera_module.py` 钉住
+  `gx is None → device_manager is None → sdk_available False` 这条唯一的降级链，
+  `tests/test_gui.py` 再钉住窗口据此落在 `NO_DRIVER`）。注意 `tests/conftest.py` 在 gxipy
+  缺失时把整包换成 MagicMock，所以流水线自己不会自然走到"真没驱动"。
+- 真实缺驱动的环境跑过两次：**Windows 上把 SDK 环境变量剥掉**使 `import gxipy` 抛错
+  （2026-09-29 端到端复核），以及 **Linux 容器**里 `python:3.12-slim` 上 gxipy 自己报
+  `Cannot find libgxiapi.so.`（2026-10-01）——应用能起，档位是 `NO_DRIVER`，
+  采集/连续/曝光/增益/单次白平衡全禁用且 tooltip 与引导页都指向驱动，点「连接相机」
+  给出一次明确对话框而不是崩溃。**仍未跑过**：一台真的没装 Galaxy SDK 的 Windows 机器，
+  以及打包后的 exe 在那种机器上的表现（本机装了 SDK，造不出这个环境）。
 - 同时决定**不打包样例数据**，因此无相机用户的首次出图路径以诚实说明收尾，不以结果收尾；
   README 里"没装驱动仍可读取已保存的原始图像做处理"那句要改成实话（它假设下载者已经有 RAW 文件）。
 
