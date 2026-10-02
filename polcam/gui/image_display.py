@@ -849,6 +849,10 @@ class ImageDisplay(QtWidgets.QWidget):
         page.hide()
         self.help_view = page
 
+    def set_zoom_tools_enabled(self, enabled: bool, reason: str = "") -> None:
+        """把缩放工具的可用性转交给工具栏（判定在 MainWindow，理由见 docs/adr/0001）。"""
+        self.image_toolbar.set_zoom_tools_enabled(enabled, reason)
+
     def set_capability_lines(self, lines: list[str]) -> None:
         """更新引导页上的能力清单。"""
         self._capability_lines = list(lines)

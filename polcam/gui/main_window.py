@@ -150,6 +150,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._capability_tier = CapabilityTier.IDLE
         self._zero_enum_streak = 0
         self._last_device_count = None
+        # 屏上这些像素是不是导入的文件 —— 决定未连接时缩放工具还能不能用
+        self._pixels_from_file = False
 
         self.restore_settings()
         self.refresh_capability()
@@ -338,7 +340,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.camera_control.apply_capability(tier)
         self.image_display.set_capability_lines(capability_lines(tier, device_count))
+        self._sync_zoom_tools()
         return tier
+
+    def _sync_zoom_tools(self) -> None:
+        """缩放/框选/复原的可用性跟随"屏上这些像素是谁的"。
+
+        连着相机：硬件缩放可用。没连接但屏上是导入的文件：只剩软件缩放，照样可用。
+        没连接而屏上是相机帧：灰掉 —— 界面不能让人以为点它会在动相机的 ROI。写路径
+        本身另有 is_connected 守卫，这里管的是预期。屏上什么都没有时整条工具栏本来就
+        是禁用的，不在这个判断的范围里。见 docs/adr/0001。
+        """
+        available = (self._capability_tier is CapabilityTier.CONNECTED
+                     or self._pixels_from_file)
+        self.image_display.set_zoom_tools_enabled(
+            available, "未连接相机 —— 导入图像文件后可以缩放查看")
 
     def handle_connect(self, connect: bool):
         if connect:
@@ -993,6 +1009,9 @@ class MainWindow(QtWidgets.QMainWindow):
             live: 这帧是不是连续流里的画面。只有它是"预览"，可以按屏上尺寸降档解算；
                 单帧、文件、图库、停止后的显示都必须全量。
         """
+        # 默认这些像素来自相机；导入文件那条路在 _on_raw_file_loaded 里改判
+        self._pixels_from_file = False
+        self._sync_zoom_tools()
         if frame is not None:
             # 如果显示控件未启用，则启用
             if not self.image_display.is_display_controls_enabled():
@@ -1125,6 +1144,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # 更新帧和显示
             self._update_frame_and_display(frame, timestamp)
+            # 文件里的像素没有设备可写，缩放只剩软件路径，未连接也要保持可用
+            self._pixels_from_file = True
+            self._sync_zoom_tools()
             
             # 更新状态栏显示文件路径
             self.status_label.setText(f"已加载图像: {filepath}")

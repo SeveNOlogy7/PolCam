@@ -3084,22 +3084,16 @@ def test_a_transient_enable_does_not_override_a_locked_tier(qapp):
     assert not control.gain_control.value_spin.isEnabled()
 
 
-def test_the_idle_tier_leaves_the_zoom_tools_usable(qapp, main_window):
-    """未连接时放大/框选走软件缩放，是真实能力，不属于设备写入集合。"""
+def test_a_disconnected_view_still_allows_opening_a_file(qapp, main_window):
+    """灰掉缩放不能顺手把"读文件"这条路也灰掉 —— 那正是无相机用户的入口。"""
     from polcam.core.capability import CapabilityTier
 
-    # 显示类控件还有另一道"屏上没有图像"的门（image_display.setEnabled），
-    # 先给一帧把它打开，这道测试才只针对档位。
     main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
     toolbar = main_window.image_display.image_toolbar
-    assert toolbar.zoom_in_btn.isEnabled(), "前提：有图像时缩放工具本来是可用的"
-
     main_window.camera_control.apply_capability(CapabilityTier.IDLE)
 
     assert not main_window.camera_control.capture_btn.isEnabled()
-    for button in (toolbar.zoom_in_btn, toolbar.zoom_out_btn, toolbar.zoom_area_btn,
-                   toolbar.reset_btn, toolbar.cursor_btn):
-        assert button.isEnabled(), f"{button.text()} 在没有相机时仍然要能用"
+    assert not toolbar.zoom_in_btn.isEnabled()
     assert main_window.toolbar.open_raw_action.isEnabled()
 
 
@@ -3264,6 +3258,76 @@ def test_the_guide_section_follows_the_tier_without_rebuilding_the_widget(qapp, 
     # 换的是文本，不是控件——重建会让引导页的滚动位置和"返回图像"逻辑失效
     assert main_window.image_display._capability_label is label
     assert label.text() == "\n".join(connected)
+
+
+def test_zoom_tools_grey_out_when_disconnected_with_camera_pixels(qapp, main_window):
+    """未连接且屏上不是导入的文件时，缩放/复原工具要灰掉。
+
+    灰的理由不是"软件缩放会写设备"（它不会），而是界面不能让人以为点它会在动
+    相机的 ROI。见 docs/adr/0001。
+    """
+    toolbar = main_window.image_display.image_toolbar
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    camera = _camera_stub(main_window, connected=True)
+    main_window.refresh_capability()
+    assert toolbar.zoom_in_btn.isEnabled()
+
+    camera.is_connected.return_value = False
+    main_window.refresh_capability()
+    for button in (toolbar.zoom_in_btn, toolbar.zoom_out_btn, toolbar.zoom_area_btn,
+                   toolbar.reset_btn):
+        assert not button.isEnabled(), f"{button.text()} 在未连接且没有导入文件时应当是灰的"
+        assert "导入" in button.toolTip()
+    # 游标只是读数，不属于这一族
+    assert toolbar.cursor_btn.isEnabled()
+
+
+def test_an_imported_file_keeps_the_zoom_tools_usable(qapp, main_window):
+    """导入的图像文件没有设备可写，缩放是纯软件动作，未连接也要能用。"""
+    toolbar = main_window.image_display.image_toolbar
+    _camera_stub(main_window, connected=False)
+    main_window.refresh_capability()
+    assert not toolbar.zoom_in_btn.isEnabled()
+
+    main_window._on_raw_file_loaded(Event(EventType.RAW_FILE_LOADED, {
+        "frame": np.zeros((64, 64), dtype=np.uint8),
+        "timestamp": None, "filepath": "somewhere/x.tiff"}))
+
+    for button in (toolbar.zoom_in_btn, toolbar.zoom_out_btn, toolbar.zoom_area_btn,
+                   toolbar.reset_btn):
+        assert button.isEnabled(), f"{button.text()} 对导入文件应当可用"
+        assert "导入" not in button.toolTip(), "可用之后不该还挂着禁用的理由"
+
+    camera = main_window.camera
+    toolbar.zoom_in_btn.click()
+    main_window.image_display.toolbar_controller._handle_zoom_click(32, 32)
+    camera.set_roi.assert_not_called()
+
+
+def test_a_new_camera_frame_greys_the_tools_again(qapp, main_window):
+    """来源是"最近一次上屏的像素"：相机帧一来就要重新灰回去。"""
+    toolbar = main_window.image_display.image_toolbar
+    _camera_stub(main_window, connected=False)
+    main_window.refresh_capability()
+    main_window._on_raw_file_loaded(Event(EventType.RAW_FILE_LOADED, {
+        "frame": np.zeros((64, 64), dtype=np.uint8), "timestamp": None, "filepath": "x.tiff"}))
+    assert toolbar.zoom_in_btn.isEnabled()
+
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    assert not toolbar.zoom_in_btn.isEnabled()
+
+
+def test_connecting_unlocks_the_zoom_tools_even_without_a_file(qapp, main_window):
+    toolbar = main_window.image_display.image_toolbar
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    camera = _camera_stub(main_window, connected=False)
+    main_window.refresh_capability()
+    assert not toolbar.zoom_in_btn.isEnabled()
+
+    camera.is_connected.return_value = True
+    main_window.refresh_capability()
+    assert toolbar.zoom_in_btn.isEnabled()
+    assert toolbar.reset_btn.isEnabled()
 
 
 def test_the_capability_section_sits_above_the_generic_walkthrough(qapp, main_window):

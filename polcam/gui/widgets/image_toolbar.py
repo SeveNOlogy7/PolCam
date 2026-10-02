@@ -117,6 +117,18 @@ class ImageToolbar(QtWidgets.QWidget):
         
         return btn
 
+    def set_zoom_tools_enabled(self, enabled: bool, reason: str = "") -> None:
+        """缩放/缩小/框选/复原四个工具的可用性由外部决定（能力档位 + 屏上像素的来源）。
+
+        游标不在这一族里：它只读数，既不碰设备也不改视图。
+        """
+        buttons = (self.zoom_in_btn, self.zoom_out_btn, self.zoom_area_btn, self.reset_btn)
+        if not hasattr(self, "_default_zoom_tips"):
+            self._default_zoom_tips = {btn: btn.toolTip() for btn in buttons}
+        for btn in buttons:
+            btn.setEnabled(enabled)
+            btn.setToolTip(self._default_zoom_tips[btn] if enabled else reason)
+
     def _load_icon(self, icon_path: str) -> QtGui.QIcon:
         icon = QtGui.QIcon(icon_path)
         if not icon.isNull():
