@@ -170,6 +170,10 @@ class ImageDisplay(QtWidgets.QWidget):
 
     def _update_quad_title_labels(self, canvas: Optional[np.ndarray] = None):
         """根据当前显示几何更新四分图标题覆盖控件。"""
+        if self.help_is_showing():
+            # 引导页开着的时候，任何一次重画都不该把标题放回它上面
+            self._hide_quad_title_labels()
+            return
         has_quad_titles = (
             self.is_quad_view_mode()
             and len(self._quad_titles) == 4
@@ -261,6 +265,9 @@ class ImageDisplay(QtWidgets.QWidget):
             return False
 
         self.display_mode.setCurrentIndex(index)
+        # 换显示模式就是想看图，引导页得让位。屏上还没有图像时不能收——那时它就是占位页。
+        if self.help_is_showing() and self.has_display_image():
+            self.show_image_view()
         return True
 
     def get_current_processing_mode(self) -> ProcessingMode:
@@ -749,9 +756,9 @@ class ImageDisplay(QtWidgets.QWidget):
 
     HELP_SECTIONS = (
         ("基本操作", (
-            "连接相机：点击左侧“连接相机”按钮",
+            "连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”",
             "调节图像：使用曝光和增益控制",
-            "采集图像：选择“单帧采集”或“连续采集”",
+            "采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）",
             "显示模式：在顶部下拉框切换显示方式",
         )),
         ("图像工具", (
@@ -815,6 +822,7 @@ class ImageDisplay(QtWidgets.QWidget):
         subtitle = make_label("尚未载入图像，可按下面的步骤开始", Styles.get_font(Styles.FONT_MEDIUM))
         subtitle.setAlignment(QtCore.Qt.AlignHCenter)
         column.addWidget(subtitle)
+        self._help_subtitle_label = subtitle
 
         # 能力清单是当前机器的事实，不是固定文案，所以单独留一个标签，
         # 档位变化时只换文本，不重建控件。它排在通用说明之前：用户第一眼要回答的是
@@ -862,6 +870,18 @@ class ImageDisplay(QtWidgets.QWidget):
     def capability_lines(self) -> list[str]:
         return list(getattr(self, "_capability_lines", []))
 
+    def help_is_showing(self) -> bool:
+        return hasattr(self, 'help_view') and not self.help_view.isHidden()
+
+    def set_help_subtitle(self, text: str) -> None:
+        """引导页副标题讲的是"此刻屏上有什么"，所以它跟状态走，不是固定文案。"""
+        self._help_subtitle = text
+        if hasattr(self, "_help_subtitle_label"):
+            self._help_subtitle_label.setText(text)
+
+    def help_subtitle(self) -> str:
+        return getattr(self, "_help_subtitle", "")
+
     def show_help_view(self):
         """显示引导页。引导页不是图像数据，因此不会影响 has_display_image()。"""
         # 「返回图像」只在引导覆盖已有图像时才成立
@@ -873,11 +893,23 @@ class ImageDisplay(QtWidgets.QWidget):
         self._sync_help_overlay_geometry()
         self.help_view.show()
         self.help_view.raise_()
+        # 画布上的覆盖物不属于引导页：真机截图里 IMAGE/DOLP/AOLP/DOCP 四个标题浮在
+        # 引导页文字上面，因为它们和引导页同为 image_label 的子控件。
+        self._hide_canvas_overlays()
 
     def show_image_view(self):
         """隐藏引导页，露出图像。"""
         self._help_auto_dismiss = False
         self.help_view.hide()
+        # 引导页收走了，画布上的标题与游标要按当前画面重新摆回来
+        self._update_quad_title_labels()
+        self._update_cursor_overlay()
+
+    def _hide_canvas_overlays(self) -> None:
+        """收掉画布上所有覆盖控件（四分图标题、四分图游标）。"""
+        self._hide_quad_title_labels()
+        if getattr(self, "_cursor_overlay", None) is not None:
+            self._cursor_overlay.clear_cursor()
 
     def _sync_help_overlay_geometry(self):
         """让引导页铺满图像区。"""

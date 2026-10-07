@@ -69,13 +69,25 @@ def tier_after_probe(
     return CapabilityTier.IDLE, streak
 
 
-def capability_lines(tier: CapabilityTier, device_count: Optional[int]) -> List[str]:
-    """引导页「这台机器现在能做什么」那一段的行文。"""
-    can = [
+def capability_lines(tier: CapabilityTier, device_count: Optional[int],
+                     pixels_from_file: bool = False) -> List[str]:
+    """引导页「这台机器现在能做什么」那一段的行文。
+
+    清单讲的是**此刻**，所以连着相机时采集要出现在"现在就能做"里，而不是只留一句
+    "相机已连接"；缩放那条也一样，连着相机改的是设备 ROI，未连接才是软件缩放。
+    """
+    can = []
+    if tier is CapabilityTier.CONNECTED:
+        can.append("单帧采集与连续采集")
+        can.append("曝光与增益（含单次自动）")
+    can += [
         "读取已保存的原始图像",
         "切换显示模式、调亮度对比度锐化、保存处理结果",
-        "缩放与框选（未连接相机时是软件缩放，不改设备）",
     ]
+    if tier is CapabilityTier.CONNECTED:
+        can.append("缩放与框选（连着相机时改的是设备 ROI）")
+    else:
+        can.append("缩放与框选（未连接相机时是软件缩放，不改设备）")
 
     if tier is CapabilityTier.NO_DRIVER:
         cannot = ["采集图像 —— 需要先安装大恒 Galaxy 驱动（README 有下载链接）"]
@@ -94,3 +106,17 @@ def capability_lines(tier: CapabilityTier, device_count: Optional[int]) -> List[
     else:
         lines.append("相机已连接，采集与参数写入均可用。")
     return lines
+
+
+def help_subtitle(tier: CapabilityTier, has_image: bool, pixels_from_file: bool) -> str:
+    """引导页副标题：一句关于"此刻屏上有什么"的事实。
+
+    写死成"尚未载入图像"会在连着相机出图时变成假话（真机截图里就是这句最扎眼）。
+    """
+    if not has_image:
+        return "尚未载入图像，可按下面的步骤开始"
+    if tier is CapabilityTier.CONNECTED:
+        return "相机已连接，屏上正在显示采集到的图像"
+    if pixels_from_file:
+        return "屏上显示的是导入的图像文件"
+    return "相机未连接，屏上仍是上一次采集到的图像"

@@ -3330,6 +3330,99 @@ def test_connecting_unlocks_the_zoom_tools_even_without_a_file(qapp, main_window
     assert toolbar.reset_btn.isEnabled()
 
 
+def _push_polarization_result(main_window):
+    """只把一份偏振结果推到屏上（不动显示模式，动模式会收走引导页）。"""
+    from polcam.core.processing_module import ProcessingResult
+    PM = ProcessingMode
+    small = np.zeros((32, 32), dtype=np.uint8)
+    main_window._update_display(ProcessingResult(
+        mode=PM.POLARIZATION,
+        images=[small, small.astype(np.float32), small.astype(np.float32), small.astype(np.float32)],
+        metadata={'preview_factor': 1, 'quad_titles': ['IMAGE', 'DOLP', 'AOLP', 'DOCP']},
+        timestamp=0.0,
+        display_canvas=np.zeros((64, 64, 3), dtype=np.uint8),
+    ))
+
+
+def _show_polarization_result(main_window):
+    main_window.image_display.set_processing_mode(ProcessingMode.POLARIZATION)
+    _push_polarization_result(main_window)
+
+
+def test_the_walkthrough_copy_does_not_assume_one_button_state(qapp):
+    """通用说明不能把某个按钮的当前字样当成事实。
+
+    连着相机时引导页还在教"点击左侧'连接相机'按钮"，而那个按钮写着"断开相机"——
+    这就是用户说的"文字明显不对"。所以这两条必须同时承认两种字样。
+    """
+    lines = "\n".join(line for _, items in ImageDisplay.HELP_SECTIONS for line in items)
+    assert "连接相机" in lines and "断开相机" in lines
+    assert "连续采集" in lines and "停止采集" in lines
+
+
+def test_the_help_page_hides_the_labels_on_the_canvas(qapp, main_window):
+    """引导页盖在画布上时，四分图标题必须一起收掉。
+
+    真机截图：点帮助后 IMAGE/DOLP/AOLP/DOCP 四个标签浮在引导页文字上面。
+    """
+    display = main_window.image_display
+    _show_polarization_result(main_window)
+    labels = display._quad_title_labels
+    assert [l.isHidden() for l in labels] == [False] * 4, "前提：四分图标题此刻是可见的"
+
+    display.show_help_view()
+    assert all(l.isHidden() for l in labels), "引导页上还留着画布标题"
+
+    # 连续采集时每帧都会重画，标题不能趁引导页还开着又冒出来
+    _push_polarization_result(main_window)
+    assert display.help_is_showing(), "重画不该把引导页收走"
+    assert all(l.isHidden() for l in labels), "渲染下一帧时标题又回到引导页上面"
+
+    display.show_image_view()
+    assert [l.isHidden() for l in labels] == [False] * 4, "返回图像后标题没有恢复"
+
+
+def test_switching_display_mode_leaves_the_help_page(qapp, main_window):
+    """切显示模式就是想看图，引导页得让位。"""
+    display = main_window.image_display
+    _show_polarization_result(main_window)
+    display.show_help_view()
+    assert not display.help_view.isHidden()
+
+    display.set_processing_mode(ProcessingMode.MERGED_GRAY)
+
+    assert display.help_view.isHidden(), "换了显示模式，引导页还盖在上面"
+    assert display.get_current_processing_mode() is ProcessingMode.MERGED_GRAY
+
+
+def test_the_help_page_does_not_claim_there_is_no_image(qapp, main_window):
+    """副标题要说当下的事实：有画面就不能写"尚未载入图像"。"""
+    display = main_window.image_display
+    display.show_help_view()
+    assert "尚未载入图像" in display.help_subtitle()
+
+    _show_polarization_result(main_window)
+    display.show_help_view()
+    subtitle = display.help_subtitle()
+    assert "尚未载入图像" not in subtitle, subtitle
+    assert "图像" in subtitle
+
+
+def test_the_connected_capability_list_offers_capture(qapp, main_window):
+    """连着相机时，"现在就能做"里就该有采集，也不该再讲未连接的事。"""
+    camera = _camera_stub(main_window, connected=True)
+    main_window.refresh_capability()
+
+    body = "\n".join(main_window.image_display.capability_lines())
+    assert "采集" in body
+    assert "未连接相机时" not in body, "连着相机还在讲未连接的行为"
+
+    camera.is_connected.return_value = False
+    main_window.refresh_capability()
+    offline = "\n".join(main_window.image_display.capability_lines())
+    assert "未连接" in offline or "接上相机" in offline
+
+
 def test_the_capability_section_sits_above_the_generic_walkthrough(qapp, main_window):
     """能力清单要排在"基本操作"之前。
 

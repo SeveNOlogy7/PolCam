@@ -19,7 +19,7 @@ import time
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
 from ..core.preview import pick_preview_factor
-from ..core.capability import CapabilityTier, capability_lines, tier_after_probe
+from ..core.capability import CapabilityTier, capability_lines, help_subtitle, tier_after_probe
 from ..core.gallery_service import GalleryService
 import os
 from ..core.toolbar_controller import ToolbarController
@@ -339,22 +339,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self._capability_tier = tier
 
         self.camera_control.apply_capability(tier)
-        self.image_display.set_capability_lines(capability_lines(tier, device_count))
-        self._sync_zoom_tools()
+        self._sync_ui_to_pixels()
         return tier
 
-    def _sync_zoom_tools(self) -> None:
-        """缩放/框选/复原的可用性跟随"屏上这些像素是谁的"。
+    def _sync_ui_to_pixels(self) -> None:
+        """把"屏上这些像素是谁的、现在能不能写设备"这两件事一次反映到界面。
 
-        连着相机：硬件缩放可用。没连接但屏上是导入的文件：只剩软件缩放，照样可用。
-        没连接而屏上是相机帧：灰掉 —— 界面不能让人以为点它会在动相机的 ROI。写路径
-        本身另有 is_connected 守卫，这里管的是预期。屏上什么都没有时整条工具栏本来就
-        是禁用的，不在这个判断的范围里。见 docs/adr/0001。
+        缩放/框选/复原的可用性：连着相机时可用（硬件缩放）；未连接但屏上是导入的文件时
+        可用（只剩软件缩放）；未连接而屏上是相机帧时灰掉 —— 界面不能让人以为点它会在动
+        相机的 ROI。写路径本身另有 is_connected 守卫，这里管的是预期。引导页那两段文字
+        讲的是同一件事，所以跟着一起更新。见 docs/adr/0001。
         """
-        available = (self._capability_tier is CapabilityTier.CONNECTED
-                     or self._pixels_from_file)
+        connected = self._capability_tier is CapabilityTier.CONNECTED
         self.image_display.set_zoom_tools_enabled(
-            available, "未连接相机 —— 导入图像文件后可以缩放查看")
+            connected or self._pixels_from_file,
+            "未连接相机 —— 导入图像文件后可以缩放查看")
+        self.image_display.set_capability_lines(capability_lines(
+            self._capability_tier, self._last_device_count, self._pixels_from_file))
+        self.image_display.set_help_subtitle(help_subtitle(
+            self._capability_tier,
+            self.image_display.has_display_image(),
+            self._pixels_from_file,
+        ))
 
     def handle_connect(self, connect: bool):
         if connect:
@@ -746,6 +752,8 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
         self.image_display.toolbar_controller.sync_zoom_coordinate_space()
+        # 结果落地就是"屏上此刻的像素"变了，引导页与缩放工具的可用性要跟着重算
+        self._sync_ui_to_pixels()
 
     def _reprocessing_from_current_frame(self):
         """重新处理当前帧
@@ -1011,7 +1019,6 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         # 默认这些像素来自相机；导入文件那条路在 _on_raw_file_loaded 里改判
         self._pixels_from_file = False
-        self._sync_zoom_tools()
         if frame is not None:
             # 如果显示控件未启用，则启用
             if not self.image_display.is_display_controls_enabled():
@@ -1043,6 +1050,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     # 帧覆盖，所以仍然不会堆任务。live 要一起留着：补交的是一帧预览还是一张
                     # 文件，决定它能不能享受降档解算。
                     self._pending_display_frame = (frame, timestamp, live)
+        # 像素已经上屏（或已排到补交队列），界面按"此刻屏上是什么"再对齐一次
+        self._sync_ui_to_pixels()
 
     def _on_frame_captured(self, event):
         """处理帧捕获事件"""
@@ -1146,7 +1155,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_frame_and_display(frame, timestamp)
             # 文件里的像素没有设备可写，缩放只剩软件路径，未连接也要保持可用
             self._pixels_from_file = True
-            self._sync_zoom_tools()
+            self._sync_ui_to_pixels()
             
             # 更新状态栏显示文件路径
             self.status_label.setText(f"已加载图像: {filepath}")
