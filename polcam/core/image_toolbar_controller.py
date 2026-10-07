@@ -11,14 +11,6 @@ from qtpy import QtCore, QtWidgets
 from .events import Event, EventType
 
 
-def _ui_text(text: str) -> str:
-    """状态栏文案按当前语言取一句。
-
-    这个控制器不是 QObject（BaseModule 是普通 ABC），没有 self.tr 可用，所以用显式上下文的
-    QCoreApplication.translate。上下文名必须与 lupdate 扫到的一致，翻译表才查得到。
-    """
-    return QtCore.QCoreApplication.translate("ImageToolbarController", text)
-
 class ImageToolbarController(BaseModule):
     """图像工具栏控制器"""
 
@@ -196,7 +188,7 @@ class ImageToolbarController(BaseModule):
             if self.image_display:
                 self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('cursor')
-            self._show_status_message(_ui_text("游标模式已开启"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "游标模式已开启"))
         else:
             self._cursor_mode = False
             if self.image_display:
@@ -214,7 +206,7 @@ class ImageToolbarController(BaseModule):
             if self.image_display:
                 self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('zoom_in')
-            self._show_status_message(_ui_text("放大模式：点击图像进行放大"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "放大模式：点击图像进行放大"))
         else:
             self._zoom_mode = None
             if self.image_display:
@@ -229,7 +221,7 @@ class ImageToolbarController(BaseModule):
             if self.image_display:
                 self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('zoom_out')
-            self._show_status_message(_ui_text("缩小模式：点击图像进行缩小"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "缩小模式：点击图像进行缩小"))
         else:
             self._zoom_mode = None
             if self.image_display:
@@ -244,7 +236,7 @@ class ImageToolbarController(BaseModule):
             if self.image_display:
                 self.sync_zoom_coordinate_space()
                 self.image_display.set_interaction_mode('zoom_area')
-            self._show_status_message(_ui_text("区域放大模式：拖拽选择放大区域"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "区域放大模式：拖拽选择放大区域"))
         else:
             self._zoom_mode = None
             if self.image_display:
@@ -281,7 +273,7 @@ class ImageToolbarController(BaseModule):
         self._handle_cursor_mode(False)
 
         if self._device_busy():
-            self._show_status_message(_ui_text("单帧采集进行中，请稍候再复原视图"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "单帧采集进行中，请稍候再复原视图"))
             return
 
         if self._should_use_software_zoom():
@@ -296,19 +288,19 @@ class ImageToolbarController(BaseModule):
                 # (1624,1024) 变成 (1224,1024)）。缓存归这一帧管，下一帧自带正确映射。
                 reset_anything = True
             if reset_anything:
-                self._show_status_message(_ui_text("视图已重置"))
+                self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "视图已重置"))
             else:
-                self._show_status_message(_ui_text("当前无可重置的图像视图"))
+                self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "当前无可重置的图像视图"))
         elif self._camera_module and self._camera_module.is_connected():
             success = self._camera_module.reset_roi()
             if success:
                 self._update_roi_cache()
-                self._show_status_message(_ui_text("视图已重置"))
+                self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "视图已重置"))
             else:
-                self._show_status_message(_ui_text("视图重置失败"))
+                self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "视图重置失败"))
         else:
             self.image_display.refresh_current_image()
-            self._show_status_message(_ui_text("相机未连接"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "相机未连接"))
 
     def _handle_zoom_click(self, sensor_x: int, sensor_y: int):
         """处理缩放点击 — 以点击位置为中心进行放大/缩小
@@ -336,11 +328,11 @@ class ImageToolbarController(BaseModule):
             return
 
         if self._device_busy():
-            self._show_status_message(_ui_text("单帧采集进行中，请稍候再缩放"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "单帧采集进行中，请稍候再缩放"))
             return
 
         if not self._camera_module or not self._camera_module.is_connected():
-            self._show_status_message(_ui_text("相机未连接"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "相机未连接"))
             return
 
         roi = self._camera_module.get_roi()
@@ -419,11 +411,11 @@ class ImageToolbarController(BaseModule):
             return
 
         if self._device_busy():
-            self._show_status_message(_ui_text("单帧采集进行中，请稍候再缩放"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "单帧采集进行中，请稍候再缩放"))
             return
 
         if not self._camera_module or not self._camera_module.is_connected():
-            self._show_status_message(_ui_text("相机未连接"))
+            self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", "相机未连接"))
             return
 
         # 超过最大放大倍率时，把选区放大回上限之内，保持中心不变

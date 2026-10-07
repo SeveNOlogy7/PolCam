@@ -249,7 +249,7 @@ class ToolbarController(BaseModule):
         旧文件的像素，不是用户正在看的画面。让用户先停采集，比悄悄做错两遍强。
         """
         if self._main_window is not None and self._main_window.camera.is_streaming():
-            self._main_window.status_label.setText("连续采集中，请先停止采集再打开图像")
+            self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "连续采集中，请先停止采集再打开图像"))
             return None
 
         raw_data = self._raw_image_service.load_image(file_path)
@@ -403,19 +403,19 @@ class ToolbarController(BaseModule):
                 # 添加保存成功对话框
                 QtWidgets.QMessageBox.information(
                     self._main_window,
-                    "保存成功",
+                    QtCore.QCoreApplication.translate("ToolbarController", "保存成功"),
                     f"原始图像已保存到:\n{os.path.dirname(filename)}"
                 )
-                self._main_window.status_label.setText("就绪")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "就绪"))
             except Exception as e:
                 self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
                 self._logger.error(f"保存原始图像失败: {str(e)}")
                 QtWidgets.QMessageBox.warning(
                     self._main_window,
-                    "保存失败",
+                    QtCore.QCoreApplication.translate("ToolbarController", "保存失败"),
                     f"保存原始图像失败: {str(e)}"
                 )
-                self._main_window.status_label.setText("保存失败")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "保存失败"))
 
     def _handle_save_result(self):
         """处理保存处理结果事件"""
@@ -442,7 +442,7 @@ class ToolbarController(BaseModule):
                 # 名字，所以那边的确认是有效的）。同名再存一次就会静默换掉上一批成果。
                 answer = QtWidgets.QMessageBox.question(
                     self._main_window,
-                    "同名结果文件已存在",
+                    QtCore.QCoreApplication.translate("ToolbarController", "同名结果文件已存在"),
                     f"「{base_name}」在 {save_dir} 下已经有结果文件（例如 {existing[0]}）。\n"
                     "继续会按同一批名字写出这次的结果，其中同名的文件会被覆盖。\n"
                     "要覆盖吗？",
@@ -450,7 +450,7 @@ class ToolbarController(BaseModule):
                     | QtWidgets.QMessageBox.StandardButton.No,
                     QtWidgets.QMessageBox.StandardButton.No)
                 if answer != QtWidgets.QMessageBox.StandardButton.Yes:
-                    self._main_window.status_label.setText("已取消保存")
+                    self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "已取消保存"))
                     return
 
             if self._last_result.mode == ProcessingMode.POLARIZATION:
@@ -548,23 +548,23 @@ class ToolbarController(BaseModule):
             if success:
                 QtWidgets.QMessageBox.information(
                     self._main_window,
-                    "保存成功",
+                    QtCore.QCoreApplication.translate("ToolbarController", "保存成功"),
                     f"处理结果已保存到目录:\n{save_dir}"
                 )
-                self._main_window.status_label.setText("就绪")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "就绪"))
             else:
                 QtWidgets.QMessageBox.warning(
                     self._main_window,
-                    "保存失败",
-                    "部分图像保存失败，请检查日志"
+                    QtCore.QCoreApplication.translate("ToolbarController", "保存失败"),
+                    QtCore.QCoreApplication.translate("ToolbarController", "部分图像保存失败，请检查日志")
                 )
-                self._main_window.status_label.setText("保存失败")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "保存失败"))
 
         except Exception as e:
             self._logger.error(f"保存处理结果失败: {str(e)}")
             QtWidgets.QMessageBox.warning(
                 self._main_window,
-                "保存失败",
+                QtCore.QCoreApplication.translate("ToolbarController", "保存失败"),
                 f"保存处理结果失败: {str(e)}"
             )
 
@@ -581,7 +581,7 @@ class ToolbarController(BaseModule):
             self._logger.error(f"打开原始图像失败: {str(e)}")
             QtWidgets.QMessageBox.warning(
                 self._main_window,
-                "错误",
+                QtCore.QCoreApplication.translate("ToolbarController", "错误"),
                 f"无法读取图像文件: {str(e)}"
             )
 
@@ -593,9 +593,9 @@ class ToolbarController(BaseModule):
         try:
             if dialog.exec_() == QtWidgets.QDialog.DialogCode.Accepted:
                 self._main_window.apply_settings(dialog.get_settings())
-                self._main_window.status_label.setText("设置已更新")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "设置已更新"))
             else:
-                self._main_window.status_label.setText("已取消设置")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "已取消设置"))
         finally:
             # exec_() 只是把对话框藏起来，而它是主窗口的子对象：不收的话每开一次设置就
             # 在窗口下面多留一份（真机实测开 200 次后挂着 200 个对话框，控件总数
@@ -613,10 +613,10 @@ class ToolbarController(BaseModule):
         <p>Copyright © 2024-2026</p>
         """
         QtWidgets.QMessageBox.about(self._main_window, "关于", about_text)
-        self._main_window.status_label.setText("显示关于信息")
+        self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "显示关于信息"))
 
     def _handle_help(self):
         """处理帮助按钮点击事件"""
         # 显示引导页
         self._main_window.image_display.show_help_view()
-        self._main_window.status_label.setText("显示帮助信息")
+        self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "显示帮助信息"))

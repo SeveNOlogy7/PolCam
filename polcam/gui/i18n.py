@@ -86,16 +86,36 @@ def retranslate_tree(window) -> int:
     targets += [action for widget in targets for action in widget.actions()]
     changed = 0
     for target in targets:
-        for getter, setter in ((target.text, target.setText),
-                               (target.toolTip, target.setToolTip),
-                               (target.accessibleName, target.setAccessibleName)):
-            shown = getter()
+        # 控件树是混杂的：QMainWindow 没有 text()，QAction 有。读不到就跳过这一项。
+        for reader, writer in (("text", "setText"),
+                               ("toolTip", "setToolTip"),
+                               ("accessibleName", "setAccessibleName")):
+            shown = getattr(target, reader, lambda: "")()
             source = display_to_source.get(shown)
             if source is None:
                 continue
             translated = translate_source(source)
             if translated != shown:
-                setter(translated)
+                getattr(target, writer)(translated)
+                changed += 1
+    return changed + _retranslate_combo_items(window, display_to_source)
+
+
+def _retranslate_combo_items(window, display_to_source) -> int:
+    """下拉框的条目文字不是控件的 text()，树遍历够不着，只能逐个 setItemText。
+
+    按 index 重设而不是重建条目：重建会把当前选择、下拉框宽度连带信号一起搅动。
+    """
+    changed = 0
+    for combo in window.findChildren(QtWidgets.QComboBox):
+        for index in range(combo.count()):
+            shown = combo.itemText(index)
+            source = display_to_source.get(shown)
+            if source is None:
+                continue
+            translated = translate_source(source)
+            if translated != shown:
+                combo.setItemText(index, translated)
                 changed += 1
     return changed
 

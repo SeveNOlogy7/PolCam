@@ -68,9 +68,17 @@ class SettingsDialog(QtWidgets.QDialog):
         app_form.addRow(self.tr("最大放大倍率"), self.max_zoom_spin)
 
         self.preview_quality_combo = QtWidgets.QComboBox()
+        # 档位名写在这里而不是用 PreviewQuality.label：lupdate 只认字面量，
+        # addItem(quality.label) 那种写法扫不到句子，core 也因此可以完全不碰 Qt。
+        labels = {
+            PreviewQuality.AUTO: self.tr("自动挡（按窗口大小）"),
+            PreviewQuality.NATIVE: self.tr("原始（不合并）"),
+            PreviewQuality.BALANCED: self.tr("均衡（2×2 超胞合并）"),
+            PreviewQuality.FLUID: self.tr("流畅（4×4 超胞合并）"),
+        }
         for quality in (PreviewQuality.AUTO, PreviewQuality.NATIVE,
                         PreviewQuality.BALANCED, PreviewQuality.FLUID):
-            self.preview_quality_combo.addItem(quality.label, quality)
+            self.preview_quality_combo.addItem(labels[quality], quality)
         # 这一项改的是屏幕上偏振读数的口径，必须把边界说清楚：只有连续流预览会被合并，
         # 单帧、图库、停止后的显示和一切保存都是全量。
         self.preview_quality_combo.setToolTip(

@@ -22,7 +22,13 @@ class Language(Enum):
 
     @staticmethod
     def from_name(name) -> "Language":
-        """把 settings.ini 里存的字符串装回来；认不出来的回落到中文（源语言）。"""
+        """把 settings.ini 里存的字符串装回来；认不出来的回落到中文（源语言）。
+
+        已经是 Language 就原样通过 —— 否则 `apply_language(app, Language.EN)` 这种调用
+        会在入口上被悄悄改写成默认档（实测就是这样让英文目录永远装不上）。
+        """
+        if isinstance(name, Language):
+            return name
         if isinstance(name, str):
             try:
                 return Language(name.strip().lower())

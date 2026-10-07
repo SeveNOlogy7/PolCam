@@ -33,16 +33,22 @@ NORMAL_COLOR_MODES = [
     ProcessingMode.RAW, ProcessingMode.MERGED_COLOR, ProcessingMode.MERGED_GRAY,
 ]
 
+def QT_TRANSLATE_NOOP(context: str, source: str) -> str:
+    """给 lupdate 看的标记：原样返回，但这句话会进翻译目录。"""
+    return source
+
+
 # 模式显示标签
+# 值要译，所以标成 NOOP：lupdate 扫字面量，运行时原样返回，取用时由 mode_label() 译
 MODE_LABELS = {
-    ProcessingMode.RAW: "原始图像",
-    ProcessingMode.SINGLE_COLOR: "单角度彩色",
-    ProcessingMode.SINGLE_GRAY: "单角度灰度",
-    ProcessingMode.MERGED_COLOR: "彩色图像",
-    ProcessingMode.MERGED_GRAY: "灰度图像",
-    ProcessingMode.QUAD_COLOR: "四角度彩色",
-    ProcessingMode.QUAD_GRAY: "四角度灰度",
-    ProcessingMode.POLARIZATION: "偏振度图像",
+    ProcessingMode.RAW: QT_TRANSLATE_NOOP("ImageDisplay", "原始图像"),
+    ProcessingMode.SINGLE_COLOR: QT_TRANSLATE_NOOP("ImageDisplay", "单角度彩色"),
+    ProcessingMode.SINGLE_GRAY: QT_TRANSLATE_NOOP("ImageDisplay", "单角度灰度"),
+    ProcessingMode.MERGED_COLOR: QT_TRANSLATE_NOOP("ImageDisplay", "彩色图像"),
+    ProcessingMode.MERGED_GRAY: QT_TRANSLATE_NOOP("ImageDisplay", "灰度图像"),
+    ProcessingMode.QUAD_COLOR: QT_TRANSLATE_NOOP("ImageDisplay", "四角度彩色"),
+    ProcessingMode.QUAD_GRAY: QT_TRANSLATE_NOOP("ImageDisplay", "四角度灰度"),
+    ProcessingMode.POLARIZATION: QT_TRANSLATE_NOOP("ImageDisplay", "偏振度图像"),
 }
 
 

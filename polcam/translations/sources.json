@@ -1,0 +1,982 @@
+[
+ {
+  "context": "AngleSelector",
+  "source": "偏振角度:",
+  "translation": "Polarization angle:"
+ },
+ {
+  "context": "CameraControl",
+  "source": "连接相机",
+  "translation": "Connect Camera"
+ },
+ {
+  "context": "CameraControl",
+  "source": "单帧采集",
+  "translation": "Single Frame"
+ },
+ {
+  "context": "CameraControl",
+  "source": "连续采集",
+  "translation": "Continuous Capture"
+ },
+ {
+  "context": "CameraControl",
+  "source": "曝光控制",
+  "translation": "Exposure Control"
+ },
+ {
+  "context": "CameraControl",
+  "source": "曝光时间",
+  "translation": "Exposure Time"
+ },
+ {
+  "context": "CameraControl",
+  "source": "增益控制",
+  "translation": "Gain Control"
+ },
+ {
+  "context": "CameraControl",
+  "source": "增益",
+  "translation": "Gain"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "选择相机",
+  "translation": "Select Camera"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "序号",
+  "translation": "No."
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "型号",
+  "translation": "Model"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "序列号",
+  "translation": "Serial No."
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "IP地址",
+  "translation": "IP Address"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "状态",
+  "translation": "Status"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "连接",
+  "translation": "Connect"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "刷新",
+  "translation": "Refresh"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "返回",
+  "translation": "Back"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "断开",
+  "translation": "Disconnect"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "连接失败",
+  "translation": "Connection failed"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "无法连接到所选相机",
+  "translation": "Cannot connect to the selected camera"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "连接错误",
+  "translation": "Connection error"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "未检测到相机设备",
+  "translation": "No camera device detected"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "刷新失败",
+  "translation": "Refresh failed"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "图库",
+  "translation": "Gallery"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "0 项",
+  "translation": "0 items"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "预览图",
+  "translation": "Thumbnails"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "列表",
+  "translation": "List"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "读取",
+  "translation": "Open"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "在上方图像区中查看选中的图像",
+  "translation": "Shows the selected image in the view above"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "删除",
+  "translation": "Delete"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "删除选中的图像文件及图库记录",
+  "translation": "Delete the selected image file and its gallery record"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "刷新",
+  "translation": "Refresh"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "重新扫描自动保存目录",
+  "translation": "Rescan the auto-save directory"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "文件名",
+  "translation": "File name"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "采集时间",
+  "translation": "Captured at"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "尺寸",
+  "translation": "Size"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "格式",
+  "translation": "Format"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "路径",
+  "translation": "Path"
+ },
+ {
+  "context": "GalleryPanel",
+  "source": "暂无自动保存图像",
+  "translation": "No auto-saved images yet"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "原始图像",
+  "translation": "Raw Image"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "单角度彩色",
+  "translation": "Single Angle (Color)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "单角度灰度",
+  "translation": "Single Angle (Gray)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "彩色图像",
+  "translation": "Merged (Color)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "灰度图像",
+  "translation": "Merged (Gray)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "四角度彩色",
+  "translation": "Four Angles (Color)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "四角度灰度",
+  "translation": "Four Angles (Gray)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "偏振度图像",
+  "translation": "Polarization"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "基本操作",
+  "translation": "Basics"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”",
+  "translation": "Connect: the button at the top left reads “Connect Camera” when idle and “Disconnect Camera” when connected"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "调节图像：使用曝光和增益控制",
+  "translation": "Adjust the image with the exposure and gain controls"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）",
+  "translation": "Capture: “Single Frame”, or “Continuous Capture” (that button reads “Stop Capture” while running)"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "显示模式：在顶部下拉框切换显示方式",
+  "translation": "Display mode: switch it in the drop-down at the top"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "图像工具",
+  "translation": "Image tools"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "游标：查看图像像素信息",
+  "translation": "Cursor: read pixel values off the image"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "缩放：放大、缩小，或框选区域放大",
+  "translation": "Zoom: in, out, or drag a box to zoom into"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "复原：恢复原始显示",
+  "translation": "Reset: back to the full view"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "图像处理",
+  "translation": "Image processing"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "白平衡：彩色模式下可开启自动白平衡",
+  "translation": "White balance: automatic white balance is available in the colour modes"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "偏振分析：查看 DOLP、AOLP 等偏振信息",
+  "translation": "Polarization analysis: DOLP, AOLP and other polarization channels"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "保存：导出原始图像和处理结果",
+  "translation": "Save: export the raw image or the processed result"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "读取：载入已保存的原始图像",
+  "translation": "Open: load a saved raw image"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "偏振相机控制系统",
+  "translation": "Polarization Camera Control"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "尚未载入图像，可按下面的步骤开始",
+  "translation": "No image loaded yet - start with the steps below"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "这台机器现在能做什么",
+  "translation": "What this machine can do right now"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "点击任意处返回图像",
+  "translation": "Click anywhere to return to the image"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "游标",
+  "translation": "Cursor"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "悬停查看像素数值，再次点击退出",
+  "translation": "Hover to read pixel values; click again to exit"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "放大",
+  "translation": "Zoom In"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "点击图像中心区域放大",
+  "translation": "Click the image to zoom in around that point"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "缩小",
+  "translation": "Zoom Out"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "点击图像区域缩小",
+  "translation": "Click the image to zoom out"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "区域放大",
+  "translation": "Zoom Area"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "拖拽框选要放大的区域",
+  "translation": "Drag to select the area to zoom into"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "复原",
+  "translation": "Reset View"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "恢复整幅图像的原始显示",
+  "translation": "Restore the full image"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "游标模式已开启",
+  "translation": "Cursor mode on"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "放大模式：点击图像进行放大",
+  "translation": "Zoom in: click the image"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "缩小模式：点击图像进行缩小",
+  "translation": "Zoom out: click the image"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "区域放大模式：拖拽选择放大区域",
+  "translation": "Zoom area: drag to select a region"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "单帧采集进行中，请稍候再复原视图",
+  "translation": "A single-frame capture is running; reset the view after it"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "视图已重置",
+  "translation": "View reset"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "当前无可重置的图像视图",
+  "translation": "There is no image view to reset"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "视图重置失败",
+  "translation": "Could not reset the view"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "相机未连接",
+  "translation": "Camera not connected"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "单帧采集进行中，请稍候再缩放",
+  "translation": "A single-frame capture is running; zoom after it"
+ },
+ {
+  "context": "MainWindow",
+  "source": "偏振相机控制系统",
+  "translation": "Polarization Camera Control"
+ },
+ {
+  "context": "MainWindow",
+  "source": "连续采集中...",
+  "translation": "Capturing..."
+ },
+ {
+  "context": "MainWindow",
+  "source": "就绪",
+  "translation": "Ready"
+ },
+ {
+  "context": "MainWindow",
+  "source": "未连接相机 —— 导入图像文件后可以缩放查看",
+  "translation": "No camera connected — import an image file to zoom in on it"
+ },
+ {
+  "context": "MainWindow",
+  "source": "未找到相机驱动",
+  "translation": "Camera driver not found"
+ },
+ {
+  "context": "MainWindow",
+  "source": "未检测到大恒 Galaxy SDK，相机连接与采集不可用。\n仍可通过工具栏的读取按钮处理已保存的原始图像。",
+  "translation": "The Daheng Galaxy SDK was not detected, so connecting and capturing are unavailable.\nYou can still process saved raw images with the Open button on the toolbar."
+ },
+ {
+  "context": "MainWindow",
+  "source": "未检测到相机驱动",
+  "translation": "No camera driver detected"
+ },
+ {
+  "context": "MainWindow",
+  "source": "未找到相机设备",
+  "translation": "No camera device found"
+ },
+ {
+  "context": "MainWindow",
+  "source": "未检测到相机设备，请再点一次连接相机确认",
+  "translation": "No camera device detected; click Connect Camera once more to confirm"
+ },
+ {
+  "context": "MainWindow",
+  "source": "相机已连接",
+  "translation": "Camera connected"
+ },
+ {
+  "context": "MainWindow",
+  "source": "单次自动调整进行中，请稍候再断开相机",
+  "translation": "An automatic adjustment is running; disconnect the camera after it"
+ },
+ {
+  "context": "MainWindow",
+  "source": "错误",
+  "translation": "Error"
+ },
+ {
+  "context": "MainWindow",
+  "source": "相机未连接",
+  "translation": "Camera not connected"
+ },
+ {
+  "context": "MainWindow",
+  "source": "单次自动调整进行中，请稍候再采集",
+  "translation": "An automatic adjustment is running; capture after it"
+ },
+ {
+  "context": "MainWindow",
+  "source": "无法开始连续采集",
+  "translation": "Could not start continuous capture"
+ },
+ {
+  "context": "MainWindow",
+  "source": "正在处理...",
+  "translation": "Processing..."
+ },
+ {
+  "context": "MainWindow",
+  "source": "单帧采集进行中，请稍候再调整",
+  "translation": "A single-frame capture is running; adjust after it"
+ },
+ {
+  "context": "MainWindow",
+  "source": "已有单次自动调整在进行中，请稍候再调整",
+  "translation": "An automatic adjustment is already running; wait for it"
+ },
+ {
+  "context": "MainWindow",
+  "source": "单次白平衡未实现",
+  "translation": "One-shot white balance is not implemented"
+ },
+ {
+  "context": "MainWindow",
+  "source": "关闭程序",
+  "translation": "Quit"
+ },
+ {
+  "context": "MainWindow",
+  "source": "相机已断开",
+  "translation": "Camera disconnected"
+ },
+ {
+  "context": "MainWindow",
+  "source": "相机错误",
+  "translation": "Camera error"
+ },
+ {
+  "context": "MainWindow",
+  "source": "加载图像失败",
+  "translation": "Could not load the image"
+ },
+ {
+  "context": "MainWindow",
+  "source": "刷新图库失败",
+  "translation": "Could not refresh the gallery"
+ },
+ {
+  "context": "MainWindow",
+  "source": "读取失败",
+  "translation": "Could not read"
+ },
+ {
+  "context": "MainWindow",
+  "source": "删除图库图像",
+  "translation": "Delete gallery image"
+ },
+ {
+  "context": "MainWindow",
+  "source": "删除失败",
+  "translation": "Could not delete"
+ },
+ {
+  "context": "ParameterControl",
+  "source": "自动",
+  "translation": "Auto"
+ },
+ {
+  "context": "ParameterControl",
+  "source": "持续自动调整，期间数值框只读",
+  "translation": "Keeps adjusting automatically; the value field is read-only meanwhile"
+ },
+ {
+  "context": "ParameterControl",
+  "source": "单次",
+  "translation": "Once"
+ },
+ {
+  "context": "ParameterControl",
+  "source": "执行一次自动调整后停止",
+  "translation": "Runs one automatic adjustment, then stops"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "选择偏振分析结果的合成方式",
+  "translation": "How the polarization analysis result is composed"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "白平衡设置",
+  "translation": "White Balance"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "1/4 波片在光路中",
+  "translation": "Quarter-wave plate in the optical path"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "放进去之后 DoCP 才有可用的旋向符号；单个快轴角度只能定住三个 Stokes 分量",
+  "translation": "Only with the plate in does DoCP carry a usable handedness sign; a single fast-axis angle is not enough to pin down the three Stokes components"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "波片快轴角度（手动读数或拨片上报）",
+  "translation": "Retarder fast-axis angle (read by hand or reported)"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "设置",
+  "translation": "Settings"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "应用偏好",
+  "translation": "Application preferences"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "默认显示模式",
+  "translation": "Default display mode"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "未设置时将使用用户目录/PolCam/capture",
+  "translation": "Falls back to ~/PolCam/capture when nothing is set"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "浏览...",
+  "translation": "Browse..."
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "默认文件目录",
+  "translation": "Default folder"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "自动保存目录",
+  "translation": "Auto-save folder"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "最大放大倍率",
+  "translation": "Maximum zoom"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "自动挡（按窗口大小）",
+  "translation": "Automatic (follows the window size)"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "原始（不合并）",
+  "translation": "Full (no binning)"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "均衡（2×2 超胞合并）",
+  "translation": "Balanced (2×2 supercell binning)"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "流畅（4×4 超胞合并）",
+  "translation": "Fluid (4×4 supercell binning)"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "只影响连续采集时的实时预览：屏上一个像素是若干个 2x2 偏振超胞的平均，越流畅合并得越多。\n单帧拍摄、打开图库/文件、停止后的显示与所有保存、导出不受影响，始终按全分辨率解算。\n自动挡按窗口大小决定：放大到源图装得下就回到全分辨率。",
+  "translation": "Affects the live preview during continuous capture only: one pixel on screen is the average of several 2x2 polarization supercells, and the smoother the setting, the more is binned.\nSingle-frame capture, the gallery, saved files, the display after stopping, and every export are unaffected and always solve at full resolution.\nAutomatic follows the window size: once the source image fits on screen it returns to full resolution."
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "实时预览质量",
+  "translation": "Live preview quality"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "处理参数",
+  "translation": "Processing"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "启用自动白平衡",
+  "translation": "Enable automatic white balance"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "白平衡",
+  "translation": "White balance"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "默认偏振角度",
+  "translation": "Default polarization angle"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "偏振分析默认使用彩色图像",
+  "translation": "Polarization analysis uses a colour image by default"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "偏振模式",
+  "translation": "Polarization mode"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "偏振分析彩色图像启用自动白平衡",
+  "translation": "Automatic white balance for the colour polarization image"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "偏振白平衡",
+  "translation": "Polarization white balance"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "亮度",
+  "translation": "Brightness"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "对比度",
+  "translation": "Contrast"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "锐化",
+  "translation": "Sharpness"
+ },
+ {
+  "context": "SettingsDialog",
+  "source": "降噪",
+  "translation": "Denoise"
+ },
+ {
+  "context": "ToolBar",
+  "source": "保存原始图像",
+  "translation": "Save Raw Image"
+ },
+ {
+  "context": "ToolBar",
+  "source": "保存处理结果",
+  "translation": "Save Result"
+ },
+ {
+  "context": "ToolBar",
+  "source": "打开原始图像",
+  "translation": "Open Raw Image"
+ },
+ {
+  "context": "ToolBar",
+  "source": "设置",
+  "translation": "Settings"
+ },
+ {
+  "context": "ToolBar",
+  "source": "关于",
+  "translation": "About"
+ },
+ {
+  "context": "ToolBar",
+  "source": "帮助",
+  "translation": "Help"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到暗夜模式",
+  "translation": "Switch to Dark Mode"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到浅色模式",
+  "translation": "Switch to Light Mode"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到暗夜模式（当前：浅色）",
+  "translation": "Switch to dark mode (currently light)"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到浅色模式（当前：暗夜）",
+  "translation": "Switch to light mode (currently dark)"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到英文界面",
+  "translation": "Switch to English"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到中文界面",
+  "translation": "Switch to Chinese"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到英文界面（当前：中文）",
+  "translation": "Switch to English (currently Chinese)"
+ },
+ {
+  "context": "ToolBar",
+  "source": "切换到中文界面（当前：English）",
+  "translation": "Switch to Chinese (currently English)"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "连续采集中，请先停止采集再打开图像",
+  "translation": "Continuous capture is running; stop it before opening an image"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "保存成功",
+  "translation": "Saved"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "就绪",
+  "translation": "Ready"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "保存失败",
+  "translation": "Could not save"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "同名结果文件已存在",
+  "translation": "A result file with that name already exists"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "已取消保存",
+  "translation": "Save cancelled"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "部分图像保存失败，请检查日志",
+  "translation": "Some images could not be saved; check the log"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "错误",
+  "translation": "Error"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "设置已更新",
+  "translation": "Settings updated"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "已取消设置",
+  "translation": "Settings cancelled"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "显示关于信息",
+  "translation": "Show information about PolCam"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "显示帮助信息",
+  "translation": "Show the help page"
+ },
+ {
+  "context": "WhiteBalance",
+  "source": "自动",
+  "translation": "Auto"
+ },
+ {
+  "context": "WhiteBalance",
+  "source": "单次",
+  "translation": "Once"
+ },
+ {
+  "context": "WhiteBalance",
+  "source": "执行一次自动白平衡后停止",
+  "translation": "Runs one automatic white balance, then stops"
+ },
+ {
+  "context": "capability",
+  "source": "未检测到大恒 Galaxy 驱动，安装驱动后才能采集",
+  "translation": "No Daheng Galaxy driver detected - install the driver to capture"
+ },
+ {
+  "context": "capability",
+  "source": "未检测到相机设备，检查 USB 与供电",
+  "translation": "No camera device detected - check USB and power"
+ },
+ {
+  "context": "capability",
+  "source": "尚未连接相机，点“连接相机”",
+  "translation": "No camera connected yet - click “Connect Camera”"
+ },
+ {
+  "context": "capability",
+  "source": "现在就能做：",
+  "translation": "Available right now:"
+ },
+ {
+  "context": "capability",
+  "source": "单帧采集与连续采集",
+  "translation": "Single-frame and continuous capture"
+ },
+ {
+  "context": "capability",
+  "source": "曝光与增益（含单次自动）",
+  "translation": "Exposure and gain (including one-shot automatic)"
+ },
+ {
+  "context": "capability",
+  "source": "读取已保存的原始图像",
+  "translation": "Open saved raw images"
+ },
+ {
+  "context": "capability",
+  "source": "切换显示模式、调亮度对比度锐化、保存处理结果",
+  "translation": "Switch display modes, adjust brightness/contrast/sharpness, save results"
+ },
+ {
+  "context": "capability",
+  "source": "缩放与框选（连着相机时改的是设备 ROI）",
+  "translation": "Zoom and area select (changes the device ROI while connected)"
+ },
+ {
+  "context": "capability",
+  "source": "缩放与框选（未连接相机时是软件缩放，不改设备）",
+  "translation": "Zoom and area select (software zoom while disconnected; the device is untouched)"
+ },
+ {
+  "context": "capability",
+  "source": "相机已连接，采集与参数写入均可用。",
+  "translation": "Camera connected - capture and parameter writes are available."
+ },
+ {
+  "context": "capability",
+  "source": "接上相机才能做：",
+  "translation": "Needs a camera connected:"
+ },
+ {
+  "context": "capability",
+  "source": "采集图像 —— 需要先安装大恒 Galaxy 驱动（README 有下载链接）",
+  "translation": "Capture - the Daheng Galaxy driver must be installed first (download link in the README)"
+ },
+ {
+  "context": "capability",
+  "source": "采集图像 —— 连续两次枚举都没发现设备，检查 USB 与供电",
+  "translation": "Capture - two enumerations in a row found no device; check USB and power"
+ },
+ {
+  "context": "capability",
+  "source": "采集图像 —— 还没连接（尚未探测设备数量），点左侧“连接相机”",
+  "translation": "Capture - not connected yet (device count not probed); click “Connect Camera” on the left"
+ },
+ {
+  "context": "capability",
+  "source": "采集图像 —— 还没连接（发现 %1 台相机），点左侧“连接相机”",
+  "translation": "Capture - not connected yet (%1 camera(s) found); click “Connect Camera” on the left"
+ },
+ {
+  "context": "capability",
+  "source": "尚未载入图像，可按下面的步骤开始",
+  "translation": "No image loaded yet - start with the steps below"
+ },
+ {
+  "context": "capability",
+  "source": "相机已连接，屏上正在显示采集到的图像",
+  "translation": "Camera connected - the screen shows a captured image"
+ },
+ {
+  "context": "capability",
+  "source": "屏上显示的是导入的图像文件",
+  "translation": "The screen shows an imported image file"
+ },
+ {
+  "context": "capability",
+  "source": "相机未连接，屏上仍是上一次采集到的图像",
+  "translation": "Camera disconnected - the screen still shows the last captured image"
+ }
+]

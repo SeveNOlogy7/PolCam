@@ -1358,7 +1358,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(i18n.translate_source("偏振相机控制系统"))
         i18n.retranslate_tree(self)
         self.toolbar.refresh_texts()
-        self.image_display.refresh_texts()
+        # 引导页与状态栏的文案是现算的，重算一次就跟着换
         self._sync_ui_to_pixels()
 
     def _handle_language_toggle(self):
