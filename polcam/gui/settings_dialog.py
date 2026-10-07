@@ -187,6 +187,9 @@ class SettingsDialog(QtWidgets.QDialog):
                 last_directory=directory,
                 auto_save_directory=auto_save_directory,
                 max_zoom=self.max_zoom_spin.value(),
+                # 本页没有换肤控件：明暗档由右上角那个按钮管，保存设置时原样带回去，
+                # 不许把用户当前的皮肤抹成默认值。
+                theme_mode=self._current_settings.ui.theme_mode,
                 preview_quality=preview_quality,
             ),
             processing=ProcessingSettings(

@@ -863,6 +863,10 @@ class ImageDisplay(QtWidgets.QWidget):
         """把缩放工具的可用性转交给工具栏（判定在 MainWindow，理由见 docs/adr/0001）。"""
         self.image_toolbar.set_zoom_tools_enabled(enabled, reason)
 
+    def refresh_theme_icons(self):
+        """换肤之后重取图像工具栏那一排的图标（图标按调色板上色，不会自己跟着变）。"""
+        self.image_toolbar.refresh_theme_icons()
+
     def set_capability_lines(self, lines: list[str]) -> None:
         """更新引导页上的能力清单。"""
         self._capability_lines = list(lines)

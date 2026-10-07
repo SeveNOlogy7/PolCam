@@ -129,36 +129,44 @@ class Styles:
 
     @classmethod
     def apply_splitter_style(cls, splitter: QtWidgets.QSplitter):
-        """统一分割器样式，使面板边界更清晰且便于拖动。"""
+        """统一分割器样式，使面板边界更清晰且便于拖动。
+
+        描边取自当前主题：写死 #aeb6c1 的线在浅色面板上是"边界"，贴到深色面板上就只是
+        一条发白的糊边。换肤之后要再调一次这个函数。
+        """
+        from .app_theme import current_mode
+        from ..core.theme import tokens_for
+
+        tokens = tokens_for(current_mode())
         splitter.setHandleWidth(3)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
+        splitter.setStyleSheet(f"""
+            QSplitter::handle {{
                 background-color: transparent;
-            }
-            QSplitter::handle:hover {
+            }}
+            QSplitter::handle:hover {{
                 background-color: transparent;
-            }
-            QSplitter::handle:pressed {
+            }}
+            QSplitter::handle:pressed {{
                 background-color: transparent;
-            }
-            QSplitter::handle:horizontal {
+            }}
+            QSplitter::handle:horizontal {{
                 margin: 0;
-                border-left: 1px solid #aeb6c1;
-            }
-            QSplitter::handle:vertical {
+                border-left: 1px solid {tokens.splitter_idle};
+            }}
+            QSplitter::handle:vertical {{
                 margin: 0;
-                border-top: 1px solid #aeb6c1;
-            }
-            QSplitter::handle:horizontal:hover {
-                border-left-color: #7f95ac;
-            }
-            QSplitter::handle:vertical:hover {
-                border-top-color: #7f95ac;
-            }
-            QSplitter::handle:horizontal:pressed {
-                border-left-color: #667c94;
-            }
-            QSplitter::handle:vertical:pressed {
-                border-top-color: #667c94;
-            }
+                border-top: 1px solid {tokens.splitter_idle};
+            }}
+            QSplitter::handle:horizontal:hover {{
+                border-left-color: {tokens.splitter_hover};
+            }}
+            QSplitter::handle:vertical:hover {{
+                border-top-color: {tokens.splitter_hover};
+            }}
+            QSplitter::handle:horizontal:pressed {{
+                border-left-color: {tokens.splitter_pressed};
+            }}
+            QSplitter::handle:vertical:pressed {{
+                border-top-color: {tokens.splitter_pressed};
+            }}
         """)

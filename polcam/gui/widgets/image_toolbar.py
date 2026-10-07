@@ -6,6 +6,7 @@ See LICENSE file for full license details.
 
 from qtpy import QtWidgets, QtCore, QtGui
 import os
+from ..app_theme import themed_icon
 from ..styles import Styles
 
 class ImageToolbar(QtWidgets.QWidget):
@@ -20,6 +21,8 @@ class ImageToolbar(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # 每个按钮用的是哪个 svg 文件，换肤时要按新的调色板重取一次图标
+        self._themed_buttons = {}
         self.setup_ui()
         
     def setup_ui(self):
@@ -114,6 +117,7 @@ class ImageToolbar(QtWidgets.QWidget):
             # 设置图标大小为按钮大小的85%
             icon_size = btn_size * 0.85
             btn.setIconSize(icon_size)
+            self._themed_buttons[btn] = icon_path
         
         return btn
 
@@ -130,26 +134,14 @@ class ImageToolbar(QtWidgets.QWidget):
             btn.setToolTip(self._default_zoom_tips[btn] if enabled else reason)
 
     def _load_icon(self, icon_path: str) -> QtGui.QIcon:
-        icon = QtGui.QIcon(icon_path)
-        if not icon.isNull():
-            return icon
+        """按当前主题的 ButtonText 上色；换肤后由 refresh_theme_icons 重取一次。"""
+        return themed_icon(icon_path, Styles.TOOLBAR_ICON_SIZE)
 
-        try:
-            from qtpy import QtSvg
+    def refresh_theme_icons(self):
+        """换肤之后重画这一排工具图标。"""
+        for btn, path in self._themed_buttons.items():
+            btn.setIcon(self._load_icon(path))
 
-            renderer = QtSvg.QSvgRenderer(icon_path)
-            if renderer.isValid():
-                pixmap = QtGui.QPixmap(Styles.TOOLBAR_ICON_SIZE)
-                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-                painter = QtGui.QPainter(pixmap)
-                renderer.render(painter)
-                painter.end()
-                return QtGui.QIcon(pixmap)
-        except Exception:
-            pass
-
-        return QtGui.QIcon()
-    
     def _on_button_group_clicked(self, clicked_button: QtWidgets.QPushButton):
         """处理按钮组点击事件"""
         # 获取所有按钮组中的按钮

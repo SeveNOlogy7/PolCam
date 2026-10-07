@@ -10,6 +10,30 @@ from qtpy import QtCore
 
 from polcam.core.preview import PreviewQuality
 from polcam.core.settings import SettingsService
+from polcam.core.theme import ThemeMode
+
+
+def test_theme_mode_round_trips_by_name(tmp_path: Path):
+    """主题存的也是名字：跟预览档一样，整数会跟着枚举顺序漂移。"""
+    path = tmp_path / "settings.ini"
+    service = SettingsService(ini_path=path)
+    assert service.load_ui_settings().theme_mode is ThemeMode.LIGHT
+
+    ui = service.load_ui_settings()
+    ui.theme_mode = ThemeMode.DARK
+    service.save_ui_settings(ui)
+
+    assert SettingsService(ini_path=path).load_ui_settings().theme_mode is ThemeMode.DARK
+    assert QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat).value("ui/theme_mode") == "dark"
+
+
+def test_unusable_theme_value_falls_back_to_light(tmp_path: Path):
+    path = tmp_path / "settings.ini"
+    raw = QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+    raw.setValue("ui/theme_mode", "midnight")
+    raw.sync()
+
+    assert SettingsService(ini_path=path).load_ui_settings().theme_mode is ThemeMode.LIGHT
 
 
 def test_preview_quality_round_trips_by_name(tmp_path: Path):

@@ -10,6 +10,7 @@ from ..core.camera_module import CameraModule, CameraType
 from ..core.events import EventType, Event, EventManager
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
+from . import app_theme
 from .widgets.gallery_panel import GalleryPanel
 from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
@@ -85,6 +86,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # 设置全局字体
         app = QtWidgets.QApplication.instance()
         Styles.setup_application_font(app)
+        # 换肤要在建控件之前落地：工具栏图标按当时的调色板上色，晚一步就是一排旧颜色；
+        # 而 settings.ini 里那一行是这个决定的唯一依据。
+        self._theme_mode = self.settings_service.load_ui_settings().theme_mode
+        app_theme.apply_theme(app, self._theme_mode)
         
         # 设置窗口标题和图标
         self.setWindowTitle("偏振相机控制系统")
@@ -234,6 +239,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.connect_clicked.connect(self.handle_connect)
         self.camera_control.capture_clicked.connect(self.handle_capture)
         self.camera_control.stream_clicked.connect(self.handle_stream)
+
+        # 右上角换肤
+        self.toolbar.theme_action.triggered.connect(self._handle_theme_toggle)
         
         # 添加参数控制连接
         self.camera_control.exposure_control.value_changed.connect(self.camera.set_exposure_time)
@@ -1316,6 +1324,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if geometry is not None:
             self.restoreGeometry(geometry)
 
+    def _set_theme(self, mode):
+        """换肤的唯一入口：调色板、两个分割条的描边、两排工具栏的图标、按钮的提示。
+
+        图标不跟着重取的话，深色工具栏上会留一排 #333 的空白格子。
+        """
+        self._theme_mode = mode
+        app_theme.apply_theme(QtWidgets.QApplication.instance(), mode)
+        self.toolbar.refresh_theme()
+        Styles.apply_splitter_style(self.main_splitter)
+        Styles.apply_splitter_style(self.top_splitter)
+        self.image_display.refresh_theme_icons()
+
+    def _handle_theme_toggle(self):
+        """右上角一键换肤：立刻生效，并且把新档位记进设置。"""
+        self._set_theme(self._theme_mode.toggled())
+        self.settings_service.save(self.build_current_settings())
+
     def build_current_settings(self) -> AppSettings:
         """从当前界面和处理模块构建设置对象。"""
         return AppSettings(
@@ -1324,6 +1349,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 last_directory=self.settings_service.get_last_directory(),
                 auto_save_directory=self.settings_service.get_auto_save_directory(),
                 max_zoom=self.image_display.toolbar_controller.get_max_zoom(),
+                theme_mode=self._theme_mode,
                 preview_quality=self._preview_quality,
             ),
             processing=ProcessingSettings.from_params(self.processor.get_parameters()),
@@ -1334,6 +1360,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_settings = settings
         self._preferred_display_mode = settings.ui.display_mode
         self.image_display.toolbar_controller.set_max_zoom(settings.ui.max_zoom)
+        # 明暗档只在真的变了时才重刷：换肤要重建两排图标，没变就别白做一遍
+        if settings.ui.theme_mode is not self._theme_mode:
+            self._set_theme(settings.ui.theme_mode)
         # 换档之后滞回历史要作废：留着旧值会让自动挡把"刚换档"当成"刚缩窗口"，
         # 该放松的那一帧反而继续合并。
         self._preview_quality = settings.ui.preview_quality
