@@ -44,7 +44,7 @@ class CameraSelectDialog(QtWidgets.QDialog):
 
         # 信息标签
         self._info_label = QtWidgets.QLabel(
-            f"检测到 {len(self._device_list)} 个相机设备，请选择要连接的相机："
+            QtCore.QCoreApplication.translate("CameraSelectDialog", '检测到 %1 个相机设备，请选择要连接的相机：').replace('%1', f"{len(self._device_list)}")
         )
         self._info_label.setFont(Styles.get_font(Styles.FONT_MEDIUM))
         layout.addWidget(self._info_label)
@@ -162,13 +162,13 @@ class CameraSelectDialog(QtWidgets.QDialog):
                 self._connected_index = selected_index
                 model = device_info.get('model_name', '')
                 sn = device_info.get('sn', '')
-                self._info_label.setText(f"已连接: {model} (SN: {sn})")
+                self._info_label.setText(QtCore.QCoreApplication.translate("CameraSelectDialog", '已连接: %1 (SN: %2)').replace('%1', f"{model}").replace('%2', f"{sn}"))
                 self._logger.info(f"在对话框中连接相机成功: index={selected_index}")
             else:
                 QtWidgets.QMessageBox.warning(self, self.tr("连接失败"), self.tr("无法连接到所选相机"))
         except Exception as e:
             self._logger.error(f"连接相机时发生错误: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, self.tr("连接错误"), f"连接相机时发生错误: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("连接错误"), QtCore.QCoreApplication.translate("CameraSelectDialog", '连接相机时发生错误: %1').replace('%1', f"{str(e)}"))
 
         self._update_button_states()
 
@@ -184,15 +184,15 @@ class CameraSelectDialog(QtWidgets.QDialog):
             if count == 0:
                 self._info_label.setText(self.tr("未检测到相机设备"))
             elif not self._camera.is_connected():
-                self._info_label.setText(f"检测到 {count} 个相机设备，请选择要连接的相机：")
+                self._info_label.setText(QtCore.QCoreApplication.translate("CameraSelectDialog", '检测到 %1 个相机设备，请选择要连接的相机：').replace('%1', f"{count}"))
             elif not any(device.get('index') == self._connected_index
                          for device in device_list):
                 # 已连接那台不在了（多半是被本进程独占着），信息栏别继续报它的名字
                 self._info_label.setText(
-                    f"已连接的相机不在当前列表里（可能被本程序占用），点「断开」可释放")
+                    QtCore.QCoreApplication.translate("CameraSelectDialog", '已连接的相机不在当前列表里（可能被本程序占用），点「断开」可释放'))
         except Exception as e:
             self._logger.error(f"刷新设备列表失败: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, self.tr("刷新失败"), f"刷新设备列表失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("刷新失败"), QtCore.QCoreApplication.translate("CameraSelectDialog", '刷新设备列表失败: %1').replace('%1', f"{str(e)}"))
 
     def _handle_return(self):
         """关闭对话框，根据连接状态返回 accept/reject"""

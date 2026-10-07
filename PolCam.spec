@@ -50,6 +50,10 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "polcam" / "resources"), "polcam/resources"),
+        # 翻译目录必须一起打进去，且保持 polcam/translations 这个相对位置：
+        # gui/i18n.py 从 polcam/gui/../translations 找 .qm 与 sources.json。
+        # 漏了不会报错 —— apply_language 会退回中文并在日志里说一句。
+        (str(ROOT / "polcam" / "translations"), "polcam/translations"),
         (str(ROOT / "pyproject.toml"), "."),
     ],
     hiddenimports=[],

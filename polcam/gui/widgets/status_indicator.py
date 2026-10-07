@@ -43,13 +43,18 @@ class StatusIndicator(QtWidgets.QWidget):
 
     def _state_text(self) -> str:
         if not self.isEnabled():
-            return "未连接"
+            return self.tr("未连接")
         if self._processing:
-            return "正在处理"
-        return "已连接" if self._status else "未连接"
+            return self.tr("正在处理")
+        return self.tr("已连接") if self._status else self.tr("未连接")
+
+    def refresh_texts(self):
+        """切换语言后重取提示：这句是 %1 拼出来的，树遍历按整句匹配不到。"""
+        self._update_accessibility_text()
 
     def _update_accessibility_text(self):
-        text = f"相机状态：{self._state_text()}"
+        # 整句进目录，状态词作为 %1 填进去 —— 英语的语序和中文不一样，拼一半译一半会错
+        text = self.tr("相机状态：%1").replace("%1", self._state_text())
         self.setAccessibleName(text)
         self.setToolTip(text)
 

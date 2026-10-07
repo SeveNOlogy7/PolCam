@@ -50,8 +50,8 @@ class CameraControl(QtWidgets.QWidget):
         layout.addWidget(self.stream_btn)
         
         # 添加参数控制组
-        self.exposure_control = ParameterControl(self.tr("曝光控制"), self.tr("曝光时间"), "us")
-        self.gain_control = ParameterControl(self.tr("增益控制"), self.tr("增益"), "dB")
+        self.exposure_control = ParameterControl(self.tr("曝光控制"), self.tr("曝光时间 (us):"), "us")
+        self.gain_control = ParameterControl(self.tr("增益控制"), self.tr("增益 (dB):"), "dB")
         layout.addWidget(self.exposure_control)
         layout.addWidget(self.gain_control)
         
@@ -159,7 +159,8 @@ class CameraControl(QtWidgets.QWidget):
         """
         self._tier = tier
         self._sync_device_write_controls()
-        self.connect_btn.setText("断开相机" if tier is CapabilityTier.CONNECTED else "连接相机")
+        self.connect_btn.setText(self.tr("断开相机") if tier is CapabilityTier.CONNECTED
+                                 else self.tr("连接相机"))
 
     def _sync_device_write_controls(self) -> None:
         """enabled 的唯一出口：档位是地板，瞬时门只能在地板之上再关一层。"""

@@ -300,10 +300,10 @@ class ToolbarController(BaseModule):
             filename = os.path.join(save_dir, f"{base_name}_{suffix}{extension}")
             try:
                 self._raw_image_service.save_image(img, filename)
-                self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '已保存: %1').replace('%1', f"{os.path.basename(filename)}"))
                 self._logger.info(f"图像已保存: {filename}")
             except Exception as e:
-                self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '保存失败: %1').replace('%1', f"{os.path.basename(filename)}"))
                 self._logger.error(f"保存图像失败 {suffix}: {str(e)}")
                 success = False
         return success
@@ -314,11 +314,11 @@ class ToolbarController(BaseModule):
         filename = os.path.join(save_dir, f"{base_name}_{suffix}{extension}")
         try:
             self._raw_image_service.save_image(image, filename)
-            self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
+            self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '已保存: %1').replace('%1', f"{os.path.basename(filename)}"))
             self._logger.info(f"图像已保存: {filename}")
             return True
         except Exception as e:
-            self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
+            self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '保存失败: %1').replace('%1', f"{os.path.basename(filename)}"))
             self._logger.error(f"保存图像失败 {suffix}: {str(e)}")
             return False
 
@@ -398,22 +398,22 @@ class ToolbarController(BaseModule):
             filename = f"{base_name}{ext}"
             try:
                 self.save_raw_frame_to_path(self._current_frame, filename)
-                self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '已保存: %1').replace('%1', f"{os.path.basename(filename)}"))
                 self._logger.info(f"原始图像已保存: {filename}")
                 # 添加保存成功对话框
                 QtWidgets.QMessageBox.information(
                     self._main_window,
                     QtCore.QCoreApplication.translate("ToolbarController", "保存成功"),
-                    f"原始图像已保存到:\n{os.path.dirname(filename)}"
+                    QtCore.QCoreApplication.translate("ToolbarController", '原始图像已保存到:\n%1').replace('%1', f"{os.path.dirname(filename)}")
                 )
                 self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "就绪"))
             except Exception as e:
-                self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
+                self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '保存失败: %1').replace('%1', f"{os.path.basename(filename)}"))
                 self._logger.error(f"保存原始图像失败: {str(e)}")
                 QtWidgets.QMessageBox.warning(
                     self._main_window,
                     QtCore.QCoreApplication.translate("ToolbarController", "保存失败"),
-                    f"保存原始图像失败: {str(e)}"
+                    QtCore.QCoreApplication.translate("ToolbarController", '保存原始图像失败: %1').replace('%1', f"{str(e)}")
                 )
                 self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "保存失败"))
 
@@ -443,9 +443,7 @@ class ToolbarController(BaseModule):
                 answer = QtWidgets.QMessageBox.question(
                     self._main_window,
                     QtCore.QCoreApplication.translate("ToolbarController", "同名结果文件已存在"),
-                    f"「{base_name}」在 {save_dir} 下已经有结果文件（例如 {existing[0]}）。\n"
-                    "继续会按同一批名字写出这次的结果，其中同名的文件会被覆盖。\n"
-                    "要覆盖吗？",
+                    QtCore.QCoreApplication.translate("ToolbarController", '「%1」在 %2 下已经有结果文件（例如 %3）。\n继续会按同一批名字写出这次的结果，其中同名的文件会被覆盖。\n要覆盖吗？').replace('%1', f"{base_name}").replace('%2', f"{save_dir}").replace('%3', f"{existing[0]}"),
                     QtWidgets.QMessageBox.StandardButton.Yes
                     | QtWidgets.QMessageBox.StandardButton.No,
                     QtWidgets.QMessageBox.StandardButton.No)
@@ -537,11 +535,11 @@ class ToolbarController(BaseModule):
                 filename = os.path.join(save_dir, f"{base_name}_{mode_str}{ext}")
                 try:
                     self._raw_image_service.save_image(self._last_result.images[0], filename)
-                    self._main_window.status_label.setText(f"已保存: {os.path.basename(filename)}")
+                    self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '已保存: %1').replace('%1', f"{os.path.basename(filename)}"))
                     success = True
                     self._logger.info(f"图像已保存: {filename}")
                 except Exception as e:
-                    self._main_window.status_label.setText(f"保存失败: {os.path.basename(filename)}")
+                    self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", '保存失败: %1').replace('%1', f"{os.path.basename(filename)}"))
                     self._logger.error(f"保存图像失败: {str(e)}")
                     success = False
 
@@ -549,7 +547,7 @@ class ToolbarController(BaseModule):
                 QtWidgets.QMessageBox.information(
                     self._main_window,
                     QtCore.QCoreApplication.translate("ToolbarController", "保存成功"),
-                    f"处理结果已保存到目录:\n{save_dir}"
+                    QtCore.QCoreApplication.translate("ToolbarController", '处理结果已保存到目录:\n%1').replace('%1', f"{save_dir}")
                 )
                 self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "就绪"))
             else:
@@ -565,7 +563,7 @@ class ToolbarController(BaseModule):
             QtWidgets.QMessageBox.warning(
                 self._main_window,
                 QtCore.QCoreApplication.translate("ToolbarController", "保存失败"),
-                f"保存处理结果失败: {str(e)}"
+                QtCore.QCoreApplication.translate("ToolbarController", '保存处理结果失败: %1').replace('%1', f"{str(e)}")
             )
 
     def _handle_open_raw(self):
@@ -582,7 +580,7 @@ class ToolbarController(BaseModule):
             QtWidgets.QMessageBox.warning(
                 self._main_window,
                 QtCore.QCoreApplication.translate("ToolbarController", "错误"),
-                f"无法读取图像文件: {str(e)}"
+                QtCore.QCoreApplication.translate("ToolbarController", '无法读取图像文件: %1').replace('%1', f"{str(e)}")
             )
 
     def _handle_settings(self):

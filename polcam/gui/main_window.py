@@ -550,7 +550,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._single_capture_requested = False
         self.status_indicator.setProcessing(False)
-        QtWidgets.QMessageBox.warning(self, self.tr("错误"), f"获取图像失败: {error}")
+        QtWidgets.QMessageBox.warning(self, self.tr("错误"), QtCore.QCoreApplication.translate("MainWindow", '获取图像失败: %1').replace('%1', f"{error}"))
 
     def _set_capture_buttons_enabled(self, enabled: bool):
         """设置采集相关按钮的启用状态。
@@ -568,7 +568,7 @@ class MainWindow(QtWidgets.QMainWindow):
         使用缓存的采集和处理时间更新显示
         """
         self.time_label.setText(
-            f"采集: {self._last_capture_time*1000:.1f}ms | 处理: {self._last_process_time*1000:.1f}ms"
+            QtCore.QCoreApplication.translate("MainWindow", '采集: %1ms | 处理: %2ms').replace('%1', f"{self._last_capture_time * 1000:.1f}").replace('%2', f"{self._last_process_time * 1000:.1f}")
         )
         self._update_metrics_separator()
 
@@ -936,7 +936,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 self.tr("关闭程序"),
-                f"关闭程序时发生错误: {str(e)}\n程序将继续关闭。"
+                QtCore.QCoreApplication.translate("MainWindow", '关闭程序时发生错误: %1\n程序将继续关闭。').replace('%1', f"{str(e)}")
             )
             event.accept()
 
@@ -1132,7 +1132,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理错误事件"""
         error_data = event.data
         error_msg = error_data.get("error", "未知错误")
-        self.status_label.setText(f"错误: {error_msg}")
+        self.status_label.setText(QtCore.QCoreApplication.translate("MainWindow", '错误: %1').replace('%1', f"{error_msg}"))
         if error_data.get("source") == "camera":
             # 采流线程会反复发同一条故障，而模态框自己是个嵌套事件循环：一人一框会把
             # 界面钉住。一段时间内只弹一次，状态栏那条仍然每次都更新。
@@ -1184,7 +1184,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._sync_ui_to_pixels()
             
             # 更新状态栏显示文件路径
-            self.status_label.setText(f"已加载图像: {filepath}")
+            self.status_label.setText(QtCore.QCoreApplication.translate("MainWindow", '已加载图像: %1').replace('%1', f"{filepath}"))
                 
         except Exception as e:
             self._logger.error(f"处理原始文件加载事件失败: {str(e)}")
@@ -1233,7 +1233,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.refresh_gallery()
         except Exception as e:
             self._logger.error(f"自动保存采集图像失败: {str(e)}")
-            self.status_label.setText(f"自动保存失败: {str(e)}")
+            self.status_label.setText(QtCore.QCoreApplication.translate("MainWindow", '自动保存失败: %1').replace('%1', f"{str(e)}"))
 
     def refresh_gallery(self):
         """刷新图库面板数据。"""
@@ -1249,7 +1249,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.toolbar_controller.load_raw_file(file_path)
         except Exception as e:
             self._logger.error(f"读取图库图像失败: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, self.tr("读取失败"), f"无法读取图库图像: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("读取失败"), QtCore.QCoreApplication.translate("MainWindow", '无法读取图库图像: %1').replace('%1', f"{str(e)}"))
 
     def _handle_gallery_item_delete(self, item_ids: list[int]):
         """处理图库项删除请求。"""
@@ -1275,7 +1275,7 @@ class MainWindow(QtWidgets.QMainWindow):
         reply = QtWidgets.QMessageBox.question(
             self,
             self.tr("删除图库图像"),
-            f"确定要删除选中的 {len(items)} 项图像及数据库记录吗？\n\n{preview_text}",
+            QtCore.QCoreApplication.translate("MainWindow", '确定要删除选中的 %1 项图像及数据库记录吗？\n\n%2').replace('%1', f"{len(items)}").replace('%2', f"{preview_text}"),
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,
         )
@@ -1285,10 +1285,10 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             deleted_items = self.gallery_service.delete_items([item.id for item in items])
             self.refresh_gallery()
-            self.status_label.setText(f"已删除 {len(deleted_items)} 项图像")
+            self.status_label.setText(QtCore.QCoreApplication.translate("MainWindow", '已删除 %1 项图像').replace('%1', f"{len(deleted_items)}"))
         except Exception as e:
             self._logger.error(f"删除图库图像失败: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, self.tr("删除失败"), f"删除图库图像失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("删除失败"), QtCore.QCoreApplication.translate("MainWindow", '删除图库图像失败: %1').replace('%1', f"{str(e)}"))
 
     def _on_status_message_update(self, event: Event):
         """处理状态栏消息更新事件"""
@@ -1358,6 +1358,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(i18n.translate_source("偏振相机控制系统"))
         i18n.retranslate_tree(self)
         self.toolbar.refresh_texts()
+        # 树遍历只能整句匹配；这几处的显示文字是拼出来的，得自己按源文重算
+        self.image_display.image_toolbar.refresh_texts()
+        self.gallery_panel.refresh_texts()
+        self.status_indicator.refresh_texts()
         # 引导页与状态栏的文案是现算的，重算一次就跟着换
         self._sync_ui_to_pixels()
 

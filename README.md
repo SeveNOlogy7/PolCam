@@ -33,9 +33,11 @@ PolCam 是一个用于控制和处理偏振相机图像的Python应用程序。�
 - 用户界面
   - 实时图像显示
   - 参数实时调节
-  - 图像工具栏支持 ROI 缩放上限控制（最大约 100x）与状态提示
+  - 图像工具栏支持 ROI 缩放上限控制（可设 100–1000x，默认 1000x）与状态提示
   - 四分图标题在不同分辨率下保持更一致的视觉尺寸
   - 自适应界面布局
+  - 右上角一键切换浅色 / 暗夜主题（两套配色都自带，跨平台长得一样），选择会被记住
+  - 右上角一键切换中文 / 英文界面（Qt Linguist 目录，切换后立即重刷整个界面），选择会被记住
   - 实时预览分辨率档（原始 / 均衡 2×2 合并 / 流畅 4×4 合并 / 自动挡）：连续采集时按窗口大小解算，保存结果仍走全分辨率
   - 界面按相机能力自适应：无驱动 / 有驱动未连接 / 未检测到设备 三种状态下，会向相机写参数的控件自动禁用并在悬停时给出对应的理由，「连接相机」始终可点
 - 性能
@@ -184,9 +186,11 @@ PolCam is a Python application for controlling and processing polarization camer
 - User Interface
   - Real-time image display
   - Parameter adjustment
-  - Toolbar zoom guard with max zoom handling (~100x) and status feedback
+  - Toolbar zoom guard with max zoom handling (configurable 100-1000x, default 1000x) and status feedback
   - More consistent quad-view title rendering across different subplot sizes
   - Adaptive layout
+  - One-click light / dark theme in the top-right corner (both palettes ship with the app, so it looks the same on every platform); the choice is remembered
+  - One-click Chinese / English interface in the top-right corner (Qt Linguist catalog, re-applied to the whole window immediately); the choice is remembered
   - Selectable live-preview resolution (native / 2x2 merged / 4x4 merged / automatic): continuous acquisition solves at the size the window can show, while saved results stay full resolution
   - Capability-aware UI: without a driver, with a driver but not connected, or with no device found, controls that write to the camera are disabled and explain why on hover, while Connect stays clickable
 - Performance

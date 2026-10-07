@@ -779,21 +779,21 @@ class ImageDisplay(QtWidgets.QWidget):
         """
         return (
             (self.tr("基本操作"), (
-                self.tr("连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”"),
-                self.tr("调节图像：使用曝光和增益控制"),
-                self.tr("采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）"),
-                self.tr("显示模式：在顶部下拉框切换显示方式"),
+                self.tr("· 连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”"),
+                self.tr("· 调节图像：使用曝光和增益控制"),
+                self.tr("· 采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）"),
+                self.tr("· 显示模式：在顶部下拉框切换显示方式"),
             )),
             (self.tr("图像工具"), (
-                self.tr("游标：查看图像像素信息"),
-                self.tr("缩放：放大、缩小，或框选区域放大"),
-                self.tr("复原：恢复原始显示"),
+                self.tr("· 游标：查看图像像素信息"),
+                self.tr("· 缩放：放大、缩小，或框选区域放大"),
+                self.tr("· 复原：恢复原始显示"),
             )),
             (self.tr("图像处理"), (
-                self.tr("白平衡：彩色模式下可开启自动白平衡"),
-                self.tr("偏振分析：查看 DOLP、AOLP 等偏振信息"),
-                self.tr("保存：导出原始图像和处理结果"),
-                self.tr("读取：载入已保存的原始图像"),
+                self.tr("· 白平衡：彩色模式下可开启自动白平衡"),
+                self.tr("· 偏振分析：查看 DOLP、AOLP 等偏振信息"),
+                self.tr("· 保存：导出原始图像和处理结果"),
+                self.tr("· 读取：载入已保存的原始图像"),
             )),
         )
 
@@ -865,8 +865,11 @@ class ImageDisplay(QtWidgets.QWidget):
             column.addWidget(section_title)
 
             for line in lines:
-                item = make_label(f"· {line}", Styles.get_font(Styles.FONT_MEDIUM))
+                item = make_label(line, Styles.get_font(Styles.FONT_MEDIUM))
                 item.setIndent(Styles.SPACING_MEDIUM)
+                # 换行必须开：内容列被限到 460px，中文那句刚好塞得下，英文同一句要长
+                # 两三成，没换行的标签就把后半句直接裁掉（真平台英文截图里就是这样）。
+                item.setWordWrap(True)
                 column.addWidget(item)
 
         hint = make_label(self.tr("点击任意处返回图像"), Styles.get_font(Styles.FONT_SMALL))

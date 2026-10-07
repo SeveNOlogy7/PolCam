@@ -13,6 +13,7 @@
     <name>CameraControl</name>
     <message>
         <location filename="../gui/camera_control.py" line="42"/>
+        <location filename="../gui/camera_control.py" line="163"/>
         <source>连接相机</source>
         <translation>Connect Camera</translation>
     </message>
@@ -33,8 +34,13 @@
     </message>
     <message>
         <location filename="../gui/camera_control.py" line="53"/>
-        <source>曝光时间</source>
-        <translation>Exposure Time</translation>
+        <source>曝光时间 (us):</source>
+        <translation>Exposure Time (us):</translation>
+    </message>
+    <message>
+        <location filename="../gui/camera_control.py" line="54"/>
+        <source>增益 (dB):</source>
+        <translation>Gain (dB):</translation>
     </message>
     <message>
         <location filename="../gui/camera_control.py" line="54"/>
@@ -42,9 +48,9 @@
         <translation>Gain Control</translation>
     </message>
     <message>
-        <location filename="../gui/camera_control.py" line="54"/>
-        <source>增益</source>
-        <translation>Gain</translation>
+        <location filename="../gui/camera_control.py" line="162"/>
+        <source>断开相机</source>
+        <translation>Disconnect Camera</translation>
     </message>
 </context>
 <context>
@@ -53,6 +59,12 @@
         <location filename="../gui/camera_select_dialog.py" line="32"/>
         <source>选择相机</source>
         <translation>Select Camera</translation>
+    </message>
+    <message>
+        <location filename="../gui/camera_select_dialog.py" line="47"/>
+        <location filename="../gui/camera_select_dialog.py" line="187"/>
+        <source>检测到 %1 个相机设备，请选择要连接的相机：</source>
+        <translation>Found %1 camera device(s) - choose which one to connect:</translation>
     </message>
     <message>
         <location filename="../gui/camera_select_dialog.py" line="55"/>
@@ -101,6 +113,11 @@
         <translation>Disconnect</translation>
     </message>
     <message>
+        <location filename="../gui/camera_select_dialog.py" line="165"/>
+        <source>已连接: %1 (SN: %2)</source>
+        <translation>Connected: %1 (SN: %2)</translation>
+    </message>
+    <message>
         <location filename="../gui/camera_select_dialog.py" line="168"/>
         <source>连接失败</source>
         <translation>Connection failed</translation>
@@ -116,14 +133,29 @@
         <translation>Connection error</translation>
     </message>
     <message>
+        <location filename="../gui/camera_select_dialog.py" line="171"/>
+        <source>连接相机时发生错误: %1</source>
+        <translation>Error while connecting the camera: %1</translation>
+    </message>
+    <message>
         <location filename="../gui/camera_select_dialog.py" line="185"/>
         <source>未检测到相机设备</source>
         <translation>No camera device detected</translation>
     </message>
     <message>
+        <location filename="../gui/camera_select_dialog.py" line="192"/>
+        <source>已连接的相机不在当前列表里（可能被本程序占用），点「断开」可释放</source>
+        <translation>The connected camera is not in the current list (this app may still hold it); click Disconnect to release it</translation>
+    </message>
+    <message>
         <location filename="../gui/camera_select_dialog.py" line="195"/>
         <source>刷新失败</source>
         <translation>Refresh failed</translation>
+    </message>
+    <message>
+        <location filename="../gui/camera_select_dialog.py" line="195"/>
+        <source>刷新设备列表失败: %1</source>
+        <translation>Could not refresh the device list: %1</translation>
     </message>
 </context>
 <context>
@@ -134,77 +166,78 @@
         <translation>Gallery</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="55"/>
-        <source>0 项</source>
-        <translation>0 items</translation>
+        <location filename="../gui/widgets/gallery_panel.py" line="56"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="130"/>
+        <source>%1 项</source>
+        <translation>%1 items</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="60"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="61"/>
         <source>预览图</source>
         <translation>Thumbnails</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="61"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="62"/>
         <source>列表</source>
         <translation>List</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="65"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="66"/>
         <source>读取</source>
         <translation>Open</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="66"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="67"/>
         <source>在上方图像区中查看选中的图像</source>
         <translation>Shows the selected image in the view above</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="70"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="71"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="71"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="72"/>
         <source>删除选中的图像文件及图库记录</source>
         <translation>Delete the selected image file and its gallery record</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="75"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="76"/>
         <source>刷新</source>
         <translation>Refresh</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="76"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="77"/>
         <source>重新扫描自动保存目录</source>
         <translation>Rescan the auto-save directory</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="101"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="102"/>
         <source>文件名</source>
         <translation>File name</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="101"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="102"/>
         <source>采集时间</source>
         <translation>Captured at</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="101"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="102"/>
         <source>尺寸</source>
         <translation>Size</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="101"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="102"/>
         <source>格式</source>
         <translation>Format</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="101"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="102"/>
         <source>路径</source>
         <translation>Path</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/gallery_panel.py" line="115"/>
+        <location filename="../gui/widgets/gallery_panel.py" line="116"/>
         <source>暂无自动保存图像</source>
         <translation>No auto-saved images yet</translation>
     </message>
@@ -212,42 +245,42 @@
 <context>
     <name>ImageDisplay</name>
     <message>
-        <location filename="../gui/image_display.py" line="39"/>
+        <location filename="../gui/image_display.py" line="44"/>
         <source>原始图像</source>
         <translation>Raw Image</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="40"/>
+        <location filename="../gui/image_display.py" line="45"/>
         <source>单角度彩色</source>
         <translation>Single Angle (Color)</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="41"/>
+        <location filename="../gui/image_display.py" line="46"/>
         <source>单角度灰度</source>
         <translation>Single Angle (Gray)</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="42"/>
+        <location filename="../gui/image_display.py" line="47"/>
         <source>彩色图像</source>
-        <translation>Merged (Color)</translation>
+        <translation>Color</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="43"/>
+        <location filename="../gui/image_display.py" line="48"/>
         <source>灰度图像</source>
-        <translation>Merged (Gray)</translation>
+        <translation>Grayscale</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="44"/>
+        <location filename="../gui/image_display.py" line="49"/>
         <source>四角度彩色</source>
         <translation>Four Angles (Color)</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="45"/>
+        <location filename="../gui/image_display.py" line="50"/>
         <source>四角度灰度</source>
         <translation>Four Angles (Gray)</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="46"/>
+        <location filename="../gui/image_display.py" line="51"/>
         <source>偏振度图像</source>
         <translation>Polarization</translation>
     </message>
@@ -258,23 +291,58 @@
     </message>
     <message>
         <location filename="../gui/image_display.py" line="782"/>
-        <source>连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”</source>
-        <translation>Connect: the button at the top left reads “Connect Camera” when idle and “Disconnect Camera” when connected</translation>
+        <source>· 连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”</source>
+        <translation>· Connect: the button at the top left reads “Connect Camera” when idle and “Disconnect Camera” when connected</translation>
     </message>
     <message>
         <location filename="../gui/image_display.py" line="783"/>
-        <source>调节图像：使用曝光和增益控制</source>
-        <translation>Adjust the image with the exposure and gain controls</translation>
+        <source>· 调节图像：使用曝光和增益控制</source>
+        <translation>· Adjust the image with the exposure and gain controls</translation>
     </message>
     <message>
         <location filename="../gui/image_display.py" line="784"/>
-        <source>采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）</source>
-        <translation>Capture: “Single Frame”, or “Continuous Capture” (that button reads “Stop Capture” while running)</translation>
+        <source>· 采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）</source>
+        <translation>· Capture: “Single Frame”, or “Continuous Capture” (that button reads “Stop Capture” while running)</translation>
     </message>
     <message>
         <location filename="../gui/image_display.py" line="785"/>
-        <source>显示模式：在顶部下拉框切换显示方式</source>
-        <translation>Display mode: switch it in the drop-down at the top</translation>
+        <source>· 显示模式：在顶部下拉框切换显示方式</source>
+        <translation>· Display mode: switch it in the drop-down at the top</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="788"/>
+        <source>· 游标：查看图像像素信息</source>
+        <translation>· Cursor: read pixel values off the image</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="789"/>
+        <source>· 缩放：放大、缩小，或框选区域放大</source>
+        <translation>· Zoom: in, out, or drag a box to zoom into</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="790"/>
+        <source>· 复原：恢复原始显示</source>
+        <translation>· Reset: back to the full view</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="793"/>
+        <source>· 白平衡：彩色模式下可开启自动白平衡</source>
+        <translation>· White balance: automatic white balance is available in the colour modes</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="794"/>
+        <source>· 偏振分析：查看 DOLP、AOLP 等偏振信息</source>
+        <translation>· Polarization analysis: DOLP, AOLP and other polarization channels</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="795"/>
+        <source>· 保存：导出原始图像和处理结果</source>
+        <translation>· Save: export the raw image or the processed result</translation>
+    </message>
+    <message>
+        <location filename="../gui/image_display.py" line="796"/>
+        <source>· 读取：载入已保存的原始图像</source>
+        <translation>· Open: load a saved raw image</translation>
     </message>
     <message>
         <location filename="../gui/image_display.py" line="787"/>
@@ -282,44 +350,9 @@
         <translation>Image tools</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="788"/>
-        <source>游标：查看图像像素信息</source>
-        <translation>Cursor: read pixel values off the image</translation>
-    </message>
-    <message>
-        <location filename="../gui/image_display.py" line="789"/>
-        <source>缩放：放大、缩小，或框选区域放大</source>
-        <translation>Zoom: in, out, or drag a box to zoom into</translation>
-    </message>
-    <message>
-        <location filename="../gui/image_display.py" line="790"/>
-        <source>复原：恢复原始显示</source>
-        <translation>Reset: back to the full view</translation>
-    </message>
-    <message>
         <location filename="../gui/image_display.py" line="792"/>
         <source>图像处理</source>
         <translation>Image processing</translation>
-    </message>
-    <message>
-        <location filename="../gui/image_display.py" line="793"/>
-        <source>白平衡：彩色模式下可开启自动白平衡</source>
-        <translation>White balance: automatic white balance is available in the colour modes</translation>
-    </message>
-    <message>
-        <location filename="../gui/image_display.py" line="794"/>
-        <source>偏振分析：查看 DOLP、AOLP 等偏振信息</source>
-        <translation>Polarization analysis: DOLP, AOLP and other polarization channels</translation>
-    </message>
-    <message>
-        <location filename="../gui/image_display.py" line="795"/>
-        <source>保存：导出原始图像和处理结果</source>
-        <translation>Save: export the raw image or the processed result</translation>
-    </message>
-    <message>
-        <location filename="../gui/image_display.py" line="796"/>
-        <source>读取：载入已保存的原始图像</source>
-        <translation>Open: load a saved raw image</translation>
     </message>
     <message>
         <location filename="../gui/image_display.py" line="841"/>
@@ -337,7 +370,7 @@
         <translation>What this machine can do right now</translation>
     </message>
     <message>
-        <location filename="../gui/image_display.py" line="872"/>
+        <location filename="../gui/image_display.py" line="875"/>
         <source>点击任意处返回图像</source>
         <translation>Click anywhere to return to the image</translation>
     </message>
@@ -345,54 +378,54 @@
 <context>
     <name>ImageToolbar</name>
     <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="35"/>
+        <location filename="../gui/widgets/image_toolbar.py" line="37"/>
         <source>游标</source>
         <translation>Cursor</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="35"/>
-        <source>悬停查看像素数值，再次点击退出</source>
-        <translation>Hover to read pixel values; click again to exit</translation>
+        <location filename="../gui/widgets/image_toolbar.py" line="38"/>
+        <source>游标：悬停查看像素数值，再次点击退出</source>
+        <translation>Cursor: Hover to read pixel values; click again to exit</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="36"/>
+        <location filename="../gui/widgets/image_toolbar.py" line="39"/>
+        <source>放大：点击图像中心区域放大</source>
+        <translation>Zoom In: Click the image to zoom in around that point</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/image_toolbar.py" line="40"/>
+        <source>缩小：点击图像区域缩小</source>
+        <translation>Zoom Out: Click the image to zoom out</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/image_toolbar.py" line="41"/>
+        <source>区域放大：拖拽框选要放大的区域</source>
+        <translation>Zoom Area: Drag to select the area to zoom into</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/image_toolbar.py" line="42"/>
+        <source>复原：恢复整幅图像的原始显示</source>
+        <translation>Reset View: Restore the full image</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/image_toolbar.py" line="39"/>
         <source>放大</source>
         <translation>Zoom In</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="36"/>
-        <source>点击图像中心区域放大</source>
-        <translation>Click the image to zoom in around that point</translation>
-    </message>
-    <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="37"/>
+        <location filename="../gui/widgets/image_toolbar.py" line="40"/>
         <source>缩小</source>
         <translation>Zoom Out</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="37"/>
-        <source>点击图像区域缩小</source>
-        <translation>Click the image to zoom out</translation>
-    </message>
-    <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="38"/>
+        <location filename="../gui/widgets/image_toolbar.py" line="41"/>
         <source>区域放大</source>
         <translation>Zoom Area</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="38"/>
-        <source>拖拽框选要放大的区域</source>
-        <translation>Drag to select the area to zoom into</translation>
-    </message>
-    <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="39"/>
+        <location filename="../gui/widgets/image_toolbar.py" line="42"/>
         <source>复原</source>
         <translation>Reset View</translation>
-    </message>
-    <message>
-        <location filename="../gui/widgets/image_toolbar.py" line="39"/>
-        <source>恢复整幅图像的原始显示</source>
-        <translation>Restore the full image</translation>
     </message>
 </context>
 <context>
@@ -441,15 +474,64 @@
     <message>
         <location filename="../core/image_toolbar_controller.py" line="303"/>
         <location filename="../core/image_toolbar_controller.py" line="335"/>
-        <location filename="../core/image_toolbar_controller.py" line="418"/>
+        <location filename="../core/image_toolbar_controller.py" line="417"/>
         <source>相机未连接</source>
         <translation>Camera not connected</translation>
     </message>
     <message>
+        <location filename="../core/image_toolbar_controller.py" line="325"/>
+        <location filename="../core/image_toolbar_controller.py" line="386"/>
+        <source>已达最大放大倍率（面积） %1x</source>
+        <translation>Area zoom reached its maximum: %1x</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="327"/>
+        <location filename="../core/image_toolbar_controller.py" line="388"/>
+        <source>缩放: %1x（面积）</source>
+        <translation>Zoom: %1x (area)</translation>
+    </message>
+    <message>
         <location filename="../core/image_toolbar_controller.py" line="331"/>
-        <location filename="../core/image_toolbar_controller.py" line="414"/>
+        <location filename="../core/image_toolbar_controller.py" line="413"/>
         <source>单帧采集进行中，请稍候再缩放</source>
         <translation>A single-frame capture is running; zoom after it</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="383"/>
+        <source>受 ROI 网格限制，最大可达 %1x（设置上限 %2x）</source>
+        <translation>ROI grid limits the zoom to %1x (configured maximum %2x)</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="407"/>
+        <location filename="../core/image_toolbar_controller.py" line="450"/>
+        <source>选区已调整到最大放大倍率 %1x</source>
+        <translation>Selection adjusted to the maximum zoom: %1x</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="409"/>
+        <location filename="../core/image_toolbar_controller.py" line="452"/>
+        <source>区域放大: %1x</source>
+        <translation>Area zoom: %1x</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="447"/>
+        <source>受 ROI 网格限制，选区最大可达 %1x（设置上限 %2x）</source>
+        <translation>The ROI grid limits the selection to %1x (configured maximum %2x)</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="458"/>
+        <source>选区: (%1, %2) %3x%4</source>
+        <translation>Selection: (%1, %2) %3x%4</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="494"/>
+        <source>合成图</source>
+        <translation>Merged</translation>
+    </message>
+    <message>
+        <location filename="../core/image_toolbar_controller.py" line="499"/>
+        <source>区域%1</source>
+        <translation>Panel %1</translation>
     </message>
 </context>
 <context>
@@ -535,6 +617,16 @@ You can still process saved raw images with the Open button on the toolbar.</tra
         <translation>An automatic adjustment is running; capture after it</translation>
     </message>
     <message>
+        <location filename="../gui/main_window.py" line="553"/>
+        <source>获取图像失败: %1</source>
+        <translation>Could not get the image: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/main_window.py" line="571"/>
+        <source>采集: %1ms | 处理: %2ms</source>
+        <translation>Capture: %1ms | Processing: %2ms</translation>
+    </message>
+    <message>
         <location filename="../gui/main_window.py" line="607"/>
         <source>无法开始连续采集</source>
         <translation>Could not start continuous capture</translation>
@@ -566,9 +658,21 @@ You can still process saved raw images with the Open button on the toolbar.</tra
         <translation>Quit</translation>
     </message>
     <message>
+        <location filename="../gui/main_window.py" line="939"/>
+        <source>关闭程序时发生错误: %1
+程序将继续关闭。</source>
+        <translation>An error occurred while closing: %1
+The application still quits.</translation>
+    </message>
+    <message>
         <location filename="../gui/main_window.py" line="989"/>
         <source>相机已断开</source>
         <translation>Camera disconnected</translation>
+    </message>
+    <message>
+        <location filename="../gui/main_window.py" line="1135"/>
+        <source>错误: %1</source>
+        <translation>Error: %1</translation>
     </message>
     <message>
         <location filename="../gui/main_window.py" line="1145"/>
@@ -576,9 +680,19 @@ You can still process saved raw images with the Open button on the toolbar.</tra
         <translation>Camera error</translation>
     </message>
     <message>
+        <location filename="../gui/main_window.py" line="1187"/>
+        <source>已加载图像: %1</source>
+        <translation>Image loaded: %1</translation>
+    </message>
+    <message>
         <location filename="../gui/main_window.py" line="1191"/>
         <source>加载图像失败</source>
         <translation>Could not load the image</translation>
+    </message>
+    <message>
+        <location filename="../gui/main_window.py" line="1236"/>
+        <source>自动保存失败: %1</source>
+        <translation>Auto-save failed: %1</translation>
     </message>
     <message>
         <location filename="../gui/main_window.py" line="1244"/>
@@ -591,14 +705,36 @@ You can still process saved raw images with the Open button on the toolbar.</tra
         <translation>Could not read</translation>
     </message>
     <message>
+        <location filename="../gui/main_window.py" line="1252"/>
+        <source>无法读取图库图像: %1</source>
+        <translation>Could not read the gallery image: %1</translation>
+    </message>
+    <message>
         <location filename="../gui/main_window.py" line="1277"/>
         <source>删除图库图像</source>
         <translation>Delete gallery image</translation>
     </message>
     <message>
+        <location filename="../gui/main_window.py" line="1278"/>
+        <source>确定要删除选中的 %1 项图像及数据库记录吗？
+
+%2</source>
+        <translation>Delete the selected %1 image(s) and their database records? %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/main_window.py" line="1288"/>
+        <source>已删除 %1 项图像</source>
+        <translation>Deleted %1 image(s)</translation>
+    </message>
+    <message>
         <location filename="../gui/main_window.py" line="1291"/>
         <source>删除失败</source>
         <translation>Could not delete</translation>
+    </message>
+    <message>
+        <location filename="../gui/main_window.py" line="1291"/>
+        <source>删除图库图像失败: %1</source>
+        <translation>Could not delete the gallery image: %1</translation>
     </message>
 </context>
 <context>
@@ -626,6 +762,16 @@ You can still process saved raw images with the Open button on the toolbar.</tra
 </context>
 <context>
     <name>PolarizationControl</name>
+    <message>
+        <location filename="../gui/widgets/polarization_control.py" line="29"/>
+        <source>灰度图像</source>
+        <translation>Grayscale</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/polarization_control.py" line="29"/>
+        <source>彩色图像</source>
+        <translation>Color</translation>
+    </message>
     <message>
         <location filename="../gui/widgets/polarization_control.py" line="30"/>
         <source>选择偏振分析结果的合成方式</source>
@@ -792,6 +938,30 @@ Automatic follows the window size: once the source image fits on screen it retur
     </message>
 </context>
 <context>
+    <name>StatusIndicator</name>
+    <message>
+        <location filename="../gui/widgets/status_indicator.py" line="46"/>
+        <location filename="../gui/widgets/status_indicator.py" line="49"/>
+        <source>未连接</source>
+        <translation>Not connected</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/status_indicator.py" line="48"/>
+        <source>正在处理</source>
+        <translation>Processing</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/status_indicator.py" line="49"/>
+        <source>已连接</source>
+        <translation>Connected</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/status_indicator.py" line="57"/>
+        <source>相机状态：%1</source>
+        <translation>Camera status: %1</translation>
+    </message>
+</context>
+<context>
     <name>ToolBar</name>
     <message>
         <location filename="../gui/widgets/tool_bar.py" line="29"/>
@@ -872,25 +1042,52 @@ Automatic follows the window size: once the source image fits on screen it retur
         <translation>Continuous capture is running; stop it before opening an image</translation>
     </message>
     <message>
+        <location filename="../core/toolbar_controller.py" line="303"/>
+        <location filename="../core/toolbar_controller.py" line="317"/>
+        <location filename="../core/toolbar_controller.py" line="401"/>
+        <location filename="../core/toolbar_controller.py" line="538"/>
+        <source>已保存: %1</source>
+        <translation>Saved: %1</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="306"/>
+        <location filename="../core/toolbar_controller.py" line="321"/>
+        <location filename="../core/toolbar_controller.py" line="411"/>
+        <location filename="../core/toolbar_controller.py" line="542"/>
+        <source>保存失败: %1</source>
+        <translation>Could not save: %1</translation>
+    </message>
+    <message>
         <location filename="../core/toolbar_controller.py" line="406"/>
-        <location filename="../core/toolbar_controller.py" line="551"/>
+        <location filename="../core/toolbar_controller.py" line="549"/>
         <source>保存成功</source>
         <translation>Saved</translation>
     </message>
     <message>
+        <location filename="../core/toolbar_controller.py" line="407"/>
+        <source>原始图像已保存到:
+%1</source>
+        <translation>Raw image saved to: %1</translation>
+    </message>
+    <message>
         <location filename="../core/toolbar_controller.py" line="409"/>
-        <location filename="../core/toolbar_controller.py" line="554"/>
+        <location filename="../core/toolbar_controller.py" line="552"/>
         <source>就绪</source>
         <translation>Ready</translation>
     </message>
     <message>
         <location filename="../core/toolbar_controller.py" line="415"/>
         <location filename="../core/toolbar_controller.py" line="418"/>
-        <location filename="../core/toolbar_controller.py" line="558"/>
-        <location filename="../core/toolbar_controller.py" line="561"/>
-        <location filename="../core/toolbar_controller.py" line="567"/>
+        <location filename="../core/toolbar_controller.py" line="556"/>
+        <location filename="../core/toolbar_controller.py" line="559"/>
+        <location filename="../core/toolbar_controller.py" line="565"/>
         <source>保存失败</source>
         <translation>Could not save</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="416"/>
+        <source>保存原始图像失败: %1</source>
+        <translation>Could not save the raw image: %1</translation>
     </message>
     <message>
         <location filename="../core/toolbar_controller.py" line="445"/>
@@ -898,37 +1095,60 @@ Automatic follows the window size: once the source image fits on screen it retur
         <translation>A result file with that name already exists</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="453"/>
+        <location filename="../core/toolbar_controller.py" line="446"/>
+        <source>「%1」在 %2 下已经有结果文件（例如 %3）。
+继续会按同一批名字写出这次的结果，其中同名的文件会被覆盖。
+要覆盖吗？</source>
+        <translation>“%1” already has result files under %2 (for example %3). Continuing writes this run&apos;s results under the same names, and files with those names are overwritten. Overwrite them?</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="451"/>
         <source>已取消保存</source>
         <translation>Save cancelled</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="559"/>
+        <location filename="../core/toolbar_controller.py" line="550"/>
+        <source>处理结果已保存到目录:
+%1</source>
+        <translation>Results saved to: %1</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="557"/>
         <source>部分图像保存失败，请检查日志</source>
         <translation>Some images could not be saved; check the log</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="584"/>
+        <location filename="../core/toolbar_controller.py" line="566"/>
+        <source>保存处理结果失败: %1</source>
+        <translation>Could not save the results: %1</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="582"/>
         <source>错误</source>
         <translation>Error</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="596"/>
+        <location filename="../core/toolbar_controller.py" line="583"/>
+        <source>无法读取图像文件: %1</source>
+        <translation>Could not read the image file: %1</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="594"/>
         <source>设置已更新</source>
         <translation>Settings updated</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="598"/>
+        <location filename="../core/toolbar_controller.py" line="596"/>
         <source>已取消设置</source>
         <translation>Settings cancelled</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="616"/>
+        <location filename="../core/toolbar_controller.py" line="614"/>
         <source>显示关于信息</source>
         <translation>Show information about PolCam</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="622"/>
+        <location filename="../core/toolbar_controller.py" line="620"/>
         <source>显示帮助信息</source>
         <translation>Show the help page</translation>
     </message>

@@ -26,8 +26,13 @@
  },
  {
   "context": "CameraControl",
-  "source": "曝光时间",
-  "translation": "Exposure Time"
+  "source": "曝光时间 (us):",
+  "translation": "Exposure Time (us):"
+ },
+ {
+  "context": "CameraControl",
+  "source": "增益 (dB):",
+  "translation": "Gain (dB):"
  },
  {
   "context": "CameraControl",
@@ -36,13 +41,18 @@
  },
  {
   "context": "CameraControl",
-  "source": "增益",
-  "translation": "Gain"
+  "source": "断开相机",
+  "translation": "Disconnect Camera"
  },
  {
   "context": "CameraSelectDialog",
   "source": "选择相机",
   "translation": "Select Camera"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "检测到 %1 个相机设备，请选择要连接的相机：",
+  "translation": "Found %1 camera device(s) - choose which one to connect:"
  },
  {
   "context": "CameraSelectDialog",
@@ -91,6 +101,11 @@
  },
  {
   "context": "CameraSelectDialog",
+  "source": "已连接: %1 (SN: %2)",
+  "translation": "Connected: %1 (SN: %2)"
+ },
+ {
+  "context": "CameraSelectDialog",
   "source": "连接失败",
   "translation": "Connection failed"
  },
@@ -106,13 +121,28 @@
  },
  {
   "context": "CameraSelectDialog",
+  "source": "连接相机时发生错误: %1",
+  "translation": "Error while connecting the camera: %1"
+ },
+ {
+  "context": "CameraSelectDialog",
   "source": "未检测到相机设备",
   "translation": "No camera device detected"
  },
  {
   "context": "CameraSelectDialog",
+  "source": "已连接的相机不在当前列表里（可能被本程序占用），点「断开」可释放",
+  "translation": "The connected camera is not in the current list (this app may still hold it); click Disconnect to release it"
+ },
+ {
+  "context": "CameraSelectDialog",
   "source": "刷新失败",
   "translation": "Refresh failed"
+ },
+ {
+  "context": "CameraSelectDialog",
+  "source": "刷新设备列表失败: %1",
+  "translation": "Could not refresh the device list: %1"
  },
  {
   "context": "GalleryPanel",
@@ -121,8 +151,8 @@
  },
  {
   "context": "GalleryPanel",
-  "source": "0 项",
-  "translation": "0 items"
+  "source": "%1 项",
+  "translation": "%1 items"
  },
  {
   "context": "GalleryPanel",
@@ -212,12 +242,12 @@
  {
   "context": "ImageDisplay",
   "source": "彩色图像",
-  "translation": "Merged (Color)"
+  "translation": "Color"
  },
  {
   "context": "ImageDisplay",
   "source": "灰度图像",
-  "translation": "Merged (Gray)"
+  "translation": "Grayscale"
  },
  {
   "context": "ImageDisplay",
@@ -241,23 +271,58 @@
  },
  {
   "context": "ImageDisplay",
-  "source": "连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”",
-  "translation": "Connect: the button at the top left reads “Connect Camera” when idle and “Disconnect Camera” when connected"
+  "source": "· 连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”",
+  "translation": "· Connect: the button at the top left reads “Connect Camera” when idle and “Disconnect Camera” when connected"
  },
  {
   "context": "ImageDisplay",
-  "source": "调节图像：使用曝光和增益控制",
-  "translation": "Adjust the image with the exposure and gain controls"
+  "source": "· 调节图像：使用曝光和增益控制",
+  "translation": "· Adjust the image with the exposure and gain controls"
  },
  {
   "context": "ImageDisplay",
-  "source": "采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）",
-  "translation": "Capture: “Single Frame”, or “Continuous Capture” (that button reads “Stop Capture” while running)"
+  "source": "· 采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）",
+  "translation": "· Capture: “Single Frame”, or “Continuous Capture” (that button reads “Stop Capture” while running)"
  },
  {
   "context": "ImageDisplay",
-  "source": "显示模式：在顶部下拉框切换显示方式",
-  "translation": "Display mode: switch it in the drop-down at the top"
+  "source": "· 显示模式：在顶部下拉框切换显示方式",
+  "translation": "· Display mode: switch it in the drop-down at the top"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 游标：查看图像像素信息",
+  "translation": "· Cursor: read pixel values off the image"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 缩放：放大、缩小，或框选区域放大",
+  "translation": "· Zoom: in, out, or drag a box to zoom into"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 复原：恢复原始显示",
+  "translation": "· Reset: back to the full view"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 白平衡：彩色模式下可开启自动白平衡",
+  "translation": "· White balance: automatic white balance is available in the colour modes"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 偏振分析：查看 DOLP、AOLP 等偏振信息",
+  "translation": "· Polarization analysis: DOLP, AOLP and other polarization channels"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 保存：导出原始图像和处理结果",
+  "translation": "· Save: export the raw image or the processed result"
+ },
+ {
+  "context": "ImageDisplay",
+  "source": "· 读取：载入已保存的原始图像",
+  "translation": "· Open: load a saved raw image"
  },
  {
   "context": "ImageDisplay",
@@ -266,43 +331,8 @@
  },
  {
   "context": "ImageDisplay",
-  "source": "游标：查看图像像素信息",
-  "translation": "Cursor: read pixel values off the image"
- },
- {
-  "context": "ImageDisplay",
-  "source": "缩放：放大、缩小，或框选区域放大",
-  "translation": "Zoom: in, out, or drag a box to zoom into"
- },
- {
-  "context": "ImageDisplay",
-  "source": "复原：恢复原始显示",
-  "translation": "Reset: back to the full view"
- },
- {
-  "context": "ImageDisplay",
   "source": "图像处理",
   "translation": "Image processing"
- },
- {
-  "context": "ImageDisplay",
-  "source": "白平衡：彩色模式下可开启自动白平衡",
-  "translation": "White balance: automatic white balance is available in the colour modes"
- },
- {
-  "context": "ImageDisplay",
-  "source": "偏振分析：查看 DOLP、AOLP 等偏振信息",
-  "translation": "Polarization analysis: DOLP, AOLP and other polarization channels"
- },
- {
-  "context": "ImageDisplay",
-  "source": "保存：导出原始图像和处理结果",
-  "translation": "Save: export the raw image or the processed result"
- },
- {
-  "context": "ImageDisplay",
-  "source": "读取：载入已保存的原始图像",
-  "translation": "Open: load a saved raw image"
  },
  {
   "context": "ImageDisplay",
@@ -331,8 +361,28 @@
  },
  {
   "context": "ImageToolbar",
-  "source": "悬停查看像素数值，再次点击退出",
-  "translation": "Hover to read pixel values; click again to exit"
+  "source": "游标：悬停查看像素数值，再次点击退出",
+  "translation": "Cursor: Hover to read pixel values; click again to exit"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "放大：点击图像中心区域放大",
+  "translation": "Zoom In: Click the image to zoom in around that point"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "缩小：点击图像区域缩小",
+  "translation": "Zoom Out: Click the image to zoom out"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "区域放大：拖拽框选要放大的区域",
+  "translation": "Zoom Area: Drag to select the area to zoom into"
+ },
+ {
+  "context": "ImageToolbar",
+  "source": "复原：恢复整幅图像的原始显示",
+  "translation": "Reset View: Restore the full image"
  },
  {
   "context": "ImageToolbar",
@@ -341,18 +391,8 @@
  },
  {
   "context": "ImageToolbar",
-  "source": "点击图像中心区域放大",
-  "translation": "Click the image to zoom in around that point"
- },
- {
-  "context": "ImageToolbar",
   "source": "缩小",
   "translation": "Zoom Out"
- },
- {
-  "context": "ImageToolbar",
-  "source": "点击图像区域缩小",
-  "translation": "Click the image to zoom out"
  },
  {
   "context": "ImageToolbar",
@@ -361,18 +401,8 @@
  },
  {
   "context": "ImageToolbar",
-  "source": "拖拽框选要放大的区域",
-  "translation": "Drag to select the area to zoom into"
- },
- {
-  "context": "ImageToolbar",
   "source": "复原",
   "translation": "Reset View"
- },
- {
-  "context": "ImageToolbar",
-  "source": "恢复整幅图像的原始显示",
-  "translation": "Restore the full image"
  },
  {
   "context": "ImageToolbarController",
@@ -421,8 +451,53 @@
  },
  {
   "context": "ImageToolbarController",
+  "source": "已达最大放大倍率（面积） %1x",
+  "translation": "Area zoom reached its maximum: %1x"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "缩放: %1x（面积）",
+  "translation": "Zoom: %1x (area)"
+ },
+ {
+  "context": "ImageToolbarController",
   "source": "单帧采集进行中，请稍候再缩放",
   "translation": "A single-frame capture is running; zoom after it"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "受 ROI 网格限制，最大可达 %1x（设置上限 %2x）",
+  "translation": "ROI grid limits the zoom to %1x (configured maximum %2x)"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "选区已调整到最大放大倍率 %1x",
+  "translation": "Selection adjusted to the maximum zoom: %1x"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "区域放大: %1x",
+  "translation": "Area zoom: %1x"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "受 ROI 网格限制，选区最大可达 %1x（设置上限 %2x）",
+  "translation": "The ROI grid limits the selection to %1x (configured maximum %2x)"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "选区: (%1, %2) %3x%4",
+  "translation": "Selection: (%1, %2) %3x%4"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "合成图",
+  "translation": "Merged"
+ },
+ {
+  "context": "ImageToolbarController",
+  "source": "区域%1",
+  "translation": "Panel %1"
  },
  {
   "context": "MainWindow",
@@ -496,6 +571,16 @@
  },
  {
   "context": "MainWindow",
+  "source": "获取图像失败: %1",
+  "translation": "Could not get the image: %1"
+ },
+ {
+  "context": "MainWindow",
+  "source": "采集: %1ms | 处理: %2ms",
+  "translation": "Capture: %1ms | Processing: %2ms"
+ },
+ {
+  "context": "MainWindow",
   "source": "无法开始连续采集",
   "translation": "Could not start continuous capture"
  },
@@ -526,8 +611,18 @@
  },
  {
   "context": "MainWindow",
+  "source": "关闭程序时发生错误: %1\n程序将继续关闭。",
+  "translation": "An error occurred while closing: %1\nThe application still quits."
+ },
+ {
+  "context": "MainWindow",
   "source": "相机已断开",
   "translation": "Camera disconnected"
+ },
+ {
+  "context": "MainWindow",
+  "source": "错误: %1",
+  "translation": "Error: %1"
  },
  {
   "context": "MainWindow",
@@ -536,8 +631,18 @@
  },
  {
   "context": "MainWindow",
+  "source": "已加载图像: %1",
+  "translation": "Image loaded: %1"
+ },
+ {
+  "context": "MainWindow",
   "source": "加载图像失败",
   "translation": "Could not load the image"
+ },
+ {
+  "context": "MainWindow",
+  "source": "自动保存失败: %1",
+  "translation": "Auto-save failed: %1"
  },
  {
   "context": "MainWindow",
@@ -551,13 +656,33 @@
  },
  {
   "context": "MainWindow",
+  "source": "无法读取图库图像: %1",
+  "translation": "Could not read the gallery image: %1"
+ },
+ {
+  "context": "MainWindow",
   "source": "删除图库图像",
   "translation": "Delete gallery image"
  },
  {
   "context": "MainWindow",
+  "source": "确定要删除选中的 %1 项图像及数据库记录吗？\n\n%2",
+  "translation": "Delete the selected %1 image(s) and their database records? %2"
+ },
+ {
+  "context": "MainWindow",
+  "source": "已删除 %1 项图像",
+  "translation": "Deleted %1 image(s)"
+ },
+ {
+  "context": "MainWindow",
   "source": "删除失败",
   "translation": "Could not delete"
+ },
+ {
+  "context": "MainWindow",
+  "source": "删除图库图像失败: %1",
+  "translation": "Could not delete the gallery image: %1"
  },
  {
   "context": "ParameterControl",
@@ -578,6 +703,16 @@
   "context": "ParameterControl",
   "source": "执行一次自动调整后停止",
   "translation": "Runs one automatic adjustment, then stops"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "灰度图像",
+  "translation": "Grayscale"
+ },
+ {
+  "context": "PolarizationControl",
+  "source": "彩色图像",
+  "translation": "Color"
  },
  {
   "context": "PolarizationControl",
@@ -735,6 +870,26 @@
   "translation": "Denoise"
  },
  {
+  "context": "StatusIndicator",
+  "source": "未连接",
+  "translation": "Not connected"
+ },
+ {
+  "context": "StatusIndicator",
+  "source": "正在处理",
+  "translation": "Processing"
+ },
+ {
+  "context": "StatusIndicator",
+  "source": "已连接",
+  "translation": "Connected"
+ },
+ {
+  "context": "StatusIndicator",
+  "source": "相机状态：%1",
+  "translation": "Camera status: %1"
+ },
+ {
   "context": "ToolBar",
   "source": "保存原始图像",
   "translation": "Save Raw Image"
@@ -811,8 +966,23 @@
  },
  {
   "context": "ToolbarController",
+  "source": "已保存: %1",
+  "translation": "Saved: %1"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "保存失败: %1",
+  "translation": "Could not save: %1"
+ },
+ {
+  "context": "ToolbarController",
   "source": "保存成功",
   "translation": "Saved"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "原始图像已保存到:\n%1",
+  "translation": "Raw image saved to: %1"
  },
  {
   "context": "ToolbarController",
@@ -826,8 +996,18 @@
  },
  {
   "context": "ToolbarController",
+  "source": "保存原始图像失败: %1",
+  "translation": "Could not save the raw image: %1"
+ },
+ {
+  "context": "ToolbarController",
   "source": "同名结果文件已存在",
   "translation": "A result file with that name already exists"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "「%1」在 %2 下已经有结果文件（例如 %3）。\n继续会按同一批名字写出这次的结果，其中同名的文件会被覆盖。\n要覆盖吗？",
+  "translation": "“%1” already has result files under %2 (for example %3). Continuing writes this run's results under the same names, and files with those names are overwritten. Overwrite them?"
  },
  {
   "context": "ToolbarController",
@@ -836,13 +1016,28 @@
  },
  {
   "context": "ToolbarController",
+  "source": "处理结果已保存到目录:\n%1",
+  "translation": "Results saved to: %1"
+ },
+ {
+  "context": "ToolbarController",
   "source": "部分图像保存失败，请检查日志",
   "translation": "Some images could not be saved; check the log"
  },
  {
   "context": "ToolbarController",
+  "source": "保存处理结果失败: %1",
+  "translation": "Could not save the results: %1"
+ },
+ {
+  "context": "ToolbarController",
   "source": "错误",
   "translation": "Error"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "无法读取图像文件: %1",
+  "translation": "Could not read the image file: %1"
  },
  {
   "context": "ToolbarController",

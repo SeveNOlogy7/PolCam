@@ -52,7 +52,8 @@ class GalleryPanel(QtWidgets.QWidget):
 
         header_layout.addStretch(1)
 
-        self.count_label = QtWidgets.QLabel(self.tr("0 项"))
+        self._item_count = 0
+        self.count_label = QtWidgets.QLabel(self.tr("%1 项").replace("%1", "0"))
         header_layout.addWidget(self.count_label)
 
         self.view_mode_combo = QtWidgets.QComboBox()
@@ -125,6 +126,13 @@ class GalleryPanel(QtWidgets.QWidget):
         self._set_empty_state(True)
         self._update_action_state()
 
+    def _render_count(self):
+        self.count_label.setText(self.tr("%1 项").replace("%1", str(self._item_count)))
+
+    def refresh_texts(self):
+        """切换语言后重算条数那一格 —— 它是拼出来的，目录里没有当前显示的那句。"""
+        self._render_count()
+
     def set_items(self, items: Iterable[GalleryItem]):
         items = list(items)
         # 清空之前先把选中的项记下来：每次自动保存后都会刷新一次，而 clear()/setRowCount(0)
@@ -144,7 +152,9 @@ class GalleryPanel(QtWidgets.QWidget):
             self._append_table_row(item)
 
         self._restore_selection(kept_ids)
-        self.count_label.setText(f"{len(items)} 项")
+        # %1 而不是 f-string：f-string 不是字面量，lupdate 扫不到，切语言时这一格会留在中文
+        self._item_count = len(items)
+        self._render_count()
         self._set_empty_state(len(items) == 0)
         self._update_action_state()
 

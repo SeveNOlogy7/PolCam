@@ -26,7 +26,7 @@ class PolarizationControl(ControlGroup):
     def _setup_pol_ui(self):
         # 添加彩色/灰度选择
         self.color_mode_combo = QtWidgets.QComboBox()
-        self.color_mode_combo.addItems(["灰度图像", "彩色图像"])
+        self.color_mode_combo.addItems([self.tr("灰度图像"), self.tr("彩色图像")])
         self.color_mode_combo.setToolTip(self.tr("选择偏振分析结果的合成方式"))
         Styles.apply_combobox_style(self.color_mode_combo)
         self.layout.addWidget(self.color_mode_combo)

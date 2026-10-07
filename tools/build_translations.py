@@ -101,20 +101,30 @@ def export_sources(ts_path: Path, json_path: Path) -> int:
     return len(entries)
 
 
+UI_SETTERS = {
+    "setText", "setToolTip", "setPlaceholderText", "setWindowTitle", "setAccessibleName",
+    "addRow", "addItem", "insertItem", "addTab", "setTabText", "setStatusTip",
+    "setHorizontalHeaderLabels", "information", "warning", "critical", "question",
+    "_show_status_message", "set_help_subtitle", "set_capability_lines", "make_label",
+    "_add_action", "_create_tool_button", "QLabel", "QPushButton", "QCheckBox",
+    "QGroupBox", "QRadioButton", "QAction",
+}
+DIALOG_ONLY = {"information", "warning", "critical", "question"}
+
+
+def has_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
 def unwrapped_ui_text() -> list[str]:
-    """找"设文字的调用里直接塞了中文字面量，却没包 tr()/translate()"的地方。
+    """找"设文字的调用里塞了中文，却没包 tr()/translate()"的地方。
 
     这是 --check 里唯一会漏翻译的口子：漏一处，英文界面就有一块留在中文，而目录看起来是满的。
+    两种写法都要抓：常量字面量，以及 f-string —— f-string 不是字面量，lupdate 扫不到，
+    得改成 `translate(ctx, "…%1…").replace("%1", …)`。
     """
-    setters = {
-        "setText", "setToolTip", "setPlaceholderText", "setWindowTitle", "setAccessibleName",
-        "addRow", "addItem", "insertItem", "addTab", "setTabText", "setStatusTip",
-        "setHorizontalHeaderLabels", "information", "warning", "critical", "question",
-        "_show_status_message", "set_help_subtitle", "set_capability_lines", "make_label",
-        "_add_action", "_create_tool_button", "QLabel", "QPushButton", "QCheckBox",
-        "QGroupBox", "QRadioButton", "QAction",
-    }
-    dialog_only = {"information", "warning", "critical", "question"}
+    setters = UI_SETTERS
+    dialog_only = DIALOG_ONLY
     problems = []
     for rel in python_files():
         path = ROOT / rel
@@ -139,6 +149,13 @@ def unwrapped_ui_text() -> list[str]:
             for arg in list(node.args) + [kw.value for kw in node.keywords]:
                 elements = list(arg.elts) if isinstance(arg, (ast.List, ast.Tuple)) else [arg]
                 for item in elements:
+                    if isinstance(item, ast.JoinedStr):
+                        joined = "".join(v.value if isinstance(v, ast.Constant) else " "
+                                         for v in item.values)
+                        if has_cjk(joined):
+                            problems.append(f"{rel}:{item.lineno} {name}(...) 用 f-string 拼中文，"
+                                            f"要改成 translate() + %1")
+                        continue
                     if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
                         continue
                     if not any("\u4e00" <= ch <= "\u9fff" for ch in item.value):

@@ -322,9 +322,9 @@ class ImageToolbarController(BaseModule):
             if success:
                 zoom_ratio = self.image_display.get_software_zoom_ratio()
                 if zoom_ratio >= self._max_zoom - 0.1:
-                    self._show_status_message(f"已达最大放大倍率（面积） {zoom_ratio:.1f}x")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '已达最大放大倍率（面积） %1x').replace('%1', f"{zoom_ratio:.1f}"))
                 else:
-                    self._show_status_message(f"缩放: {zoom_ratio:.1f}x（面积）")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '缩放: %1x（面积）').replace('%1', f"{zoom_ratio:.1f}"))
             return
 
         if self._device_busy():
@@ -380,13 +380,12 @@ class ImageToolbarController(BaseModule):
                     # 网格取整只会往下让，所以到顶时读数低于设置值；把上限一起写出来，
                     # 否则"已达最大放大倍率 918.9x"看起来像另一处对不上的数字。
                     self._show_status_message(
-                        f"受 ROI 网格限制，最大可达 {zoom_pct:.1f}x"
-                        f"（设置上限 {self._max_zoom:.0f}x）"
+                        QtCore.QCoreApplication.translate("ImageToolbarController", '受 ROI 网格限制，最大可达 %1x（设置上限 %2x）').replace('%1', f"{zoom_pct:.1f}").replace('%2', f"{self._max_zoom:.0f}")
                     )
                 elif zoom_pct >= self._max_zoom - 0.1:
-                    self._show_status_message(f"已达最大放大倍率（面积） {zoom_pct:.1f}x")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '已达最大放大倍率（面积） %1x').replace('%1', f"{zoom_pct:.1f}"))
                 else:
-                    self._show_status_message(f"缩放: {zoom_pct:.1f}x（面积）")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '缩放: %1x（面积）').replace('%1', f"{zoom_pct:.1f}"))
 
     def _handle_zoom_area_selection(self, sensor_x: int, sensor_y: int,
                                      width: int, height: int):
@@ -405,9 +404,9 @@ class ImageToolbarController(BaseModule):
             if success:
                 zoom_ratio = self.image_display.get_software_zoom_ratio()
                 if zoom_ratio >= self._max_zoom - 0.1:
-                    self._show_status_message(f"选区已调整到最大放大倍率 {zoom_ratio:.1f}x")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '选区已调整到最大放大倍率 %1x').replace('%1', f"{zoom_ratio:.1f}"))
                 else:
-                    self._show_status_message(f"区域放大: {zoom_ratio:.1f}x")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '区域放大: %1x').replace('%1', f"{zoom_ratio:.1f}"))
             return
 
         if self._device_busy():
@@ -445,19 +444,18 @@ class ImageToolbarController(BaseModule):
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
                 if clamped:
                     self._show_status_message(
-                        f"受 ROI 网格限制，选区最大可达 {zoom_pct:.1f}x"
-                        f"（设置上限 {self._max_zoom:.0f}x）"
+                        QtCore.QCoreApplication.translate("ImageToolbarController", '受 ROI 网格限制，选区最大可达 %1x（设置上限 %2x）').replace('%1', f"{zoom_pct:.1f}").replace('%2', f"{self._max_zoom:.0f}")
                     )
                 elif zoom_pct >= self._max_zoom - 0.1:
-                    self._show_status_message(f"选区已调整到最大放大倍率 {zoom_pct:.1f}x")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '选区已调整到最大放大倍率 %1x').replace('%1', f"{zoom_pct:.1f}"))
                 else:
-                    self._show_status_message(f"区域放大: {zoom_pct:.1f}x")
+                    self._show_status_message(QtCore.QCoreApplication.translate("ImageToolbarController", '区域放大: %1x').replace('%1', f"{zoom_pct:.1f}"))
 
     def _handle_zoom_area_preview(self, sensor_x: int, sensor_y: int,
                                    width: int, height: int):
         """处理区域放大拖拽时的实时预览"""
         self._show_status_message(
-            f"选区: ({sensor_x}, {sensor_y}) {width}x{height}"
+            QtCore.QCoreApplication.translate("ImageToolbarController", '选区: (%1, %2) %3x%4').replace('%1', f"{sensor_x}").replace('%2', f"{sensor_y}").replace('%3', f"{width}").replace('%4', f"{height}")
         )
 
     def _update_roi_cache(self):
@@ -490,10 +488,13 @@ class ImageToolbarController(BaseModule):
             return []
 
         content_kind = info.get('content_kind')
+        translate = QtCore.QCoreApplication.translate
         if content_kind == 'polarization':
-            return ['合成图', 'DOLP', 'AOLP', 'DOCP']
+            # 格名要跟着界面语言走：英文界面顶上是"合成图"就说不通了
+            return [translate("ImageToolbarController", "合成图"), 'DOLP', 'AOLP', 'DOCP']
         if content_kind == 'quad':
             return ['0°', '45°', '90°', '135°']
 
         # 默认返回通用标题
-        return ['区域1', '区域2', '区域3', '区域4']
+        return [translate("ImageToolbarController", "区域%1").replace("%1", str(number))
+                for number in (1, 2, 3, 4)]

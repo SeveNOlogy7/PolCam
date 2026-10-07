@@ -26,9 +26,9 @@ class ParameterControl(ControlGroup):
     def _setup_parameter_ui(self):
         # 参数值控制
         value_layout = QtWidgets.QHBoxLayout()
-        value_label = QtWidgets.QLabel(
-            f"{self.param_name} ({self.unit}):" if self.unit else f"{self.param_name}:"
-        )
+        # 标签文字由调用方给整句（含单位），不在这里拼：拼出来的字符串不是翻译目录的
+        # 键，切换语言时按整句还原的那一步会漏掉它。unit 只留给数值框的后缀。
+        value_label = QtWidgets.QLabel(self.param_name)
         value_label.setFont(Styles.get_font(Styles.FONT_MEDIUM))
         value_layout.addWidget(value_label)
         

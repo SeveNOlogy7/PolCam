@@ -23,6 +23,8 @@ class ImageToolbar(QtWidgets.QWidget):
         super().__init__(parent)
         # 每个按钮用的是哪个 svg 文件，换肤时要按新的调色板重取一次图标
         self._themed_buttons = {}
+        # 每个按钮的源文案，换语言时按这份重取
+        self._text_sources = {}
         self.setup_ui()
         
     def setup_ui(self):
@@ -32,11 +34,12 @@ class ImageToolbar(QtWidgets.QWidget):
         layout.setSpacing(2)
         
         # 创建工具按钮
-        self.cursor_btn = self._create_tool_button("cursor", self.tr("游标"), self.tr("悬停查看像素数值，再次点击退出"))
-        self.zoom_in_btn = self._create_tool_button("zoom-in", self.tr("放大"), self.tr("点击图像中心区域放大"))
-        self.zoom_out_btn = self._create_tool_button("zoom-out", self.tr("缩小"), self.tr("点击图像区域缩小"))
-        self.zoom_area_btn = self._create_tool_button("zoom-area", self.tr("区域放大"), self.tr("拖拽框选要放大的区域"))
-        self.reset_btn = self._create_tool_button("reset", self.tr("复原"), self.tr("恢复整幅图像的原始显示"))
+        self.cursor_btn = self._create_tool_button("cursor", self.tr("游标"),
+                                          self.tr("游标：悬停查看像素数值，再次点击退出"))
+        self.zoom_in_btn = self._create_tool_button("zoom-in", self.tr("放大"), self.tr("放大：点击图像中心区域放大"))
+        self.zoom_out_btn = self._create_tool_button("zoom-out", self.tr("缩小"), self.tr("缩小：点击图像区域缩小"))
+        self.zoom_area_btn = self._create_tool_button("zoom-area", self.tr("区域放大"), self.tr("区域放大：拖拽框选要放大的区域"))
+        self.reset_btn = self._create_tool_button("reset", self.tr("复原"), self.tr("复原：恢复整幅图像的原始显示"))
         
         # 统一设置按钮属性
         for btn in [self.cursor_btn, self.zoom_in_btn, self.zoom_out_btn, 
@@ -91,10 +94,13 @@ class ImageToolbar(QtWidgets.QWidget):
     ) -> QtWidgets.QPushButton:
         """创建工具按钮"""
         btn = QtWidgets.QPushButton()
-        btn.setToolTip(f"{name}：{description}")
+        # description 是**整条**提示（含名字前缀），不在这里拼：拼出来的字符串对不上
+        # 翻译目录的键，切换语言时按目录还原的那一步会漏掉它。
+        btn.setToolTip(description)
         # 纯图标按钮必须自带无障碍名称，否则读屏软件读不出内容
         btn.setAccessibleName(name)
         btn.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self._text_sources[btn] = (name, description)
         btn.setAutoDefault(False)
         
         # 使用Styles中定义的工具栏按钮尺寸
@@ -136,6 +142,15 @@ class ImageToolbar(QtWidgets.QWidget):
     def _load_icon(self, icon_path: str) -> QtGui.QIcon:
         """按当前主题的 ButtonText 上色；换肤后由 refresh_theme_icons 重取一次。"""
         return themed_icon(icon_path, Styles.TOOLBAR_ICON_SIZE)
+
+    def refresh_texts(self):
+        """切换语言后重取提示与无障碍名称。
+
+        构造期算好的 tr() 不会自己跟着 QTranslator 变。
+        """
+        for btn, (name, tooltip) in self._text_sources.items():
+            btn.setToolTip(self.tr(tooltip))
+            btn.setAccessibleName(self.tr(name))
 
     def refresh_theme_icons(self):
         """换肤之后重画这一排工具图标。"""
