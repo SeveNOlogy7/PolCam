@@ -25,6 +25,30 @@ def _contrast(first: QtGui.QColor, second: QtGui.QColor) -> float:
     return (high + 0.05) / (low + 0.05)
 
 
+@pytest.fixture(autouse=True)
+def _leave_the_app_as_found(qapp):
+    """换肤测试改的是 QApplication 的风格、调色板和窗口几何，用完都得还回去。
+
+    `setStyle("Fusion")` 会改变控件尺寸；而测试窗口 close 时 `closeEvent` 会把几何写进
+    设置，下一个 MainWindow 就 restore 成测试窗口那个大小 —— CI 按文件分进程跑，
+    这两件事都被掩盖了。
+    """
+    from polcam.core.settings import SettingsService
+    from polcam.gui import app_theme
+
+    style_name = qapp.style().objectName()
+    palette = QtGui.QPalette(qapp.palette())
+    mode = app_theme.current_mode(qapp)
+    settings = SettingsService()
+    geometry = settings.load_window_geometry()
+    yield
+    # 顺序要紧：apply_theme 自己会 setStyle("Fusion")，风格名要最后再还
+    app_theme.apply_theme(qapp, mode)
+    qapp.setPalette(palette)
+    qapp.setStyle(style_name)
+    settings.save_window_geometry(geometry if geometry is not None else QtCore.QByteArray())
+
+
 def test_unknown_theme_name_falls_back_to_light():
     """认不出来的值回落到浅色：默认档变了要能被人看出来，静默换肤更糟。"""
     assert ThemeMode.from_name("circleshield") is ThemeMode.LIGHT
