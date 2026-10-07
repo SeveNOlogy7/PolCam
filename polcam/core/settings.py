@@ -8,6 +8,7 @@ See LICENSE file for full license details.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -16,6 +17,18 @@ from qtpy import QtCore
 
 from .preview import PreviewQuality
 from .processing_module import DEFAULT_PROCESSING_PARAMS, ProcessingMode
+
+logger = logging.getLogger(__name__)
+
+# 最大放大倍率的合法域。上限 10000 要点几十次才到顶，而放大到那种程度的 ROI 已经不足
+# 一格偏振超胞，屏上给不出可解释的四格读数；低于 100 则等于把这个限制关掉了。
+MAX_ZOOM_MIN = 100.0
+MAX_ZOOM_MAX = 1000.0
+
+
+def clamp_max_zoom(value: float) -> float:
+    """把最大放大倍率夹进合法域。合法值原样通过，不做四舍五入。"""
+    return min(MAX_ZOOM_MAX, max(MAX_ZOOM_MIN, float(value)))
 
 
 @dataclass
@@ -140,11 +153,18 @@ class SettingsService:
         display_mode_name = self._settings.value("ui/display_mode", ProcessingMode.RAW.name)
         last_directory = self._settings.value("ui/last_directory", self.get_default_capture_directory())
         auto_save_directory = self._settings.value("ui/auto_save_directory", self.get_default_capture_directory())
+        max_zoom = self._to_float(self._settings.value("ui/max_zoom", UISettings().max_zoom),
+                                  UISettings().max_zoom)
+        clamped_max_zoom = clamp_max_zoom(max_zoom)
+        if clamped_max_zoom != max_zoom:
+            # 键名一起写出来：用户手改过配置文件，只说"1000"他不知道去哪儿找那一行。
+            logger.warning(f"ui/max_zoom={max_zoom:g} 超出允许范围 "
+                           f"{MAX_ZOOM_MIN:g}–{MAX_ZOOM_MAX:g}，已夹到 {clamped_max_zoom:g}")
         return UISettings(
             display_mode=self._parse_processing_mode(display_mode_name),
             last_directory=str(last_directory or ""),
             auto_save_directory=str(auto_save_directory or ""),
-            max_zoom=self._to_float(self._settings.value("ui/max_zoom", UISettings().max_zoom), UISettings().max_zoom),
+            max_zoom=clamped_max_zoom,
             preview_quality=PreviewQuality.from_name(self._settings.value("ui/preview_quality",
                                                                           UISettings().preview_quality.value)),
         )
@@ -153,7 +173,7 @@ class SettingsService:
         self._settings.setValue("ui/display_mode", ui_settings.display_mode.name)
         self._settings.setValue("ui/last_directory", self._normalize_directory(ui_settings.last_directory))
         self._settings.setValue("ui/auto_save_directory", self._normalize_directory(ui_settings.auto_save_directory))
-        self._settings.setValue("ui/max_zoom", max(1.0, float(ui_settings.max_zoom)))
+        self._settings.setValue("ui/max_zoom", clamp_max_zoom(ui_settings.max_zoom))
         self._settings.setValue("ui/preview_quality", ui_settings.preview_quality.value)
 
     def load_processing_settings(self) -> ProcessingSettings:

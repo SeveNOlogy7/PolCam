@@ -358,6 +358,36 @@ def test_image_toolbar_controller_max_zoom_defaults_to_1000(qapp):
     assert display.get_max_zoom() == 1000.0
 
 
+def test_the_settings_dialog_only_offers_legal_max_zoom(main_window):
+    """数字框自己就得卡在 100–1000，别让人先打出一个非法值再被后台偷偷改掉。"""
+    from polcam.gui.settings_dialog import SettingsDialog
+
+    dialog = SettingsDialog(main_window.build_current_settings(), main_window)
+    assert dialog.max_zoom_spin.minimum() == 100.0
+    assert dialog.max_zoom_spin.maximum() == 1000.0
+
+    dialog.max_zoom_spin.setValue(5000.0)
+    assert dialog.get_settings().ui.max_zoom == 1000.0
+
+    dialog.max_zoom_spin.setValue(2.0)
+    assert dialog.get_settings().ui.max_zoom == 100.0
+
+
+def test_a_legacy_max_zoom_never_reaches_the_zoom_tools(main_window, tmp_path):
+    """配置文件里的 5000 要在读的时候就被夹住，穿到缩放工具里就是行为不对。"""
+    from polcam.core.settings import SettingsService
+
+    path = tmp_path / "legacy.ini"
+    raw = QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+    raw.setValue("ui/max_zoom", 5000.0)
+    raw.sync()
+
+    main_window.apply_settings(SettingsService(ini_path=path).load(), persist=False)
+
+    assert main_window.image_display.toolbar_controller.get_max_zoom() == 1000.0
+    assert main_window.image_display.get_max_zoom() == 1000.0
+
+
 def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qapp):
     """测试连续采集硬件 ROI 路径也受最大放大倍率约束。"""
     display = ImageDisplay()
@@ -717,7 +747,7 @@ def test_restore_defaults_keeps_the_waveplate_where_the_user_left_it(qapp, main_
     main_window.apply_settings(settings, persist=False)
 
     dialog = SettingsDialog(main_window.build_current_settings(), main_window)
-    dialog.max_zoom_spin.setValue(50.0)
+    dialog.max_zoom_spin.setValue(300.0)
     dialog._restore_defaults()
     restored = dialog.get_settings()
 
@@ -3035,11 +3065,11 @@ def test_settings_dialog_round_trips_the_preview_level(main_window):
     dialog = SettingsDialog(main_window.build_current_settings(), main_window)
     assert dialog.preview_quality_combo.currentData(Qt.ItemDataRole.UserRole) is PreviewQuality.FLUID
 
-    dialog.max_zoom_spin.setValue(7.0)
+    dialog.max_zoom_spin.setValue(250.0)
     saved = dialog.get_settings()
 
     assert saved.ui.preview_quality is PreviewQuality.FLUID
-    assert saved.ui.max_zoom == 7.0
+    assert saved.ui.max_zoom == 250.0
 
 
 def test_the_readout_says_when_the_pixels_are_an_average(qapp, main_window, qtbot):

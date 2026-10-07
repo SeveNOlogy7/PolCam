@@ -13,7 +13,8 @@ from pathlib import Path
 from qtpy import QtCore, QtWidgets
 
 from ..core.preview import PreviewQuality
-from ..core.settings import AppSettings, ProcessingSettings, UISettings
+from ..core.settings import (AppSettings, MAX_ZOOM_MAX, MAX_ZOOM_MIN,
+                             ProcessingSettings, UISettings)
 from .image_display import COLOR_MODES, MODE_LABELS
 
 
@@ -61,7 +62,8 @@ class SettingsDialog(QtWidgets.QDialog):
         auto_save_layout.addWidget(auto_save_browse_button)
         app_form.addRow("自动保存目录", auto_save_layout)
 
-        self.max_zoom_spin = self._create_double_spinbox(1.0, 10000.0, 10.0)
+        # 范围就是合法域本身，不靠后台偷偷改：打不进非法值，用户看到的数字即存下的数字。
+        self.max_zoom_spin = self._create_double_spinbox(MAX_ZOOM_MIN, MAX_ZOOM_MAX, 10.0)
         self.max_zoom_spin.setDecimals(1)
         app_form.addRow("最大放大倍率", self.max_zoom_spin)
 

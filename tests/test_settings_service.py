@@ -146,11 +146,68 @@ def test_max_zoom_setting_round_trips(tmp_path: Path):
     service = SettingsService(settings)
 
     app_settings = service.load()
-    app_settings.ui.max_zoom = 2500.0
+    app_settings.ui.max_zoom = 450.0
     service.save(app_settings)
 
     loaded = service.load()
-    assert loaded.ui.max_zoom == 2500.0
+    assert loaded.ui.max_zoom == 450.0
+
+
+def test_clamp_max_zoom_only_moves_illegal_values():
+    from polcam.core.settings import clamp_max_zoom
+
+    assert clamp_max_zoom(99.0) == 100.0
+    assert clamp_max_zoom(100.0) == 100.0
+    assert clamp_max_zoom(450.0) == 450.0
+    assert clamp_max_zoom(1000.0) == 1000.0
+    assert clamp_max_zoom(1001.0) == 1000.0
+
+
+def test_an_out_of_range_max_zoom_is_clamped_on_load(tmp_path: Path):
+    """老配置或手改过的非法上限要在读的时候夹回来，不是等到用的人被咬。
+
+    上限 10000 时点击放大要按几十次才到顶，而放大到那种程度的 ROI 已经不足一格偏振
+    超胞，四格读数根本没有可解释的内容；下限以下则等于关掉了这个限制。
+    """
+    path = tmp_path / "settings.ini"
+    raw = QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+    raw.setValue("ui/max_zoom", 5000.0)
+    raw.sync()
+
+    assert SettingsService(ini_path=path).load_ui_settings().max_zoom == 1000.0
+
+    raw.setValue("ui/max_zoom", 3.0)
+    raw.sync()
+    assert SettingsService(ini_path=path).load_ui_settings().max_zoom == 100.0
+
+
+def test_a_clamped_max_zoom_is_said_out_loud(tmp_path: Path, caplog):
+    """夹过了要在日志里留一句：用户的 5000 是被改掉的，不是软件自己挑的 1000。"""
+    import logging
+
+    path = tmp_path / "settings.ini"
+    raw = QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+    raw.setValue("ui/max_zoom", 5000.0)
+    raw.sync()
+
+    with caplog.at_level(logging.WARNING, logger="polcam.core.settings"):
+        SettingsService(ini_path=path).load_ui_settings()
+
+    assert "ui/max_zoom=5000" in caplog.text, caplog.text
+    assert "1000" in caplog.text, caplog.text
+
+
+def test_saving_an_illegal_max_zoom_writes_a_legal_one(tmp_path: Path):
+    """写出去的值也要合法 —— 否则下次读的是同一份非法配置，日志再报一遍。"""
+    path = tmp_path / "settings.ini"
+    service = SettingsService(ini_path=path)
+
+    ui = service.load_ui_settings()
+    ui.max_zoom = 7.0
+    service.save_ui_settings(ui)
+
+    assert float(QtCore.QSettings(str(path), QtCore.QSettings.Format.IniFormat)
+                 .value("ui/max_zoom")) == 100.0
 
 
 def test_relative_directories_are_stored_absolute(tmp_path: Path, monkeypatch):
