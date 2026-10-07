@@ -370,6 +370,8 @@ def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qap
     mock_camera.get_roi.return_value = (0, 0, 10, 10)
     mock_camera.get_sensor_size.return_value = (1000, 1000)
     mock_camera.set_roi.return_value = True
+    # 32 本来就在步进上，网格对齐对它是恒等映射；真实步进语义由 _GridCamera 那两条用例覆盖
+    mock_camera.ceil_size_to_roi_grid.side_effect = lambda w, h: (w, h)
     mock_camera.get_roi.side_effect = [
         (0, 0, 10, 10),
         (0, 0, 32, 32),
@@ -386,6 +388,113 @@ def test_image_toolbar_controller_hardware_zoom_respects_configured_max_zoom(qap
     # 1000x1000 / 32² 才落回 1000x 以内；曾经断言的 31 对应 1040x，
     # 正好是这个用例名字说要防住的越界
     assert (1000 * 1000) / (new_w * new_h) <= 1000.0
+
+
+class _GridCamera:
+    """会把尺寸**向下**对齐步进的相机替身。
+
+    MagicMock 测不出这个缺陷：写进去什么就回读什么。真机 Width 步进 8、Height 步进 2，
+    `set_roi` 里的 `_align_value` 会把 82 悄悄改成 80 —— 面积掉到 max_zoom 之外，
+    状态栏于是报出比设置值更大的倍率（实测上限 1000 打出 1024x）。
+    """
+
+    def __init__(self, sensor=(2448, 2048), width_inc=8, height_inc=2):
+        from polcam.core.camera_module import CameraType
+
+        self._sensor = sensor
+        self._width_inc = width_inc
+        self._height_inc = height_inc
+        self._camera_type = CameraType.MONO
+        self._roi = (0, 0, sensor[0], sensor[1])
+
+    def is_connected(self):
+        return True
+
+    def is_streaming(self):
+        return True
+
+    def is_capturing_frame(self):
+        return False
+
+    def get_sensor_size(self):
+        return self._sensor
+
+    def get_roi(self):
+        return self._roi
+
+    def get_roi_constraints(self):
+        return {'width_inc': self._width_inc, 'height_inc': self._height_inc,
+                'width_min': self._width_inc, 'height_min': self._height_inc,
+                'offset_x_inc': self._width_inc, 'offset_y_inc': self._height_inc}
+
+    def ceil_size_to_roi_grid(self, width, height):
+        from polcam.core.camera_module import CameraModule
+
+        return CameraModule.ceil_size_to_roi_grid(self, width, height)
+
+    def _roi_increments(self, constraints):
+        """步进规则借真模块的，不在这个替身里复制第二份——否则测的就不是同一条规则。"""
+        from polcam.core.camera_module import CameraModule
+
+        return CameraModule._roi_increments(self, constraints)
+
+    def set_roi(self, offset_x, offset_y, width, height):
+        from polcam.core.camera_module import CameraModule
+
+        width = CameraModule._align_value(width, self._width_inc)
+        height = CameraModule._align_value(height, self._height_inc)
+        self._roi = (offset_x, offset_y, width, height)
+        return True
+
+
+def _zoom_to_cap_setup(camera):
+    from qtpy import QtWidgets
+
+    app = QtWidgets.QApplication.instance()
+    display = ImageDisplay()
+    controller = display.toolbar_controller
+    controller.set_camera_module(camera)
+    controller.set_max_zoom(1000.0)
+    messages = []
+    controller._show_status_message = messages.append
+    return app, display, controller, messages
+
+
+def test_area_zoom_at_the_cap_stays_at_or_under_the_setting(qapp):
+    """框选放大到顶时，设备实际做到的倍率不能反超设置值。"""
+    import shiboken6
+
+    camera = _GridCamera()
+    app, display, controller, messages = _zoom_to_cap_setup(camera)
+
+    controller._handle_zoom_area_selection(1000, 900, 40, 30)
+
+    _, _, width, height = camera.get_roi()
+    sensor_w, sensor_h = camera.get_sensor_size()
+    achieved = (sensor_w * sensor_h) / (width * height)
+    assert achieved <= 1000.0, f"设备做到 {achieved:.1f}x，超过设置值 1000x"
+    assert any("设置上限 1000x" in m and f"{achieved:.1f}x" in m for m in messages), messages
+    shiboken6.delete(display)
+
+
+def test_click_zoom_at_the_cap_stays_at_or_under_the_setting(qapp):
+    """点击放大到顶时同理——它和框选共用另一段夹取代码，两处都得改到。"""
+    import shiboken6
+
+    camera = _GridCamera()
+    camera._roi = (0, 0, 80, 62)
+    app, display, controller, messages = _zoom_to_cap_setup(camera)
+
+    controller._handle_zoom_in(True)
+    controller._handle_zoom_click(40, 31)
+
+    _, _, width, height = camera.get_roi()
+    sensor_w, sensor_h = camera.get_sensor_size()
+    achieved = (sensor_w * sensor_h) / (width * height)
+    assert achieved <= 1000.0, f"设备做到 {achieved:.1f}x，超过设置值 1000x"
+    assert any("设置上限 1000x" in m and f"{achieved:.1f}x" in m for m in messages), messages
+    shiboken6.delete(display)
+
 
 def test_image_toolbar_controller_reset_view_uses_software_path_for_static_image(qapp):
     """测试静态图像重置视图不会修改相机 ROI。"""
@@ -1891,6 +2000,7 @@ def test_hardware_zoom_area_selection_respects_configured_max_zoom(qapp):
     mock_camera.get_sensor_size.return_value = (1000, 1000)
     mock_camera.get_roi.return_value = (0, 0, 31, 31)
     mock_camera.set_roi.return_value = True
+    mock_camera.ceil_size_to_roi_grid.side_effect = lambda w, h: (w, h)
     controller.set_camera_module(mock_camera)
 
     controller._handle_zoom_area_selection(0, 0, 31, 31)

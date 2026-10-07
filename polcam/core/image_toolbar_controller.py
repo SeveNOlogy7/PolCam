@@ -6,7 +6,7 @@ See LICENSE file for full license details.
 
 from .base_module import BaseModule
 import math
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from qtpy import QtWidgets
 from .events import Event, EventType
 
@@ -254,6 +254,15 @@ class ImageToolbarController(BaseModule):
         """有一次单帧抓取正占着设备，此时 ROI 写入会被设备直接拒掉。"""
         return bool(self._camera_module and self._camera_module.is_capturing_frame())
 
+    def _ceil_to_roi_grid(self, width: int, height: int) -> Tuple[int, int]:
+        """把"为守住放大上限而放大出来"的尺寸对齐到设备步进上。
+
+        set_roi 是**向下**对齐步进的，所以只 math.ceil 还不够：82 会被静默改成 80，
+        面积掉到 max_zoom 之外，状态栏就报出比设置值更大的倍率（真机：上限 1000 打出
+        1024x）。步进规则由相机模块自己说，这里不复制第二份。
+        """
+        return self._camera_module.ceil_size_to_roi_grid(width, height)
+
     def _handle_reset_view(self):
         """处理视图复原 — 重置 ROI 为全传感器尺寸"""
         self.sync_zoom_coordinate_space()
@@ -331,17 +340,19 @@ class ImageToolbarController(BaseModule):
 
         ox, oy, w, h = roi
         sensor_w, sensor_h = self._camera_module.get_sensor_size()
+        clamped = False
 
         if self._zoom_mode == 'zoom_in':
             new_w = int(w / self.ZOOM_FACTOR)
             new_h = int(h / self.ZOOM_FACTOR)
-            # 超过最大放大倍率时，自适应调节到恰好最大倍率
+            # 超过最大放大倍率时，把尺寸放大回上限之内（按设备步进向上取整，不越界）
             min_area = (sensor_w * sensor_h) / self._max_zoom
             if new_w > 0 and new_h > 0 and new_w * new_h < min_area:
                 scale = (min_area / (new_w * new_h)) ** 0.5
                 # 向上取整才能真的落回上限内：int() 会留下 1000x1000/31² = 1040x
-                new_w = math.ceil(new_w * scale)
-                new_h = math.ceil(new_h * scale)
+                new_w, new_h = self._ceil_to_roi_grid(math.ceil(new_w * scale),
+                                                      math.ceil(new_h * scale))
+                clamped = True
         elif self._zoom_mode == 'zoom_out':
             new_w = int(w * self.ZOOM_FACTOR)
             new_h = int(h * self.ZOOM_FACTOR)
@@ -364,7 +375,14 @@ class ImageToolbarController(BaseModule):
             actual_roi = self._camera_module.get_roi()
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
-                if zoom_pct >= self._max_zoom - 0.1:
+                if clamped:
+                    # 网格取整只会往下让，所以到顶时读数低于设置值；把上限一起写出来，
+                    # 否则"已达最大放大倍率 918.9x"看起来像另一处对不上的数字。
+                    self._show_status_message(
+                        f"受 ROI 网格限制，最大可达 {zoom_pct:.1f}x"
+                        f"（设置上限 {self._max_zoom:.0f}x）"
+                    )
+                elif zoom_pct >= self._max_zoom - 0.1:
                     self._show_status_message(f"已达最大放大倍率（面积） {zoom_pct:.1f}x")
                 else:
                     self._show_status_message(f"缩放: {zoom_pct:.1f}x（面积）")
@@ -399,21 +417,23 @@ class ImageToolbarController(BaseModule):
             self._show_status_message("相机未连接")
             return
 
-        # 超过最大放大倍率时，自适应扩大选区到恰好最大倍率，保持中心不变
+        # 超过最大放大倍率时，把选区放大回上限之内，保持中心不变
         sensor_w, sensor_h = self._camera_module.get_sensor_size()
+        clamped = False
         if width > 0 and height > 0:
             min_area = (sensor_w * sensor_h) / self._max_zoom
             if width * height < min_area:
                 scale = (min_area / (width * height)) ** 0.5
                 # 和点击放大那条路一样向上取整：int() 会刚好差一点面积，落在上限之外
-                new_w = math.ceil(width * scale)
-                new_h = math.ceil(height * scale)
+                new_w, new_h = self._ceil_to_roi_grid(math.ceil(width * scale),
+                                                      math.ceil(height * scale))
                 center_x = sensor_x + width // 2
                 center_y = sensor_y + height // 2
                 sensor_x = center_x - new_w // 2
                 sensor_y = center_y - new_h // 2
                 width = new_w
                 height = new_h
+                clamped = True
 
         success = self._camera_module.set_roi(sensor_x, sensor_y, width, height)
         if success:
@@ -422,7 +442,12 @@ class ImageToolbarController(BaseModule):
             sensor_w, sensor_h = self._camera_module.get_sensor_size()
             if actual_roi[2] > 0 and actual_roi[3] > 0:
                 zoom_pct = (sensor_w * sensor_h) / (actual_roi[2] * actual_roi[3])
-                if zoom_pct >= self._max_zoom - 0.1:
+                if clamped:
+                    self._show_status_message(
+                        f"受 ROI 网格限制，选区最大可达 {zoom_pct:.1f}x"
+                        f"（设置上限 {self._max_zoom:.0f}x）"
+                    )
+                elif zoom_pct >= self._max_zoom - 0.1:
                     self._show_status_message(f"选区已调整到最大放大倍率 {zoom_pct:.1f}x")
                 else:
                     self._show_status_message(f"区域放大: {zoom_pct:.1f}x")

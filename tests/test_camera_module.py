@@ -1497,6 +1497,38 @@ def test_connect_wires_the_lift_into_the_connection_path(camera_module):
     lift.assert_called_once()
 
 
+def test_ceil_size_survives_the_devices_floor(camera_module):
+    """向上对齐到步进网格后，设备那次向下对齐不该再把它变小。
+
+    set_roi 用 _align_value 向下取，所以"为守住放大上限而放大尺寸"必须按同一套步进
+    向上取；否则 82 会被静默改成 80，面积掉到上限之外（真机：上限 1000 打出 1024x）。
+    """
+    camera_module._camera_type = CameraType.MONO
+    camera_module.get_roi_constraints = lambda: {
+        'width_inc': 8, 'height_inc': 2, 'width_min': 8, 'height_min': 2,
+        'offset_x_inc': 8, 'offset_y_inc': 2,
+    }
+
+    width, height = camera_module.ceil_size_to_roi_grid(82, 61)
+
+    assert (width, height) == (88, 62)
+    assert CameraModule._align_value(width, 8) == width
+    assert CameraModule._align_value(height, 2) == height
+
+
+def test_ceil_size_counts_the_mpfa_phase_like_set_roi_does(camera_module):
+    """步进比栅格周期还小时，网格由栅格周期决定——这条规则只能有一个来源。"""
+    camera_module._camera_type = CameraType.COLOR
+    camera_module.get_roi_constraints = lambda: {
+        'width_inc': 1, 'height_inc': 1, 'width_min': 1, 'height_min': 1,
+        'offset_x_inc': 1, 'offset_y_inc': 1,
+    }
+
+    width, height = camera_module.ceil_size_to_roi_grid(5, 5)
+
+    assert (width, height) == (8, 8), "彩色 CPFA 是 4×4 周期，向上取整要按 4 的倍数"
+
+
 def test_a_missing_driver_degrades_through_the_signal_the_tier_reads():
     """`gx is None` 必须正好落成 `sdk_available is False`。
 

@@ -1195,6 +1195,34 @@ class CameraModule(BaseModule):
             self._logger.error(f"获取 ROI 约束失败: {e}")
             return {}
 
+    def _roi_increments(self, constraints: dict) -> Tuple[int, int, int, int]:
+        """set_roi 真正会用的步进：设备步进与偏振栅格周期里取大的那个。
+
+        对齐下限只关乎偏振栅格的相位，设备步进由 get_roi_constraints 提供。
+        实测这台黑白偏振相机 Width 步进 8、Height 步进 2，而它的 MPFA 周期是 2，
+        所以固定按 4 对齐会白丢一半纵向 ROI 分辨率；彩色偏振的 CPFA 才是 4x4。
+        """
+        if not constraints:
+            return (1, 1, 1, 1)
+        is_pol = self._camera_type in (CameraType.COLOR, CameraType.MONO)
+        align = ImageProcessor.cpfa_period(self._camera_type is CameraType.MONO) \
+            if is_pol else 1
+        return (max(constraints['width_inc'], align),
+                max(constraints['height_inc'], align),
+                max(constraints['offset_x_inc'], align),
+                max(constraints['offset_y_inc'], align))
+
+    def ceil_size_to_roi_grid(self, width: int, height: int) -> Tuple[int, int]:
+        """向上取整到 set_roi 会原样接受的尺寸。
+
+        set_roi 把尺寸**向下**对齐步进（_align_value），所以"为了守住放大上限而把选区
+        放大"必须按同一套步进向上取整，否则放大到顶时面积被削掉一格，实际倍率反超设置值
+        （真机实测：上限 1000 却打印 1024.0x）。步进规则只有 _roi_increments 一个来源。
+        """
+        width_inc, height_inc, _, _ = self._roi_increments(self.get_roi_constraints())
+        return (-(-width // width_inc) * width_inc,
+                -(-height // height_inc) * height_inc)
+
     @staticmethod
     def _align_value(value: int, increment: int) -> int:
         """将值向下对齐到最近的有效增量
@@ -1259,17 +1287,9 @@ class CameraModule(BaseModule):
             if sensor_w == 0 or sensor_h == 0:
                 return False
 
-            # 对齐下限只关乎偏振栅格的相位，设备步进由 get_roi_constraints 提供。
-            # 实测这台黑白偏振相机 Width 步进 8、Height 步进 2，而它的 MPFA 周期是 2，
-            # 所以固定按 4 对齐会白丢一半纵向 ROI 分辨率；彩色偏振的 CPFA 才是 4x4。
-            is_pol = self._camera_type in (CameraType.COLOR, CameraType.MONO)
-            align = ImageProcessor.cpfa_period(self._camera_type is CameraType.MONO) \
-                if is_pol else 1
-
-            w_inc = max(constraints['width_inc'], align)
-            h_inc = max(constraints['height_inc'], align)
-            ox_inc = max(constraints['offset_x_inc'], align)
-            oy_inc = max(constraints['offset_y_inc'], align)
+            # 对齐下限只关乎偏振栅格的相位，设备步进由 get_roi_constraints 提供；
+            # 规则在 _roi_increments 里，向上取整那条路共用它。
+            w_inc, h_inc, ox_inc, oy_inc = self._roi_increments(constraints)
 
             # 对齐尺寸
             width = self._align_value(width, w_inc)
