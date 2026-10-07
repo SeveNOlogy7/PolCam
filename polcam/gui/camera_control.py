@@ -38,19 +38,19 @@ class CameraControl(QtWidgets.QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # 连接和采集控制按钮
-        self.connect_btn = QtWidgets.QPushButton("连接相机")
+        self.connect_btn = QtWidgets.QPushButton(self.tr("连接相机"))
         self.connect_btn.setCheckable(True)
         layout.addWidget(self.connect_btn)
         
-        self.capture_btn = QtWidgets.QPushButton("单帧采集")
-        self.stream_btn = QtWidgets.QPushButton("连续采集")
+        self.capture_btn = QtWidgets.QPushButton(self.tr("单帧采集"))
+        self.stream_btn = QtWidgets.QPushButton(self.tr("连续采集"))
         self.stream_btn.setCheckable(True)
         layout.addWidget(self.capture_btn)
         layout.addWidget(self.stream_btn)
         
         # 添加参数控制组
-        self.exposure_control = ParameterControl("曝光控制", "曝光时间", "us")
-        self.gain_control = ParameterControl("增益控制", "增益", "dB")
+        self.exposure_control = ParameterControl(self.tr("曝光控制"), self.tr("曝光时间"), "us")
+        self.gain_control = ParameterControl(self.tr("增益控制"), self.tr("增益"), "dB")
         layout.addWidget(self.exposure_control)
         layout.addWidget(self.gain_control)
         

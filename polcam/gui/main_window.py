@@ -10,7 +10,7 @@ from ..core.camera_module import CameraModule, CameraType
 from ..core.events import EventType, Event, EventManager
 from .camera_control import CameraControl
 from .image_display import ImageDisplay
-from . import app_theme
+from . import app_theme, i18n
 from .widgets.gallery_panel import GalleryPanel
 from .widgets.status_indicator import StatusIndicator
 from .styles import Styles
@@ -88,11 +88,15 @@ class MainWindow(QtWidgets.QMainWindow):
         Styles.setup_application_font(app)
         # 换肤要在建控件之前落地：工具栏图标按当时的调色板上色，晚一步就是一排旧颜色；
         # 而 settings.ini 里那一行是这个决定的唯一依据。
-        self._theme_mode = self.settings_service.load_ui_settings().theme_mode
+        ui = self.settings_service.load_ui_settings()
+        self._theme_mode = ui.theme_mode
         app_theme.apply_theme(app, self._theme_mode)
+        # 语言同理：翻译目录要在控件建起来之前就装好，构造期那些 tr() 才会取到译文
+        self._language = i18n.apply_language(app, ui.language)
         
         # 设置窗口标题和图标
-        self.setWindowTitle("偏振相机控制系统")
+        self._window_title = self.tr("偏振相机控制系统")
+        self.setWindowTitle(self._window_title)
 
         icon = QtGui.QIcon()
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon", "icon.svg")
@@ -240,8 +244,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_control.capture_clicked.connect(self.handle_capture)
         self.camera_control.stream_clicked.connect(self.handle_stream)
 
-        # 右上角换肤
+        # 右上角换肤与语言
         self.toolbar.theme_action.triggered.connect(self._handle_theme_toggle)
+        self.toolbar.language_action.triggered.connect(self._handle_language_toggle)
         
         # 添加参数控制连接
         self.camera_control.exposure_control.value_changed.connect(self.camera.set_exposure_time)
@@ -277,9 +282,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.image_display.refresh_cursor_readout():
             return                      # 游标读数回来了，那本来就是更有用的一行
         if self._continuous_mode:
-            self.status_label.setText("连续采集中...")
+            self.status_label.setText(self.tr("连续采集中..."))
         else:
-            self.status_label.setText("就绪")
+            self.status_label.setText(self.tr("就绪"))
 
     def setup_statusbar(self):
         # 创建状态栏
@@ -295,7 +300,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().addWidget(separator)
         
         # 添加状态文本
-        self.status_label = QtWidgets.QLabel("就绪")
+        self.status_label = QtWidgets.QLabel(self.tr("就绪"))
         self.statusBar().addWidget(self.status_label, 1)  # 1表示拉伸因子
         
         # 添加相机信息标签
@@ -387,14 +392,14 @@ class MainWindow(QtWidgets.QMainWindow):
             if not self.camera.sdk_available:
                 QtWidgets.QMessageBox.warning(
                     self,
-                    "未找到相机驱动",
-                    "未检测到大恒 Galaxy SDK，相机连接与采集不可用。\n"
-                    "仍可通过工具栏的读取按钮处理已保存的原始图像。",
+                    self.tr("未找到相机驱动"),
+                    self.tr("未检测到大恒 Galaxy SDK，相机连接与采集不可用。\n"
+                    "仍可通过工具栏的读取按钮处理已保存的原始图像。"),
                 )
                 self.camera_control.connect_btn.setChecked(False)
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
-                self.status_label.setText("未检测到相机驱动")
+                self.status_label.setText(self.tr("未检测到相机驱动"))
                 self.refresh_capability()
                 return
 
@@ -410,11 +415,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.camera_control.connect_btn.setChecked(False)
                 self.refresh_capability(device_count=0)
                 if self._capability_tier is CapabilityTier.NO_DEVICE:
-                    QtWidgets.QMessageBox.warning(self, "未找到相机设备", self.NO_DEVICE_HINT)
+                    QtWidgets.QMessageBox.warning(self, self.tr("未找到相机设备"), self.NO_DEVICE_HINT)
                 else:
                     # 单次枚举为 0 很可能只是抖动（真机实测启动枚举会偶发抛错），
                     # 所以先说"再确认一次"，而不是弹一个断言性的模态框
-                    self.status_label.setText("未检测到相机设备，请再点一次连接相机确认")
+                    self.status_label.setText(self.tr("未检测到相机设备，请再点一次连接相机确认"))
                 self.status_indicator.setEnabled(False)
                 self.status_indicator.setStatus(False)
                 return
@@ -444,7 +449,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.refresh_capability()
                 self.status_indicator.setEnabled(True)
                 self.status_indicator.setStatus(True)
-                self.status_label.setText("相机已连接")
+                self.status_label.setText(self.tr("相机已连接"))
                 self._logger.info("相机连接状态: " + str(self.camera.is_connected()))
             else:
                 if error_message:
@@ -458,7 +463,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 # 单次自动调整正卡在设备里：真机实测这时候断开，那条线程就永远回不来 ——
                 # 栈停在 gxipy 的 GXGetEnumValue 原生调用里，句柄已被关掉，既不返回也不
                 # 报错，Python 侧的判空轮不到执行。等它自己收尾（最长 5s），跟单帧采集一样。
-                self.status_label.setText("单次自动调整进行中，请稍候再断开相机")
+                self.status_label.setText(self.tr("单次自动调整进行中，请稍候再断开相机"))
                 self.camera_control.connect_btn.setChecked(True)  # 按钮回到"已连接"那一面
                 return
             # 断开前先停止连续采集
@@ -471,7 +476,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._one_shot_pending.clear()
             self.status_indicator.setEnabled(False)
             self.status_indicator.setStatus(False)
-            self.status_label.setText("就绪")
+            self.status_label.setText(self.tr("就绪"))
 
     def _update_auto_parameters(self):
         """更新自动参数的显示值"""
@@ -493,13 +498,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def handle_capture(self):
         if not self.camera.is_connected():
-            QtWidgets.QMessageBox.warning(self, "错误", "相机未连接")
+            QtWidgets.QMessageBox.warning(self, self.tr("错误"), self.tr("相机未连接"))
             return
         if self._one_shot_pending:
             # 自动调整线程正在独占设备轮询硬件（最长 5s）。真机实测这时候插一脚，两边
             # 都坏：自动那一路 5s 不收敛被强制收回，之后单抓一帧拿到 None（SDK:
             # RawImage.get_numpy_array: This is a incomplete image）。
-            self.status_label.setText("单次自动调整进行中，请稍候再采集")
+            self.status_label.setText(self.tr("单次自动调整进行中，请稍候再采集"))
             return
         if self._capture_in_flight:
             # 抓一帧要占住设备（stream_on→等曝光→stream_off）。改成工作线程之后两次
@@ -544,7 +549,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._single_capture_requested = False
         self.status_indicator.setProcessing(False)
-        QtWidgets.QMessageBox.warning(self, "错误", f"获取图像失败: {error}")
+        QtWidgets.QMessageBox.warning(self, self.tr("错误"), f"获取图像失败: {error}")
 
     def _set_capture_buttons_enabled(self, enabled: bool):
         """设置采集相关按钮的启用状态。
@@ -598,7 +603,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 # 没真的开起来就不能把界面摆成采集中的样子，否则用户只能再点一次
                 # 走停止分支才能恢复
                 self.camera_control.stream_btn.setChecked(False)
-                self.status_label.setText("无法开始连续采集")
+                self.status_label.setText(self.tr("无法开始连续采集"))
                 return
             self._last_capture_metrics_update_at = 0.0
             self._last_auto_params_update_at = 0.0
@@ -612,7 +617,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.image_display.update_roi_info(
                 self.camera.get_roi(), self.camera.get_sensor_size())
             self.status_indicator.setProcessing(True)
-            self.status_label.setText("连续采集中...")
+            self.status_label.setText(self.tr("连续采集中..."))
             self.image_display.toolbar_controller.sync_zoom_coordinate_space()
         else:
             # 停止连续采集
@@ -624,7 +629,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.processor.cancel_all_tasks()
             self._continuous_mode = False
             self.status_indicator.setProcessing(False)
-            self.status_label.setText("就绪")
+            self.status_label.setText(self.tr("就绪"))
             self.image_display.toolbar_controller.sync_zoom_coordinate_space()
             
             # 停止连续采集时，检查是否有可用数据并启用保存原始图像按钮
@@ -721,7 +726,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理开始时的处理"""
         if not self._continuous_mode:  # 仅在非连续模式下更新状态
             self.status_indicator.setProcessing(True)
-            self.status_label.setText("正在处理...")
+            self.status_label.setText(self.tr("正在处理..."))
 
     def _on_processing_completed(self, event: Event):
         """处理完成时的处理"""
@@ -738,7 +743,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # 游标读数还挂在状态栏上时别把它换成"就绪"：真机实测停在图上看数值，
             # 改一次亮度就被这次完成信号擦掉一行，得重新挪一下鼠标才回来。
             if not self.image_display.has_cursor_readout():
-                self.status_label.setText("就绪")
+                self.status_label.setText(self.tr("就绪"))
 
     def _update_display(self, result):
         """更新图像显示"""
@@ -801,13 +806,13 @@ class MainWindow(QtWidgets.QMainWindow):
             # 抓取线程正 stream_on→等曝光→stream_off 占着设备。真机实测这时候把自动
             # 调整也起起来，相机会停在 Once 而界面以为调整结束了，此后手动写曝光被
             # 静默丢掉（FloatFeature_s.set:{-8}{Node is not writable}）。
-            self.status_label.setText("单帧采集进行中，请稍候再调整")
+            self.status_label.setText(self.tr("单帧采集进行中，请稍候再调整"))
             return
         if self._one_shot_pending:
             # 相机自己的曝光与增益算法会互相影响：真机实测单独点一次分别 0.8s / 0.4s
             # 就收敛，两个叠着发则 5.1s 内谁都不收敛，双双走满超时被强制收回手动，
             # 最后停在一组谁都没打算选的参数上（1 000 000µs / 6.6dB）。一次只让一路在飞。
-            self.status_label.setText("已有单次自动调整在进行中，请稍候再调整")
+            self.status_label.setText(self.tr("已有单次自动调整在进行中，请稍候再调整"))
             return
         self._one_shot_pending.add(control_type)
         self.camera_control.handle_one_shot_auto(control_type)
@@ -861,7 +866,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_wb_once(self):
         """处理白平衡一次性调整"""
-        self.status_label.setText("单次白平衡未实现")
+        self.status_label.setText(self.tr("单次白平衡未实现"))
 
     def _handle_pol_color_mode_changed(self, is_color: bool):
         """处理偏振分析模式下的颜色模式改变"""
@@ -885,7 +890,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_pol_wb_once(self):
         """处理偏振分析模式下的单次白平衡"""
-        self.status_label.setText("单次白平衡未实现")
+        self.status_label.setText(self.tr("单次白平衡未实现"))
 
     def closeEvent(self, event: QtGui.QCloseEvent):
         """处理窗口关闭事件"""
@@ -929,7 +934,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # 显示错误消息框
             QtWidgets.QMessageBox.warning(
                 self,
-                "关闭程序",
+                self.tr("关闭程序"),
                 f"关闭程序时发生错误: {str(e)}\n程序将继续关闭。"
             )
             event.accept()
@@ -938,7 +943,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """处理相机连接事件"""
         self.camera_info.setText(event.data.get("device_info", ""))
         self._update_metrics_separator()
-        self.status_label.setText("相机已连接")
+        self.status_label.setText(self.tr("相机已连接"))
         # 量程以设备读数为准；缺省（无驱动/读不到）保留面板自带的默认范围
         self.camera_control.apply_parameter_ranges(
             event.data.get("exposure_range"), event.data.get("gain_range"))
@@ -980,7 +985,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_camera_disconnected(self, event):
         """处理相机断开事件"""
-        self.status_label.setText("相机已断开")
+        self.status_label.setText(self.tr("相机已断开"))
         self.camera_info.clear()
         self._update_metrics_separator()
         self._camera_type = None
@@ -1136,7 +1141,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if (error_data.get("from_connect")
                     or now - self._last_camera_error_dialog_at >= self.CAMERA_ERROR_DIALOG_INTERVAL_S):
                 self._last_camera_error_dialog_at = now
-                QtWidgets.QMessageBox.warning(self, "相机错误", error_msg)
+                QtWidgets.QMessageBox.warning(self, self.tr("相机错误"), error_msg)
 
     def _on_parameter_changed(self, event):
         """处理参数改变事件"""
@@ -1182,7 +1187,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 
         except Exception as e:
             self._logger.error(f"处理原始文件加载事件失败: {str(e)}")
-            self.status_label.setText("加载图像失败")
+            self.status_label.setText(self.tr("加载图像失败"))
 
     def _build_capture_metadata(self, frame: np.ndarray, timestamp=None) -> dict:
         """构建图库记录元数据。"""
@@ -1235,7 +1240,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.gallery_panel.set_items(self.gallery_service.list_items())
         except Exception as e:
             self._logger.error(f"刷新图库失败: {str(e)}")
-            self.status_label.setText("刷新图库失败")
+            self.status_label.setText(self.tr("刷新图库失败"))
 
     def _handle_gallery_item_activated(self, file_path: str):
         """处理图库项读取请求。"""
@@ -1243,7 +1248,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.toolbar_controller.load_raw_file(file_path)
         except Exception as e:
             self._logger.error(f"读取图库图像失败: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, "读取失败", f"无法读取图库图像: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("读取失败"), f"无法读取图库图像: {str(e)}")
 
     def _handle_gallery_item_delete(self, item_ids: list[int]):
         """处理图库项删除请求。"""
@@ -1268,7 +1273,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         reply = QtWidgets.QMessageBox.question(
             self,
-            "删除图库图像",
+            self.tr("删除图库图像"),
             f"确定要删除选中的 {len(items)} 项图像及数据库记录吗？\n\n{preview_text}",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,
@@ -1282,7 +1287,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.status_label.setText(f"已删除 {len(deleted_items)} 项图像")
         except Exception as e:
             self._logger.error(f"删除图库图像失败: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, "删除失败", f"删除图库图像失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("删除失败"), f"删除图库图像失败: {str(e)}")
 
     def _on_status_message_update(self, event: Event):
         """处理状态栏消息更新事件"""
@@ -1291,7 +1296,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
     def _on_status_message_clear(self, event: Event):
         """处理状态栏消息清除事件"""
-        self.status_label.setText("就绪")
+        self.status_label.setText(self.tr("就绪"))
 
     def _on_roi_changed(self, event: Event):
         """处理 ROI 变更事件"""
@@ -1341,6 +1346,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_theme(self._theme_mode.toggled())
         self.settings_service.save(self.build_current_settings())
 
+    def _set_language(self, language):
+        """换语言：装/卸翻译目录，再把已经上屏的文字重取一遍。
+
+        构造期设进控件的文字不会自己跟着 QTranslator 变（tr() 是求值时才查表），所以这里
+        照翻译目录做一次树遍历。运行时才生成的文案（状态栏、消息框）本来就是现算的，
+        下一次显示自动是新语言。
+        """
+        self._language = i18n.apply_language(QtWidgets.QApplication.instance(), language)
+        self.setWindowTitle(i18n.translate_source("偏振相机控制系统"))
+        i18n.retranslate_tree(self)
+        self.toolbar.refresh_texts()
+        self.image_display.refresh_texts()
+        self._sync_ui_to_pixels()
+
+    def _handle_language_toggle(self):
+        self._set_language(self._language.toggled())
+        self.settings_service.save(self.build_current_settings())
+
     def build_current_settings(self) -> AppSettings:
         """从当前界面和处理模块构建设置对象。"""
         return AppSettings(
@@ -1350,6 +1373,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 auto_save_directory=self.settings_service.get_auto_save_directory(),
                 max_zoom=self.image_display.toolbar_controller.get_max_zoom(),
                 theme_mode=self._theme_mode,
+                language=self._language,
                 preview_quality=self._preview_quality,
             ),
             processing=ProcessingSettings.from_params(self.processor.get_parameters()),
@@ -1363,6 +1387,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # 明暗档只在真的变了时才重刷：换肤要重建两排图标，没变就别白做一遍
         if settings.ui.theme_mode is not self._theme_mode:
             self._set_theme(settings.ui.theme_mode)
+        if settings.ui.language is not self._language:
+            self._set_language(settings.ui.language)
         # 换档之后滞回历史要作废：留着旧值会让自动挡把"刚换档"当成"刚缩窗口"，
         # 该放松的那一帧反而继续合并。
         self._preview_quality = settings.ui.preview_quality

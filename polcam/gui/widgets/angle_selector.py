@@ -21,7 +21,7 @@ class AngleSelector(ControlGroup):
     def _setup_angle_ui(self):
         angle_layout = QtWidgets.QHBoxLayout()
         
-        angle_label = QtWidgets.QLabel("偏振角度:")
+        angle_label = QtWidgets.QLabel(self.tr("偏振角度:"))
         angle_label.setFont(Styles.get_font(Styles.FONT_MEDIUM))
         angle_layout.addWidget(angle_label)
         

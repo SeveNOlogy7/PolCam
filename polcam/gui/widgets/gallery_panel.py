@@ -46,34 +46,34 @@ class GalleryPanel(QtWidgets.QWidget):
 
         header_layout = QtWidgets.QHBoxLayout()
         header_layout.setSpacing(Styles.SPACING_MEDIUM)
-        title_label = QtWidgets.QLabel("图库")
+        title_label = QtWidgets.QLabel(self.tr("图库"))
         title_label.setFont(Styles.get_bold_font(Styles.FONT_LARGE))
         header_layout.addWidget(title_label)
 
         header_layout.addStretch(1)
 
-        self.count_label = QtWidgets.QLabel("0 项")
+        self.count_label = QtWidgets.QLabel(self.tr("0 项"))
         header_layout.addWidget(self.count_label)
 
         self.view_mode_combo = QtWidgets.QComboBox()
         Styles.apply_combobox_style(self.view_mode_combo)
-        self.view_mode_combo.addItem("预览图", self.VIEW_PREVIEW)
-        self.view_mode_combo.addItem("列表", self.VIEW_LIST)
+        self.view_mode_combo.addItem(self.tr("预览图"), self.VIEW_PREVIEW)
+        self.view_mode_combo.addItem(self.tr("列表"), self.VIEW_LIST)
         self.view_mode_combo.currentIndexChanged.connect(self._on_view_mode_changed)
         header_layout.addWidget(self.view_mode_combo)
 
-        self.open_button = QtWidgets.QPushButton("读取")
-        self.open_button.setToolTip("在上方图像区中查看选中的图像")
+        self.open_button = QtWidgets.QPushButton(self.tr("读取"))
+        self.open_button.setToolTip(self.tr("在上方图像区中查看选中的图像"))
         self.open_button.clicked.connect(self._open_selected_item)
         header_layout.addWidget(self.open_button)
 
-        self.delete_button = QtWidgets.QPushButton("删除")
-        self.delete_button.setToolTip("删除选中的图像文件及图库记录")
+        self.delete_button = QtWidgets.QPushButton(self.tr("删除"))
+        self.delete_button.setToolTip(self.tr("删除选中的图像文件及图库记录"))
         self.delete_button.clicked.connect(self._delete_selected_item)
         header_layout.addWidget(self.delete_button)
 
-        self.refresh_button = QtWidgets.QPushButton("刷新")
-        self.refresh_button.setToolTip("重新扫描自动保存目录")
+        self.refresh_button = QtWidgets.QPushButton(self.tr("刷新"))
+        self.refresh_button.setToolTip(self.tr("重新扫描自动保存目录"))
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         header_layout.addWidget(self.refresh_button)
 
@@ -98,7 +98,7 @@ class GalleryPanel(QtWidgets.QWidget):
         self.stack.addWidget(self.preview_list)
 
         self.table = QtWidgets.QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["文件名", "采集时间", "尺寸", "格式", "路径"])
+        self.table.setHorizontalHeaderLabels([self.tr("文件名"), self.tr("采集时间"), self.tr("尺寸"), self.tr("格式"), self.tr("路径")])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -112,7 +112,7 @@ class GalleryPanel(QtWidgets.QWidget):
         self.table.itemSelectionChanged.connect(self._update_action_state)
         self.stack.addWidget(self.table)
 
-        self.empty_label = QtWidgets.QLabel("暂无自动保存图像")
+        self.empty_label = QtWidgets.QLabel(self.tr("暂无自动保存图像"))
         self.empty_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         empty_palette = self.empty_label.palette()
         empty_palette.setColor(

@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional, Union
 
 from qtpy import QtCore
 
+from .language import Language
 from .preview import PreviewQuality
 from .processing_module import DEFAULT_PROCESSING_PARAMS, ProcessingMode
 from .theme import ThemeMode
@@ -40,6 +41,8 @@ class UISettings:
     max_zoom: float = 1000.0
     # 界面明暗。存名字（同 preview_quality）：整数会跟着枚举顺序漂移。
     theme_mode: ThemeMode = ThemeMode.LIGHT
+    # 界面语言。中文是源语言，所以这一档存的同样是名字。
+    language: Language = Language.ZH
     # 连续流预览的合并档位。默认均衡（2x2 超胞合并）：装上就吃到约 3x 预览帧率，
     # 代价是屏幕上的 DoLP/AoLP 是按区域平均算的 —— 只有预览如此，保存与单帧仍走原始档。
     preview_quality: PreviewQuality = PreviewQuality.BALANCED
@@ -170,6 +173,8 @@ class SettingsService:
             max_zoom=clamped_max_zoom,
             theme_mode=ThemeMode.from_name(self._settings.value("ui/theme_mode",
                                                                 UISettings().theme_mode.value)),
+            language=Language.from_name(self._settings.value("ui/language",
+                                                             UISettings().language.value)),
             preview_quality=PreviewQuality.from_name(self._settings.value("ui/preview_quality",
                                                                           UISettings().preview_quality.value)),
         )
@@ -180,6 +185,7 @@ class SettingsService:
         self._settings.setValue("ui/auto_save_directory", self._normalize_directory(ui_settings.auto_save_directory))
         self._settings.setValue("ui/max_zoom", clamp_max_zoom(ui_settings.max_zoom))
         self._settings.setValue("ui/theme_mode", ui_settings.theme_mode.value)
+        self._settings.setValue("ui/language", ui_settings.language.value)
         self._settings.setValue("ui/preview_quality", ui_settings.preview_quality.value)
 
     def load_processing_settings(self) -> ProcessingSettings:

@@ -27,19 +27,19 @@ class PolarizationControl(ControlGroup):
         # 添加彩色/灰度选择
         self.color_mode_combo = QtWidgets.QComboBox()
         self.color_mode_combo.addItems(["灰度图像", "彩色图像"])
-        self.color_mode_combo.setToolTip("选择偏振分析结果的合成方式")
+        self.color_mode_combo.setToolTip(self.tr("选择偏振分析结果的合成方式"))
         Styles.apply_combobox_style(self.color_mode_combo)
         self.layout.addWidget(self.color_mode_combo)
         
         # 添加白平衡控制
-        self.wb_control = WhiteBalance("白平衡设置", self)
+        self.wb_control = WhiteBalance(self.tr("白平衡设置"), self)
         self.wb_control.setVisible(False)  # 初始时隐藏白平衡控制
         self.layout.addWidget(self.wb_control)
 
         # 波片状态 + 快轴角度：解算式按这两项切换，自动转角的拨片到位后写的也是这两项
-        self.retarder_check = QtWidgets.QCheckBox("1/4 波片在光路中")
+        self.retarder_check = QtWidgets.QCheckBox(self.tr("1/4 波片在光路中"))
         self.retarder_check.setToolTip(
-            "放进去之后 DoCP 才有可用的旋向符号；单个快轴角度只能定住三个 Stokes 分量")
+            self.tr("放进去之后 DoCP 才有可用的旋向符号；单个快轴角度只能定住三个 Stokes 分量"))
         self.layout.addWidget(self.retarder_check)
 
         self.retarder_angle_spin = QtWidgets.QDoubleSpinBox()
@@ -47,7 +47,7 @@ class PolarizationControl(ControlGroup):
         self.retarder_angle_spin.setRange(0.0, 180.0)
         self.retarder_angle_spin.setSingleStep(1.0)
         self.retarder_angle_spin.setSuffix(" °")
-        self.retarder_angle_spin.setToolTip("波片快轴角度（手动读数或拨片上报）")
+        self.retarder_angle_spin.setToolTip(self.tr("波片快轴角度（手动读数或拨片上报）"))
         self.retarder_angle_spin.setEnabled(False)
         self.layout.addWidget(self.retarder_angle_spin)
         

@@ -32,11 +32,11 @@ class ImageToolbar(QtWidgets.QWidget):
         layout.setSpacing(2)
         
         # 创建工具按钮
-        self.cursor_btn = self._create_tool_button("cursor", "游标", "悬停查看像素数值，再次点击退出")
-        self.zoom_in_btn = self._create_tool_button("zoom-in", "放大", "点击图像中心区域放大")
-        self.zoom_out_btn = self._create_tool_button("zoom-out", "缩小", "点击图像区域缩小")
-        self.zoom_area_btn = self._create_tool_button("zoom-area", "区域放大", "拖拽框选要放大的区域")
-        self.reset_btn = self._create_tool_button("reset", "复原", "恢复整幅图像的原始显示")
+        self.cursor_btn = self._create_tool_button("cursor", self.tr("游标"), self.tr("悬停查看像素数值，再次点击退出"))
+        self.zoom_in_btn = self._create_tool_button("zoom-in", self.tr("放大"), self.tr("点击图像中心区域放大"))
+        self.zoom_out_btn = self._create_tool_button("zoom-out", self.tr("缩小"), self.tr("点击图像区域缩小"))
+        self.zoom_area_btn = self._create_tool_button("zoom-area", self.tr("区域放大"), self.tr("拖拽框选要放大的区域"))
+        self.reset_btn = self._create_tool_button("reset", self.tr("复原"), self.tr("恢复整幅图像的原始显示"))
         
         # 统一设置按钮属性
         for btn in [self.cursor_btn, self.zoom_in_btn, self.zoom_out_btn, 

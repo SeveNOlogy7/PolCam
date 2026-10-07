@@ -29,7 +29,7 @@ class CameraSelectDialog(QtWidgets.QDialog):
         self._device_list = device_list
         self._connected_index = None  # 当前对话框内连接的设备索引
 
-        self.setWindowTitle("选择相机")
+        self.setWindowTitle(self.tr("选择相机"))
         self.setMinimumSize(600, 400)
         self.setModal(True)
 
@@ -52,7 +52,7 @@ class CameraSelectDialog(QtWidgets.QDialog):
         # 相机列表表格
         self._table = QtWidgets.QTableWidget()
         self._table.setColumnCount(5)
-        self._table.setHorizontalHeaderLabels(["序号", "型号", "序列号", "IP地址", "状态"])
+        self._table.setHorizontalHeaderLabels([self.tr("序号"), self.tr("型号"), self.tr("序列号"), self.tr("IP地址"), self.tr("状态")])
         self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -66,9 +66,9 @@ class CameraSelectDialog(QtWidgets.QDialog):
         btn_layout = QtWidgets.QHBoxLayout()
         btn_layout.addStretch()
 
-        self._connect_btn = QtWidgets.QPushButton("连接")
-        self._refresh_btn = QtWidgets.QPushButton("刷新")
-        self._return_btn = QtWidgets.QPushButton("返回")
+        self._connect_btn = QtWidgets.QPushButton(self.tr("连接"))
+        self._refresh_btn = QtWidgets.QPushButton(self.tr("刷新"))
+        self._return_btn = QtWidgets.QPushButton(self.tr("返回"))
 
         for btn in [self._connect_btn, self._refresh_btn, self._return_btn]:
             Styles.apply_button_style(btn)
@@ -129,11 +129,11 @@ class CameraSelectDialog(QtWidgets.QDialog):
             # 断开不需要「选中已连接那一行」：独占打开的那台往往根本不再出现在重举结果里，
             # 那时 selected_index 永远等不到 _connected_index，按原来的写法按钮只会变成
             # 禁用的「连接」，这一场会话里就再也脱不开那个句柄了
-            self._connect_btn.setText("断开")
+            self._connect_btn.setText(self.tr("断开"))
             self._connect_btn.setEnabled(True)
         else:
             # 未连接 → 有选中则启用"连接"
-            self._connect_btn.setText("连接")
+            self._connect_btn.setText(self.tr("连接"))
             self._connect_btn.setEnabled(has_selection)
 
     def _handle_connect(self):
@@ -165,10 +165,10 @@ class CameraSelectDialog(QtWidgets.QDialog):
                 self._info_label.setText(f"已连接: {model} (SN: {sn})")
                 self._logger.info(f"在对话框中连接相机成功: index={selected_index}")
             else:
-                QtWidgets.QMessageBox.warning(self, "连接失败", "无法连接到所选相机")
+                QtWidgets.QMessageBox.warning(self, self.tr("连接失败"), self.tr("无法连接到所选相机"))
         except Exception as e:
             self._logger.error(f"连接相机时发生错误: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, "连接错误", f"连接相机时发生错误: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("连接错误"), f"连接相机时发生错误: {str(e)}")
 
         self._update_button_states()
 
@@ -182,7 +182,7 @@ class CameraSelectDialog(QtWidgets.QDialog):
             self._populate_table()
 
             if count == 0:
-                self._info_label.setText("未检测到相机设备")
+                self._info_label.setText(self.tr("未检测到相机设备"))
             elif not self._camera.is_connected():
                 self._info_label.setText(f"检测到 {count} 个相机设备，请选择要连接的相机：")
             elif not any(device.get('index') == self._connected_index
@@ -192,7 +192,7 @@ class CameraSelectDialog(QtWidgets.QDialog):
                     f"已连接的相机不在当前列表里（可能被本程序占用），点「断开」可释放")
         except Exception as e:
             self._logger.error(f"刷新设备列表失败: {str(e)}")
-            QtWidgets.QMessageBox.warning(self, "刷新失败", f"刷新设备列表失败: {str(e)}")
+            QtWidgets.QMessageBox.warning(self, self.tr("刷新失败"), f"刷新设备列表失败: {str(e)}")
 
     def _handle_return(self):
         """关闭对话框，根据连接状态返回 accept/reject"""

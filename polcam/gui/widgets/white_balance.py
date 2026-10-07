@@ -22,11 +22,11 @@ class WhiteBalance(ControlGroup):
     def _setup_wb_ui(self):
         wb_layout = QtWidgets.QHBoxLayout()
         
-        self.auto_check = QtWidgets.QCheckBox("自动")
+        self.auto_check = QtWidgets.QCheckBox(self.tr("自动"))
         Styles.apply_checkbox_style(self.auto_check)
         
-        self.once_btn = QtWidgets.QPushButton("单次")
-        self.once_btn.setToolTip("执行一次自动白平衡后停止")
+        self.once_btn = QtWidgets.QPushButton(self.tr("单次"))
+        self.once_btn.setToolTip(self.tr("执行一次自动白平衡后停止"))
         Styles.apply_button_style(self.once_btn)
         
         wb_layout.addWidget(self.auto_check)

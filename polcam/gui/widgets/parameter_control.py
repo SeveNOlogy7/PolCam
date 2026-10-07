@@ -42,12 +42,12 @@ class ParameterControl(ControlGroup):
         
         # 自动控制
         auto_layout = QtWidgets.QHBoxLayout()
-        self.auto_check = QtWidgets.QCheckBox("自动")
-        self.auto_check.setToolTip("持续自动调整，期间数值框只读")
+        self.auto_check = QtWidgets.QCheckBox(self.tr("自动"))
+        self.auto_check.setToolTip(self.tr("持续自动调整，期间数值框只读"))
         Styles.apply_checkbox_style(self.auto_check)
         
-        self.once_btn = QtWidgets.QPushButton("单次")
-        self.once_btn.setToolTip("执行一次自动调整后停止")
+        self.once_btn = QtWidgets.QPushButton(self.tr("单次"))
+        self.once_btn.setToolTip(self.tr("执行一次自动调整后停止"))
         Styles.apply_button_style(self.once_btn)
         
         auto_layout.addWidget(self.auto_check)

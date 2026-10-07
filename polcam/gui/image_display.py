@@ -45,6 +45,15 @@ MODE_LABELS = {
     ProcessingMode.POLARIZATION: "偏振度图像",
 }
 
+
+def mode_label(mode) -> str:
+    """模式在界面上的名字。字典里那一份是**源文字**，取用时才按当前语言译。
+
+    下拉框、设置页的默认模式、以及画进四格图的标题都走这里，切语言之后三处说的是
+    同一件事 —— 各读各的字典就会有一处留在中文。
+    """
+    return QtCore.QCoreApplication.translate("ImageDisplay", MODE_LABELS[mode])
+
 class ImageDisplay(QtWidgets.QWidget):
     FAST_SCALE_PIXEL_THRESHOLD = 3_000_000
     RESIZE_REFRESH_DELAY_MS = 16
@@ -236,7 +245,7 @@ class ImageDisplay(QtWidgets.QWidget):
         self.display_mode.blockSignals(True)
         self.display_mode.clear()
         self._active_modes = list(modes)
-        self.display_mode.addItems([MODE_LABELS[m] for m in modes])
+        self.display_mode.addItems([mode_label(m) for m in modes])
         self.display_mode.setCurrentIndex(0)
         self.display_mode.blockSignals(False)
 
@@ -756,25 +765,31 @@ class ImageDisplay(QtWidgets.QWidget):
         # 显示画布
         self._render_current_view()
 
-    HELP_SECTIONS = (
-        ("基本操作", (
-            "连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”",
-            "调节图像：使用曝光和增益控制",
-            "采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）",
-            "显示模式：在顶部下拉框切换显示方式",
-        )),
-        ("图像工具", (
-            "游标：查看图像像素信息",
-            "缩放：放大、缩小，或框选区域放大",
-            "复原：恢复原始显示",
-        )),
-        ("图像处理", (
-            "白平衡：彩色模式下可开启自动白平衡",
-            "偏振分析：查看 DOLP、AOLP 等偏振信息",
-            "保存：导出原始图像和处理结果",
-            "读取：载入已保存的原始图像",
-        )),
-    )
+    def _help_sections(self):
+        """引导页的通用说明。整句进翻译目录，标题与正文都是。
+
+        以前这是一个类属性元组，字面量在 import 时就定下来了 —— 那样 lupdate 扫不到，
+        切语言也就没有它的事。
+        """
+        return (
+            (self.tr("基本操作"), (
+                self.tr("连接相机：左侧顶部的按钮，未连接时写“连接相机”，已连接时写“断开相机”"),
+                self.tr("调节图像：使用曝光和增益控制"),
+                self.tr("采集图像：“单帧采集”，或“连续采集”（采集进行中那个按钮写成“停止采集”）"),
+                self.tr("显示模式：在顶部下拉框切换显示方式"),
+            )),
+            (self.tr("图像工具"), (
+                self.tr("游标：查看图像像素信息"),
+                self.tr("缩放：放大、缩小，或框选区域放大"),
+                self.tr("复原：恢复原始显示"),
+            )),
+            (self.tr("图像处理"), (
+                self.tr("白平衡：彩色模式下可开启自动白平衡"),
+                self.tr("偏振分析：查看 DOLP、AOLP 等偏振信息"),
+                self.tr("保存：导出原始图像和处理结果"),
+                self.tr("读取：载入已保存的原始图像"),
+            )),
+        )
 
     def _create_help_overlay(self):
         """在图像区上构建引导页覆盖控件，替代原先烤进位图里的使用说明。
@@ -817,11 +832,11 @@ class ImageDisplay(QtWidgets.QWidget):
             label.setMinimumHeight(label.sizeHint().height())
             return label
 
-        title = make_label("偏振相机控制系统", Styles.get_bold_font(Styles.FONT_XL))
+        title = make_label(self.tr("偏振相机控制系统"), Styles.get_bold_font(Styles.FONT_XL))
         title.setAlignment(QtCore.Qt.AlignHCenter)
         column.addWidget(title)
 
-        subtitle = make_label("尚未载入图像，可按下面的步骤开始", Styles.get_font(Styles.FONT_MEDIUM))
+        subtitle = make_label(self.tr("尚未载入图像，可按下面的步骤开始"), Styles.get_font(Styles.FONT_MEDIUM))
         subtitle.setAlignment(QtCore.Qt.AlignHCenter)
         column.addWidget(subtitle)
         self._help_subtitle_label = subtitle
@@ -829,7 +844,7 @@ class ImageDisplay(QtWidgets.QWidget):
         # 能力清单是当前机器的事实，不是固定文案，所以单独留一个标签，
         # 档位变化时只换文本，不重建控件。它排在通用说明之前：用户第一眼要回答的是
         # "这台机器现在能做什么"，而不是"连着相机时该点哪里"。
-        cap_title = make_label("这台机器现在能做什么", Styles.get_bold_font(Styles.FONT_LARGE))
+        cap_title = make_label(self.tr("这台机器现在能做什么"), Styles.get_bold_font(Styles.FONT_LARGE))
         column.addWidget(cap_title)
         cap_body = make_label("", Styles.get_font(Styles.FONT_MEDIUM))
         cap_body.setWordWrap(True)
@@ -837,7 +852,7 @@ class ImageDisplay(QtWidgets.QWidget):
         column.addWidget(cap_body)
         self._capability_label = cap_body
 
-        for heading, lines in self.HELP_SECTIONS:
+        for heading, lines in self._help_sections():
             column.addSpacing(Styles.SPACING_MEDIUM)
 
             section_title = make_label(heading, Styles.get_bold_font(Styles.FONT_LARGE))
@@ -848,7 +863,7 @@ class ImageDisplay(QtWidgets.QWidget):
                 item.setIndent(Styles.SPACING_MEDIUM)
                 column.addWidget(item)
 
-        hint = make_label("点击任意处返回图像", Styles.get_font(Styles.FONT_SMALL))
+        hint = make_label(self.tr("点击任意处返回图像"), Styles.get_font(Styles.FONT_SMALL))
         hint.setAlignment(QtCore.Qt.AlignHCenter)
         column.addSpacing(Styles.SPACING_MEDIUM)
         column.addWidget(hint)
