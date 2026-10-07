@@ -55,6 +55,8 @@ class ImageDisplay(QtWidgets.QWidget):
     zoomClickRequested = QtCore.Signal(int, int)            # (sensor_x, sensor_y)
     zoomAreaRequested = QtCore.Signal(int, int, int, int)   # (sensor_x, sensor_y, w, h)
     zoomAreaPreview = QtCore.Signal(int, int, int, int)     # 拖拽中实时预览 (sensor_x, sensor_y, w, h)
+    # 引导页收走了：谁在它上面写过状态栏，谁就得把那一行还原成此刻的真话
+    helpViewDismissed = QtCore.Signal()
 
     def __init__(self):
         super().__init__()
@@ -900,10 +902,20 @@ class ImageDisplay(QtWidgets.QWidget):
     def show_image_view(self):
         """隐藏引导页，露出图像。"""
         self._help_auto_dismiss = False
+        was_showing = self.help_is_showing()
         self.help_view.hide()
         # 引导页收走了，画布上的标题与游标要按当前画面重新摆回来
         self._update_quad_title_labels()
         self._update_cursor_overlay()
+        if was_showing:
+            self.helpViewDismissed.emit()
+
+    def refresh_cursor_readout(self) -> bool:
+        """把停在图上的游标读数重新算一遍写回状态栏；没有读数时返回 False。"""
+        if self._cursor_display_pos is None:
+            return False
+        self._report_cursor_at(*self._cursor_display_pos)
+        return True
 
     def _hide_canvas_overlays(self) -> None:
         """收掉画布上所有覆盖控件（四分图标题、四分图游标）。"""

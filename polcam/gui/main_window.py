@@ -261,6 +261,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gallery_panel.deleteRequested.connect(self._handle_gallery_item_delete)
         self.gallery_panel.refreshRequested.connect(self.refresh_gallery)
 
+        # 引导页收走时还原状态栏：「显示帮助信息」是它自己写上去的，不能留成假话
+        self.image_display.helpViewDismissed.connect(self._on_help_view_dismissed)
+
+    def _on_help_view_dismissed(self):
+        """引导页不在了，状态栏那一行要说此刻的真话。"""
+        if self.image_display.refresh_cursor_readout():
+            return                      # 游标读数回来了，那本来就是更有用的一行
+        if self._continuous_mode:
+            self.status_label.setText("连续采集中...")
+        else:
+            self.status_label.setText("就绪")
+
     def setup_statusbar(self):
         # 创建状态栏
         self.statusBar().setFixedHeight(24)

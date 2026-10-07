@@ -3349,6 +3349,41 @@ def _show_polarization_result(main_window):
     _push_polarization_result(main_window)
 
 
+def test_dismissing_the_help_page_clears_its_status_message(qapp, main_window):
+    """引导页收走了，状态栏那句「显示帮助信息」就成了假话。"""
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    display = main_window.image_display
+
+    main_window.toolbar.help_action.trigger()
+    assert "帮助" in main_window.status_label.text()
+
+    display.set_processing_mode(ProcessingMode.MERGED_GRAY)
+
+    assert not display.help_is_showing()
+    assert "帮助" not in main_window.status_label.text(), main_window.status_label.text()
+    assert main_window.status_label.text() == "就绪"
+
+
+def test_the_status_line_goes_back_to_the_live_state_after_help(qapp, main_window):
+    """连续采集中点开再收起引导页，那一行要回到"连续采集中"。"""
+    camera = _camera_stub(main_window, connected=True)
+    camera.start_streaming.return_value = True
+    camera.get_roi.return_value = (0, 0, 16, 16)
+    camera.get_sensor_size.return_value = (16, 16)
+    main_window.refresh_capability()
+    main_window._update_frame_and_display(np.zeros((64, 64), dtype=np.uint8))
+    main_window.handle_stream(True)
+    display = main_window.image_display
+
+    main_window.toolbar.help_action.trigger()
+    assert "帮助" in main_window.status_label.text()
+
+    display.show_image_view()
+
+    assert main_window.status_label.text() == "连续采集中..."
+    main_window.handle_stream(False)
+
+
 def test_the_walkthrough_copy_does_not_assume_one_button_state(qapp):
     """通用说明不能把某个按钮的当前字样当成事实。
 
