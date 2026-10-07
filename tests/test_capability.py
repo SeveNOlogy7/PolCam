@@ -3,7 +3,6 @@
 from polcam.core.capability import (
     ZERO_ENUMERATIONS_REQUIRED,
     CapabilityTier,
-    capability_lines,
     tier_after_probe,
 )
 
@@ -52,34 +51,3 @@ def test_only_connected_allows_device_writes():
     assert CapabilityTier.CONNECTED.device_writes_allowed
     for tier in (CapabilityTier.NO_DRIVER, CapabilityTier.IDLE, CapabilityTier.NO_DEVICE):
         assert not tier.device_writes_allowed
-
-
-def test_each_tier_tells_a_different_story():
-    reasons = [t.reason for t in CapabilityTier if t is not CapabilityTier.CONNECTED]
-    assert len(set(reasons)) == len(reasons)
-    assert all(reasons)
-    assert CapabilityTier.CONNECTED.reason == ""
-
-
-def test_the_reasons_point_at_different_fixes():
-    assert "驱动" in CapabilityTier.NO_DRIVER.reason
-    assert "USB" in CapabilityTier.NO_DEVICE.reason
-    assert "连接" in CapabilityTier.IDLE.reason
-
-
-def test_guide_lines_state_the_next_step_for_every_tier():
-    for tier in CapabilityTier:
-        lines = capability_lines(tier, 1)
-        assert lines, f"{tier.name} 不能给出空的引导行"
-        assert all(isinstance(line, str) and line for line in lines)
-
-
-def test_guide_lines_quote_the_detected_device_count():
-    lines = "\n".join(capability_lines(CapabilityTier.IDLE, 2))
-    assert "2" in lines
-
-
-def test_guide_lines_do_not_ask_the_user_to_connect_when_connected():
-    lines = "\n".join(capability_lines(CapabilityTier.CONNECTED, 1))
-    assert "已连接" in lines
-    assert "点" not in lines

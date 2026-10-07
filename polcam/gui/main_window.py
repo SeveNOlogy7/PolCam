@@ -20,7 +20,8 @@ import time
 from ..core.processing_module import ProcessingModule, ProcessingMode
 from ..core.settings import AppSettings, ProcessingSettings, SettingsService, UISettings
 from ..core.preview import pick_preview_factor
-from ..core.capability import CapabilityTier, capability_lines, help_subtitle, tier_after_probe
+from ..core.capability import CapabilityTier, tier_after_probe
+from . import capability_text
 from ..core.gallery_service import GalleryService
 import os
 from ..core.toolbar_controller import ToolbarController
@@ -378,10 +379,10 @@ class MainWindow(QtWidgets.QMainWindow):
         connected = self._capability_tier is CapabilityTier.CONNECTED
         self.image_display.set_zoom_tools_enabled(
             connected or self._pixels_from_file,
-            "未连接相机 —— 导入图像文件后可以缩放查看")
-        self.image_display.set_capability_lines(capability_lines(
+            self.tr("未连接相机 —— 导入图像文件后可以缩放查看"))
+        self.image_display.set_capability_lines(capability_text.capability_lines(
             self._capability_tier, self._last_device_count, self._pixels_from_file))
-        self.image_display.set_help_subtitle(help_subtitle(
+        self.image_display.set_help_subtitle(capability_text.help_subtitle(
             self._capability_tier,
             self.image_display.has_display_image(),
             self._pixels_from_file,

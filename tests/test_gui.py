@@ -3530,7 +3530,13 @@ def test_the_walkthrough_copy_does_not_assume_one_button_state(qapp):
     连着相机时引导页还在教"点击左侧'连接相机'按钮"，而那个按钮写着"断开相机"——
     这就是用户说的"文字明显不对"。所以这两条必须同时承认两种字样。
     """
-    lines = "\n".join(line for _, items in ImageDisplay.HELP_SECTIONS for line in items)
+    import shiboken6
+
+    display = ImageDisplay()
+    try:
+        lines = "\n".join(line for _, items in display._help_sections() for line in items)
+    finally:
+        shiboken6.delete(display)
     assert "连接相机" in lines and "断开相机" in lines
     assert "连续采集" in lines and "停止采集" in lines
 

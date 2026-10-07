@@ -6,6 +6,7 @@ See LICENSE file for full license details.
 
 from qtpy import QtWidgets, QtCore
 from ..core.capability import CapabilityTier
+from . import capability_text
 from .styles import Styles
 from .widgets.parameter_control import ParameterControl
 from .widgets.angle_selector import AngleSelector
@@ -163,7 +164,7 @@ class CameraControl(QtWidgets.QWidget):
     def _sync_device_write_controls(self) -> None:
         """enabled 的唯一出口：档位是地板，瞬时门只能在地板之上再关一层。"""
         available = self._tier.device_writes_allowed
-        reason = self._tier.reason
+        reason = capability_text.reason(self._tier)
 
         self.exposure_control.set_enabled(available and self._exposure_gate)
         self.gain_control.set_enabled(available and self._gain_gate)
