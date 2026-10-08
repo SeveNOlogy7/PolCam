@@ -259,3 +259,23 @@ def test_the_catalog_is_complete_and_up_to_date():
         [sys.executable, str(root / "tools" / "build_translations.py"), "--check"],
         cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_the_check_reports_on_a_console_that_cannot_encode_chinese():
+    """把 stdout 换成 cp1252 再跑一次那道门，复现 CI 的 Windows runner。
+
+    实测踩过：中文诊断行 print 到 cp1252 抛 UnicodeEncodeError，退出码 1，日志里只有工具
+    自己的 traceback。本地是中文 Windows（cp936 编得出汉字），永远看不到这一崩。
+    """
+    import os
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, str(root / "tools" / "build_translations.py"), "--check"],
+        cwd=root, capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    stderr = result.stderr.decode("utf-8", "replace")
+    assert "UnicodeEncodeError" not in stderr, stderr
+    assert result.returncode == 0, stderr
+    assert "翻译目录完整" in result.stdout.decode("utf-8", "replace")

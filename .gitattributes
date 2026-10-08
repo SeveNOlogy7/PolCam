@@ -1,0 +1,6 @@
+# 翻译目录的三个产物由 tools/build_translations.py --check 逐字节/逐行比对，比的就是字节，
+# 所以它们的行尾不能跟着各人的 core.autocrlf 走。没有这三行，同样的目录在 Windows 工作区
+# 是 CRLF、在 Linux 上重新生成是 LF，那道门就会在两个平台之间互相报"过期"。
+polcam/translations/*.ts text eol=lf
+polcam/translations/*.json text eol=lf
+polcam/translations/*.qm binary

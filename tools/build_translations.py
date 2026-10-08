@@ -21,6 +21,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TRANSLATIONS = ROOT / "polcam" / "translations"
+
+# 诊断行是中文的，而 CI 的 Windows runner 把 stdout 挂在 cp1252 上：print 到编不出的字符
+# 会抛 UnicodeEncodeError，"目录不完整"就变成"工具自己崩了"，还看不出为什么。日志统一按
+# UTF-8 写（GitHub Actions 的日志本来就是 UTF-8；真接控制台时 Python 走 WriteConsoleW，
+# 改编码不影响显示）。
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 TS_NAME = "polcam_en"
 SOURCE_LANGUAGE = "zh_CN"
 TARGET_LANGUAGE = "en"
@@ -97,7 +104,8 @@ def export_sources(ts_path: Path, json_path: Path) -> int:
                 "source": source,
                 "translation": (translation.text or "").strip() if translation is not None else "",
             })
-    json_path.write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
+    json_path.write_text(json.dumps(entries, ensure_ascii=False, indent=1),
+                         encoding="utf-8", newline="\n")
     return len(entries)
 
 
@@ -226,6 +234,16 @@ def _without_locations(path: Path) -> bytes:
     return b"\n".join(lines)
 
 
+def _as_lf(path: Path) -> bytes:
+    """文本产物按 LF 比。
+
+    写的时候已经钉成 LF，但仓库里那一份经过各人 git 的 core.autocrlf：Windows 工作区里
+    checkout 出来是 CRLF。不比行尾的话，同一份目录会在两个平台上互相"过期"，而这道门的
+    结论取决于谁的 autocrlf 设置 —— 那是掷硬币，不是校验。
+    """
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
 def build(check: bool) -> int:
     problems = unwrapped_ui_text()
     if problems:
@@ -253,12 +271,18 @@ def build(check: bool) -> int:
             stale = []
             if _without_locations(probe) != _without_locations(committed_ts):
                 stale.append(f"{committed_ts.name} 与重新抽取的结果不一致（跑一次不带 --check 的本脚本）")
-            for generated, committed in ((qm, TRANSLATIONS / f"{TS_NAME}.qm"),
-                                         (sources, TRANSLATIONS / "sources.json")):
-                if not committed.exists():
-                    stale.append(f"{committed.name} 没提交")
-                elif generated.read_bytes() != committed.read_bytes():
-                    stale.append(f"{committed.name} 与重新生成的结果不一致")
+            committed_qm = TRANSLATIONS / f"{TS_NAME}.qm"
+            if not committed_qm.exists():
+                stale.append(f"{committed_qm.name} 没提交")
+            elif qm.read_bytes() != committed_qm.read_bytes():
+                # 二进制，逐字节。实测同一份 .ts 在 Windows 与 ubuntu 上 lrelease 出来的
+                # 字节是一样的，所以这条可以放心严。
+                stale.append(f"{committed_qm.name} 与重新生成的结果不一致")
+            committed_sources = TRANSLATIONS / "sources.json"
+            if not committed_sources.exists():
+                stale.append(f"{committed_sources.name} 没提交")
+            elif _as_lf(sources) != _as_lf(committed_sources):
+                stale.append(f"{committed_sources.name} 与重新生成的结果不一致")
             if stale:
                 for line in stale:
                     print(f"过期: {line}")
