@@ -4,6 +4,7 @@ Copyright (c) 2024-2026 Junhao Cai
 See LICENSE file for full license details.
 """
 
+import gc
 import pytest
 import sys
 import threading
@@ -131,6 +132,27 @@ def isolate_user_directories(tmp_path_factory):
 @pytest.fixture
 def mock_camera():
     return _make_mock_camera()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def keep_the_collector_out_of_event_dispatch():
+    """整个测试会话关掉自动的循环引用回收。
+
+    Qt 的控件树不该由收集器按它挑的顺序销毁 —— main_window 那个 fixture 自己
+    shiboken6.delete 就是这个原因。但收集器什么时候跑是 CPython 按分配次数定的，而它
+    偏偏会撞进 pytest-qt 泵事件的那一刻：容器里实测 tests/test_gui.py 在 Linux 上 8 次崩
+    3 次，faulthandler 的栈是 "Garbage-collecting" 停在 pytestqt/plugin.py:_process_events；
+    gc.disable() 之后同样 8 次全过。用 gc.DEBUG_SAVEALL 数出来的待销毁对象（90 个
+    MainWindow、132 个 ImageToolbar、130 个 QTimer）在 1.1.1 的基线上一模一样 —— 不是新漏
+    了什么，只是多出来的分配让回收更常落在坏时机上。
+
+    引用计数照常工作；剩下的环交给 tools/run_tests.py 的"一个文件一个进程"，进程一退就没了。
+    """
+    was_enabled = gc.isenabled()
+    gc.disable()
+    yield
+    if was_enabled:
+        gc.enable()
 
 
 @pytest.fixture

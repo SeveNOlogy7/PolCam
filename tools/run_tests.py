@@ -5,6 +5,10 @@
 STATUS_HEAP_CORRUPTION (0xc0000374)，退出时也偶发段错误。分开进程把这种累积限制在
 单个文件内，顺带让一个文件的崩溃不再掩盖其他文件的结果。
 
+分开进程限制的是"攒多少"，不管"什么时候回收"。同一个缺陷在 Linux 上以 SIGSEGV 回来过
+一次（tests/test_gui.py 一个文件就够多），收口在 tests/conftest.py 的会话 fixture 里：
+整个会话关掉自动回收。两处理由要一起看。
+
 用法：uv run python tools/run_tests.py [传给每个 pytest 进程的额外参数]
 """
 
