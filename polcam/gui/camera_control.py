@@ -316,4 +316,4 @@ class CameraControl(QtWidgets.QWidget):
         """处理连续采集状态改变"""
         self._streaming = streaming
         self._sync_device_write_controls()
-        self.stream_btn.setText("停止采集" if streaming else "连续采集")
+        self.stream_btn.setText(self.tr("停止采集") if streaming else self.tr("连续采集"))

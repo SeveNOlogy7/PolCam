@@ -45,6 +45,11 @@
   "translation": "Disconnect Camera"
  },
  {
+  "context": "CameraControl",
+  "source": "停止采集",
+  "translation": "Stop Capture"
+ },
+ {
   "context": "CameraSelectDialog",
   "source": "选择相机",
   "translation": "Select Camera"
@@ -1048,6 +1053,31 @@
   "context": "ToolbarController",
   "source": "已取消设置",
   "translation": "Settings cancelled"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "版本: v%1",
+  "translation": "Version: v%1"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "偏振相机采集和处理软件",
+  "translation": "Polarization camera capture and processing software"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "作者: Junhao Cai",
+  "translation": "Author: Junhao Cai"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "项目主页: <a href=\"https://github.com/SeveNOlogy7/PolCam\">Github</a>",
+  "translation": "Project page: <a href=\"https://github.com/SeveNOlogy7/PolCam\">Github</a>"
+ },
+ {
+  "context": "ToolbarController",
+  "source": "关于",
+  "translation": "About"
  },
  {
   "context": "ToolbarController",

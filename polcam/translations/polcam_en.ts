@@ -24,6 +24,7 @@
     </message>
     <message>
         <location filename="../gui/camera_control.py" line="47"/>
+        <location filename="../gui/camera_control.py" line="319"/>
         <source>连续采集</source>
         <translation>Continuous Capture</translation>
     </message>
@@ -51,6 +52,11 @@
         <location filename="../gui/camera_control.py" line="162"/>
         <source>断开相机</source>
         <translation>Disconnect Camera</translation>
+    </message>
+    <message>
+        <location filename="../gui/camera_control.py" line="319"/>
+        <source>停止采集</source>
+        <translation>Stop Capture</translation>
     </message>
 </context>
 <context>
@@ -1143,12 +1149,37 @@ Automatic follows the window size: once the source image fits on screen it retur
         <translation>Settings cancelled</translation>
     </message>
     <message>
+        <location filename="../core/toolbar_controller.py" line="610"/>
+        <source>版本: v%1</source>
+        <translation>Version: v%1</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="612"/>
+        <source>偏振相机采集和处理软件</source>
+        <translation>Polarization camera capture and processing software</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="613"/>
+        <source>作者: Junhao Cai</source>
+        <translation>Author: Junhao Cai</translation>
+    </message>
+    <message>
         <location filename="../core/toolbar_controller.py" line="614"/>
+        <source>项目主页: &lt;a href=&quot;https://github.com/SeveNOlogy7/PolCam&quot;&gt;Github&lt;/a&gt;</source>
+        <translation>Project page: &lt;a href=&quot;https://github.com/SeveNOlogy7/PolCam&quot;&gt;Github&lt;/a&gt;</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="620"/>
+        <source>关于</source>
+        <translation>About</translation>
+    </message>
+    <message>
+        <location filename="../core/toolbar_controller.py" line="621"/>
         <source>显示关于信息</source>
         <translation>Show information about PolCam</translation>
     </message>
     <message>
-        <location filename="../core/toolbar_controller.py" line="620"/>
+        <location filename="../core/toolbar_controller.py" line="627"/>
         <source>显示帮助信息</source>
         <translation>Show the help page</translation>
     </message>

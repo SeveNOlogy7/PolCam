@@ -104,27 +104,62 @@ def export_sources(ts_path: Path, json_path: Path) -> int:
 UI_SETTERS = {
     "setText", "setToolTip", "setPlaceholderText", "setWindowTitle", "setAccessibleName",
     "addRow", "addItem", "insertItem", "addTab", "setTabText", "setStatusTip",
-    "setHorizontalHeaderLabels", "information", "warning", "critical", "question",
+    "setHorizontalHeaderLabels", "information", "warning", "critical", "question", "about",
     "_show_status_message", "set_help_subtitle", "set_capability_lines", "make_label",
     "_add_action", "_create_tool_button", "QLabel", "QPushButton", "QCheckBox",
     "QGroupBox", "QRadioButton", "QAction",
 }
-DIALOG_ONLY = {"information", "warning", "critical", "question"}
+DIALOG_ONLY = {"information", "warning", "critical", "question", "about"}
+# 已经是"取一句"的调用名。translate_source 是本机 i18n 的入口，它内部会查目录，
+# 所以包在里面的字面量是源文而不是漏网 —— 不认它就会报假阳性。
+TRANSLATOR_NAMES = {"tr", "translate", "translate_source"}
 
 
 def has_cjk(text: str) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in text)
 
 
+def _cjk_literals(arg: ast.expr) -> list:
+    """一个实参里所有带中文的字面量：顶层常量、f-string，以及三元/拼接里的嵌套常量。
+
+    `setText("停止采集" if streaming else "连续采集")` 的字面量藏在 IfExp 里，只看顶层参数
+    就会漏 —— 用户截图里的"停止采集"正是这么漏掉的。f-string 内部的常量片段不单独算，
+    它们是那条 f-string 的一部分。
+    """
+    found = []
+    inside_joined = set()
+    for node in ast.walk(arg):
+        if isinstance(node, ast.JoinedStr):
+            if has_cjk("".join(v.value if isinstance(v, ast.Constant) else " "
+                               for v in node.values)):
+                found.append(node)
+            inside_joined |= {id(child) for child in ast.walk(node)}
+    for node in ast.walk(arg):
+        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and has_cjk(node.value) and id(node) not in inside_joined):
+            found.append(node)
+    return found
+
+
+def _inside_translator(node, parents: dict) -> bool:
+    """往上走，看它是不是已经躺在某个"取一句"的调用里。"""
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, ast.Call):
+            name = getattr(current.func, "attr", None) or getattr(current.func, "id", None)
+            if name in TRANSLATOR_NAMES:
+                return True
+        current = parents.get(current)
+    return False
+
+
 def unwrapped_ui_text() -> list[str]:
     """找"设文字的调用里塞了中文，却没包 tr()/translate()"的地方。
 
     这是 --check 里唯一会漏翻译的口子：漏一处，英文界面就有一块留在中文，而目录看起来是满的。
-    两种写法都要抓：常量字面量，以及 f-string —— f-string 不是字面量，lupdate 扫不到，
-    得改成 `translate(ctx, "…%1…").replace("%1", …)`。
+    两种写法都要抓：常量字面量（含嵌套在子表达式里的），以及 f-string —— f-string 不是字面量，
+    lupdate 扫不到，得改成 `translate(ctx, "…%1…").replace("%1", …)`。
     """
-    setters = UI_SETTERS
-    dialog_only = DIALOG_ONLY
     problems = []
     for rel in python_files():
         path = ROOT / rel
@@ -138,42 +173,25 @@ def unwrapped_ui_text() -> list[str]:
                 continue
             func = node.func
             name = getattr(func, "attr", None) or getattr(func, "id", None)
-            if name not in setters:
+            if name not in UI_SETTERS:
                 continue
-            if name in dialog_only:
+            if name in DIALOG_ONLY:
                 receiver = getattr(func, "value", None)
                 while isinstance(receiver, ast.Attribute):
                     receiver = receiver.value
                 if getattr(receiver, "id", None) not in ("QMessageBox", "QtWidgets"):
                     continue        # self._logger.warning(...) 是日志正文，不该译
             for arg in list(node.args) + [kw.value for kw in node.keywords]:
-                elements = list(arg.elts) if isinstance(arg, (ast.List, ast.Tuple)) else [arg]
-                for item in elements:
+                for item in _cjk_literals(arg):
+                    if _inside_translator(item, parents):
+                        continue
                     if isinstance(item, ast.JoinedStr):
-                        joined = "".join(v.value if isinstance(v, ast.Constant) else " "
-                                         for v in item.values)
-                        if has_cjk(joined):
-                            problems.append(f"{rel}:{item.lineno} {name}(...) 用 f-string 拼中文，"
-                                            f"要改成 translate() + %1")
-                        continue
-                    if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
-                        continue
-                    if not any("\u4e00" <= ch <= "\u9fff" for ch in item.value):
-                        continue
-                    parent = parents.get(item)
-                    grand = parents.get(parent) if parent is not None else None
-                    if isinstance(parent, ast.Call) and _is_translator(parent):
-                        continue
-                    if isinstance(grand, ast.Call) and _is_translator(grand):
-                        continue
-                    problems.append(f"{rel}:{item.lineno} {name}(...) 里的字面量没包 tr()")
+                        problems.append(f"{rel}:{item.lineno} {name}(...) 用 f-string 拼中文，"
+                                        f"要改成 translate() + %1")
+                    else:
+                        problems.append(f"{rel}:{item.lineno} {name}(...) 里的字面量没包 tr()")
     return problems
 
-
-def _is_translator(call: ast.Call) -> bool:
-    func = call.func
-    name = getattr(func, "attr", None) or getattr(func, "id", None)
-    return name in ("tr", "translate")
 
 
 def _without_locations(path: Path) -> bytes:

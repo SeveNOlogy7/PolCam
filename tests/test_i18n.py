@@ -161,6 +161,10 @@ def test_guide_page_lines_wrap_so_english_is_not_cut_off(main_window, qapp):
     assert widest > 460, f"最长的一行只有 {widest}px，测不出换行这件事"
 
 
+def has_cjk(text):
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text or "")
+
+
 def test_english_mode_leaves_no_chinese_on_screen(main_window):
     """英文档下，界面上不该还有汉字。
 
@@ -168,9 +172,6 @@ def test_english_mode_leaves_no_chinese_on_screen(main_window):
     真平台探针抓到过 StatusIndicator 的悬停提示就是这么漏掉的。
     """
     from polcam.gui.settings_dialog import SettingsDialog
-
-    def has_cjk(text):
-        return any("\u4e00" <= ch <= "\u9fff" for ch in text or "")
 
     main_window.toolbar.language_action.trigger()
     targets = [main_window] + main_window.findChildren(QtWidgets.QWidget)
@@ -192,6 +193,32 @@ def test_english_mode_leaves_no_chinese_on_screen(main_window):
             if has_cjk(shown):
                 stuck.append(f"Settings {type(target).__name__}.{reader}={shown[:50]}")
     assert not stuck, "英文档下还有中文：\n" + "\n".join(sorted(set(stuck)))
+
+
+def test_the_about_box_and_state_dependent_labels_follow_the_language(main_window, monkeypatch):
+    """按需弹出的对话框和会随状态改字的按钮，也得跟着语言走。
+
+    上面那条只扫了空闲状态的主窗口加设置页：About 是点出来才构造的，流式按钮的字要真的
+    开始采集才会变 —— 两处都在这条测试的视野之外（用户截图里那三处中文就是这么漏的）。
+    """
+    captured = {}
+
+    def fake_about(parent, title, text):
+        captured["title"] = title
+        captured["text"] = text
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "about", staticmethod(fake_about))
+    main_window.toolbar.language_action.trigger()
+    main_window.toolbar.about_action.trigger()
+
+    assert captured, "点关于没弹出对话框"
+    assert not has_cjk(captured["title"]), f"关于对话框标题还是中文：{captured['title']}"
+    assert not has_cjk(captured["text"]), f"关于对话框正文还有中文：{captured['text']}"
+
+    main_window.camera_control.handle_stream_state(True)
+    assert main_window.camera_control.stream_btn.text() == "Stop Capture"
+    main_window.camera_control.handle_stream_state(False)
+    assert main_window.camera_control.stream_btn.text() == "Continuous Capture"
 
 
 def test_the_catalog_is_complete_and_up_to_date():

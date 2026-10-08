@@ -602,15 +602,22 @@ class ToolbarController(BaseModule):
 
     def _handle_about(self):
         """处理关于事件"""
-        about_text = f"""
-        <h3>PolCam</h3>
-        <p>版本: v{POLCAM_VERSION}</p>
-        <p>偏振相机采集和处理软件</p>
-        <p>作者: Junhao Cai</p>
-        <p>项目主页: <a href="https://github.com/SeveNOlogy7/PolCam">Github</a></p>
-        <p>Copyright © 2024-2026</p>
-        """
-        QtWidgets.QMessageBox.about(self._main_window, "关于", about_text)
+        # 逐句 translate 再拼 HTML：整段中文 HTML 当一个大字符串，lupdate 扫不到里面的
+        # 句子，英文界面就会顶着一个中文的「关于」和中文简介（用户截图抓到的就是这里）。
+        # 版本号和链接留在源文里，所以每句仍然是完整的一句。
+        about_text = "".join((
+            "<h3>PolCam</h3>",
+            "<p>" + QtCore.QCoreApplication.translate("ToolbarController", "版本: v%1")
+            .replace("%1", POLCAM_VERSION) + "</p>",
+            "<p>" + QtCore.QCoreApplication.translate("ToolbarController", "偏振相机采集和处理软件") + "</p>",
+            "<p>" + QtCore.QCoreApplication.translate("ToolbarController", "作者: Junhao Cai") + "</p>",
+            "<p>" + QtCore.QCoreApplication.translate(
+                "ToolbarController",
+                '项目主页: <a href="https://github.com/SeveNOlogy7/PolCam">Github</a>') + "</p>",
+            "<p>Copyright © 2024-2026</p>",
+        ))
+        QtWidgets.QMessageBox.about(
+            self._main_window, QtCore.QCoreApplication.translate("ToolbarController", "关于"), about_text)
         self._main_window.status_label.setText(QtCore.QCoreApplication.translate("ToolbarController", "显示关于信息"))
 
     def _handle_help(self):
