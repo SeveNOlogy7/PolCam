@@ -165,6 +165,33 @@ def has_cjk(text):
     return any("\u4e00" <= ch <= "\u9fff" for ch in text or "")
 
 
+READERS = (("text", "setText"), ("toolTip", "setToolTip"), ("title", "setTitle"))
+
+
+def visible_ui_text(widget):
+    """控件上看得见的文字。
+
+    QGroupBox 在 PySide6 里没有 `text` 属性（标题是 `title()`），所以只读 text 的扫描会
+    **静默跳过**所有分组标题 —— 用户截图里那处"合成图像设置"就是这么漏过去的。
+    """
+    found = []
+    for reader, _ in READERS:
+        accessor = getattr(widget, reader, None)
+        if accessor is not None:
+            found.append(accessor())
+    return found
+
+
+def test_group_titles_are_english_too(main_window):
+    """分组标题走的是另一条访问器，单独测一遍，免得再被静默跳过。"""
+    groups = main_window.findChildren(QtWidgets.QGroupBox)
+    assert len(groups) >= 2, f"测试该看见分组标题，实际只找到 {len(groups)} 个"
+
+    main_window.toolbar.language_action.trigger()
+    chinese = [group.title() for group in groups if has_cjk(group.title())]
+    assert not chinese, f"英文档下这些分组标题还是中文：{chinese}"
+
+
 def test_english_mode_leaves_no_chinese_on_screen(main_window):
     """英文档下，界面上不该还有汉字。
 
@@ -178,20 +205,18 @@ def test_english_mode_leaves_no_chinese_on_screen(main_window):
     targets += [a for w in targets for a in w.actions()]
     stuck = []
     for target in targets:
-        for reader in ("text", "toolTip"):
-            shown = getattr(target, reader, lambda: "")()
+        for shown in visible_ui_text(target):
             if has_cjk(shown):
-                stuck.append(f"{type(target).__name__}.{reader}={shown[:50]}")
+                stuck.append(f"{type(target).__name__}={shown[:50]}")
     for combo in main_window.findChildren(QtWidgets.QComboBox):
         for index in range(combo.count()):
             if has_cjk(combo.itemText(index)):
                 stuck.append(f"QComboBox.item[{index}]={combo.itemText(index)}")
     dialog = SettingsDialog(main_window.build_current_settings(), main_window)
     for target in [dialog] + dialog.findChildren(QtWidgets.QWidget):
-        for reader in ("text", "toolTip"):
-            shown = getattr(target, reader, lambda: "")()
+        for shown in visible_ui_text(target):
             if has_cjk(shown):
-                stuck.append(f"Settings {type(target).__name__}.{reader}={shown[:50]}")
+                stuck.append(f"Settings {type(target).__name__}={shown[:50]}")
     assert not stuck, "英文档下还有中文：\n" + "\n".join(sorted(set(stuck)))
 
 

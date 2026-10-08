@@ -4,7 +4,12 @@
 <context>
     <name>AngleSelector</name>
     <message>
-        <location filename="../gui/widgets/angle_selector.py" line="24"/>
+        <location filename="../gui/widgets/angle_selector.py" line="18"/>
+        <source>角度选择</source>
+        <translation>Angle Selection</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/angle_selector.py" line="25"/>
         <source>偏振角度:</source>
         <translation>Polarization angle:</translation>
     </message>
@@ -769,37 +774,42 @@ The application still quits.</translation>
 <context>
     <name>PolarizationControl</name>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="29"/>
+        <location filename="../gui/widgets/polarization_control.py" line="23"/>
+        <source>合成图像设置</source>
+        <translation>Composite Image</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/polarization_control.py" line="30"/>
         <source>灰度图像</source>
         <translation>Grayscale</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="29"/>
+        <location filename="../gui/widgets/polarization_control.py" line="30"/>
         <source>彩色图像</source>
         <translation>Color</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="30"/>
+        <location filename="../gui/widgets/polarization_control.py" line="31"/>
         <source>选择偏振分析结果的合成方式</source>
         <translation>How the polarization analysis result is composed</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="35"/>
+        <location filename="../gui/widgets/polarization_control.py" line="36"/>
         <source>白平衡设置</source>
         <translation>White Balance</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="40"/>
+        <location filename="../gui/widgets/polarization_control.py" line="41"/>
         <source>1/4 波片在光路中</source>
         <translation>Quarter-wave plate in the optical path</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="42"/>
+        <location filename="../gui/widgets/polarization_control.py" line="43"/>
         <source>放进去之后 DoCP 才有可用的旋向符号；单个快轴角度只能定住三个 Stokes 分量</source>
         <translation>Only with the plate in does DoCP carry a usable handedness sign; a single fast-axis angle is not enough to pin down the three Stokes components</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/polarization_control.py" line="50"/>
+        <location filename="../gui/widgets/polarization_control.py" line="51"/>
         <source>波片快轴角度（手动读数或拨片上报）</source>
         <translation>Retarder fast-axis angle (read by hand or reported)</translation>
     </message>
@@ -1187,17 +1197,22 @@ Automatic follows the window size: once the source image fits on screen it retur
 <context>
     <name>WhiteBalance</name>
     <message>
-        <location filename="../gui/widgets/white_balance.py" line="25"/>
+        <location filename="../gui/widgets/white_balance.py" line="21"/>
+        <source>白平衡控制</source>
+        <translation>White Balance</translation>
+    </message>
+    <message>
+        <location filename="../gui/widgets/white_balance.py" line="29"/>
         <source>自动</source>
         <translation>Auto</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/white_balance.py" line="28"/>
+        <location filename="../gui/widgets/white_balance.py" line="32"/>
         <source>单次</source>
         <translation>Once</translation>
     </message>
     <message>
-        <location filename="../gui/widgets/white_balance.py" line="29"/>
+        <location filename="../gui/widgets/white_balance.py" line="33"/>
         <source>执行一次自动白平衡后停止</source>
         <translation>Runs one automatic white balance, then stops</translation>
     </message>

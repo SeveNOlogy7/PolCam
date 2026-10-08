@@ -1,6 +1,11 @@
 [
  {
   "context": "AngleSelector",
+  "source": "角度选择",
+  "translation": "Angle Selection"
+ },
+ {
+  "context": "AngleSelector",
   "source": "偏振角度:",
   "translation": "Polarization angle:"
  },
@@ -711,6 +716,11 @@
  },
  {
   "context": "PolarizationControl",
+  "source": "合成图像设置",
+  "translation": "Composite Image"
+ },
+ {
+  "context": "PolarizationControl",
   "source": "灰度图像",
   "translation": "Grayscale"
  },
@@ -1088,6 +1098,11 @@
   "context": "ToolbarController",
   "source": "显示帮助信息",
   "translation": "Show the help page"
+ },
+ {
+  "context": "WhiteBalance",
+  "source": "白平衡控制",
+  "translation": "White Balance"
  },
  {
   "context": "WhiteBalance",

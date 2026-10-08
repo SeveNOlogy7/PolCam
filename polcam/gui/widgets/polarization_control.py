@@ -19,7 +19,8 @@ class PolarizationControl(ControlGroup):
     retarder_angle_changed = QtCore.Signal(float)
     
     def __init__(self, parent=None):
-        super().__init__("合成图像设置", parent)
+        # 标题在 super().__init__ 之前就要定下来，那时 self.tr() 还不可用
+        super().__init__(QtCore.QCoreApplication.translate("PolarizationControl", "合成图像设置"), parent)
         self._setup_pol_ui()
         self._setup_connections()
         

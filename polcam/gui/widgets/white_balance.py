@@ -14,8 +14,12 @@ class WhiteBalance(ControlGroup):
     auto_changed = QtCore.Signal(bool)
     once_clicked = QtCore.Signal()
     
-    def __init__(self, title="白平衡控制", parent=None):
-        super().__init__(title, parent)
+    def __init__(self, title=None, parent=None):
+        # 默认值在 import 时就求值了，那时既没有 self 也没有翻译目录，
+        # 所以标题留到构造时再按当前语言取。
+        super().__init__(title if title is not None
+                         else QtCore.QCoreApplication.translate("WhiteBalance", "白平衡控制"),
+                         parent)
         self._setup_wb_ui()
         self._setup_connections()
         

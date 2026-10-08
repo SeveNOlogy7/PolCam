@@ -14,7 +14,8 @@ class AngleSelector(ControlGroup):
     angle_changed = QtCore.Signal(int)
     
     def __init__(self, parent=None):
-        super().__init__("角度选择", parent)
+        # 标题在 super().__init__ 之前就要定下来，那时 self.tr() 还不可用
+        super().__init__(QtCore.QCoreApplication.translate("AngleSelector", "角度选择"), parent)
         self._setup_angle_ui()
         self._setup_connections()
         

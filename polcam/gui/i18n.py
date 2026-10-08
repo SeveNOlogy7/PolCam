@@ -86,10 +86,13 @@ def retranslate_tree(window) -> int:
     targets += [action for widget in targets for action in widget.actions()]
     changed = 0
     for target in targets:
-        # 控件树是混杂的：QMainWindow 没有 text()，QAction 有。读不到就跳过这一项。
+        # 控件树是混杂的：QMainWindow 没有 text()，QAction 有，而 QGroupBox 的标题在
+        # PySide6 里既不是 text 也不是属性 —— 只读 text 会静默跳过所有分组标题
+        # （实测 6 个标题在切换后全留在中文）。
         for reader, writer in (("text", "setText"),
                                ("toolTip", "setToolTip"),
-                               ("accessibleName", "setAccessibleName")):
+                               ("accessibleName", "setAccessibleName"),
+                               ("title", "setTitle")):
             shown = getattr(target, reader, lambda: "")()
             source = display_to_source.get(shown)
             if source is None:

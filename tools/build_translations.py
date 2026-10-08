@@ -108,6 +108,9 @@ UI_SETTERS = {
     "_show_status_message", "set_help_subtitle", "set_capability_lines", "make_label",
     "_add_action", "_create_tool_button", "QLabel", "QPushButton", "QCheckBox",
     "QGroupBox", "QRadioButton", "QAction",
+    # 控件类自己的构造调用。`super().__init__("合成图像设置", parent)` 是分组标题的常见写法，
+    # 不认 __init__ 就永远扫不到它。
+    "__init__",
 }
 DIALOG_ONLY = {"information", "warning", "critical", "question", "about"}
 # 已经是"取一句"的调用名。translate_source 是本机 i18n 的入口，它内部会查目录，
@@ -153,6 +156,24 @@ def _inside_translator(node, parents: dict) -> bool:
     return False
 
 
+def cjk_defaults(rel: str, tree: ast.AST) -> list[str]:
+    """函数默认值里的中文。
+
+    默认值在 import 时就求值，那时既没有 self 也没有翻译目录，所以它永远不会被译 ——
+    `def __init__(self, title="白平衡控制")` 就是这么把一个分组标题钉死成中文的。
+    """
+    problems = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        defaults = list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]
+        for default in defaults:
+            for item in _cjk_literals(default):
+                problems.append(f"{rel}:{item.lineno} {node.name}() 的默认值是中文，"
+                                f"import 时就定死了，改成 None + 构造时 translate()")
+    return problems
+
+
 def unwrapped_ui_text() -> list[str]:
     """找"设文字的调用里塞了中文，却没包 tr()/translate()"的地方。
 
@@ -190,6 +211,7 @@ def unwrapped_ui_text() -> list[str]:
                                         f"要改成 translate() + %1")
                     else:
                         problems.append(f"{rel}:{item.lineno} {name}(...) 里的字面量没包 tr()")
+        problems.extend(cjk_defaults(rel, ast.parse(path.read_text(encoding="utf-8"))))
     return problems
 
 
